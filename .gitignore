@@ -1,0 +1,10 @@
+~$*.xlsx
+~$*.xlsm
+~$*.xls
+Thumbs.db
+.DS_Store
+*.zip
+Blank Copies/
+Old Blank Copies/
+Old Originals/
+Originals/
