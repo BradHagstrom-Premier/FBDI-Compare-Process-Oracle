@@ -1,0 +1,22 @@
+{
+    "_metadata": {
+        "source": "fbdi_compare.xlsm VBA CompareFBDI subroutine FieldRow block",
+        "default_row": 4,
+        "notes": "This VBA version has a simpler FieldRow block than described in some documentation. Only 11 templates have non-default FieldRow values.",
+        "bugs": {
+            "single_fieldrow": "VBA determines FieldRow from old filename and uses it for both old and new files. If Oracle moves the header row between releases, comparison breaks silently.",
+            "hardcoded_row4_lastcol": "VBA always uses Range('A4').End(xlToRight).Column to find last column, regardless of actual header row position."
+        }
+    },
+    "WorkDefinitionTemplate": 5,
+    "CseInstalledBaseAssetImport": 5,
+    "CseMeterReadingsImport": 5,
+    "MaintenanceWorkDefinitionTemplate": 5,
+    "MaintenanceWorkOrderTemplate": 5,
+    "UploadCustomersTemplate": 5,
+    "WorkOrderTemplate": 5,
+    "ItemImportTemplate": 8,
+    "GeneralLedgerBudgetBalanceImportTemplate": 3,
+    "ScpSourcingImportTemplate": 10,
+    "ScpBookingHistoryImportTemplate": 11
+}

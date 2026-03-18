@@ -8,3 +8,11 @@ Blank Copies/
 Old Blank Copies/
 Old Originals/
 Originals/
+25D/
+26A/
+baselines/
+Comparison_Report*.xlsx
+test_output.xlsx
+__pycache__/
+*.pyc
+.pytest_cache/
