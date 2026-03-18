@@ -55,8 +55,17 @@ def compare_fbdi_pair(old_path: Path, new_path: Path) -> list[ComparisonRow]:
     file_stem = old_path.stem
     rows: list[ComparisonRow] = []
 
-    old_wb = load_workbook(old_path, read_only=True, data_only=True)
-    new_wb = load_workbook(new_path, read_only=True, data_only=True)
+    try:
+        old_wb = load_workbook(old_path, read_only=True, data_only=True)
+    except Exception as e:
+        logger.error("Cannot load old file %s: %s", old_path.name, e)
+        return rows
+    try:
+        new_wb = load_workbook(new_path, read_only=True, data_only=True)
+    except Exception as e:
+        logger.error("Cannot load new file %s: %s", new_path.name, e)
+        old_wb.close()
+        return rows
 
     new_sheet_names = {name.lower(): name for name in new_wb.sheetnames}
 
