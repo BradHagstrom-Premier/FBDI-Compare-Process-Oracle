@@ -30,8 +30,9 @@ class ComparisonRow:
 def _read_header_values(ws: Worksheet, header_row: int) -> list[str | None]:
     """Read all header values from the detected header row."""
     max_col = 1
-    # Find the last populated column in the header row
-    for col_idx in range(1, (ws.max_column or 1) + 1):
+    # Find the last populated column in the header row.
+    # Cap at 500 to avoid scanning phantom columns (some sheets report max_column=16384).
+    for col_idx in range(1, min((ws.max_column or 1) + 1, 501)):
         cell = ws.cell(row=header_row, column=col_idx)
         if isinstance(cell, MergedCell):
             continue

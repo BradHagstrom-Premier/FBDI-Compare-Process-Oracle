@@ -61,7 +61,9 @@ def _is_header_like(value: str) -> bool:
 
 def _scan_rows(ws: Worksheet, max_scan: int) -> list[dict]:
     """Scan rows and compute metrics for each."""
-    max_col = ws.max_column or 1
+    # Cap at 500 columns — real headers never exceed this, and some sheets
+    # report max_column=16384 (Excel max) due to phantom formatting.
+    max_col = min(ws.max_column or 1, 500)
     row_data = []
 
     for row_idx in range(1, min(max_scan + 1, (ws.max_row or 0) + 1)):
