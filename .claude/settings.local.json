@@ -4,7 +4,20 @@
       "Bash(pip install:*)",
       "Bash(python:*)",
       "Bash(gh auth:*)",
-      "Bash(gh repo:*)"
+      "Bash(gh repo:*)",
+      "Bash(claude mcp:*)",
+      "Bash(claude:*)",
+      "Bash(python3:*)",
+      "Skill(update-config)",
+      "Bash(ls:*)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(python -c \":*)",
+      "Bash(tasklist /FI 'IMAGENAME eq python.exe' /FO TABLE)",
+      "Bash(wmic process:*)",
+      "Bash(gh pr:*)",
+      "mcp__plugin_github_github__create_pull_request",
+      "mcp__plugin_github_github__list_pull_requests"
     ]
   }
 }
