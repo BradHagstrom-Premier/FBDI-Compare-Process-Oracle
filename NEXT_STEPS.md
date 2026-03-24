@@ -94,17 +94,31 @@ fidelity rather than failing entirely.
 
 ---
 
-## 5. Build the Audrey Report (`report.py`) — Phase 2
+## 5. Complete the FBDI-to-Applaud Mapping (Manual — Brad)
 
-**The problem:** The comparison output (`Comparison_Report_*.xlsx`) is a raw diff. The Audrey change-tracking format used for client deliverables has a different structure. Currently this reformatting is done manually.
+**Status:** `fbdi_applaud_mapping.xlsx` has been generated at repo root. Run with `python -m fbdi.build_mapping`.
 
-**The fix:** `fbdi/report.py` — reads the comparison output and produces a formatted Audrey-compatible Excel file. This is primarily a formatting/layout problem, not a data problem.
+**What exists:** 610 rows — 9 YES (known Applaud mappings pre-populated), 11 problem rows (FILE_ERROR / FILE_TOO_LARGE flagged orange at top), 590 TBD rows awaiting manual review.
 
-**Why fifth:** This is high client-facing value but depends on the comparison output being complete and correct (items 2 and 3 first).
+**What Brad needs to do:** Open `fbdi_applaud_mapping.xlsx` and fill in `applaud_table`, `prefix`, `module`, and `in_scope` for each TBD row that Definian integrations touch. Set `in_scope="NO"` for any FBDI tab that is not part of a Definian integration.
+
+**Why this comes before report.py:** The completed mapping file becomes the config input for `report.py`. Without it, `report.py` cannot map comparison diffs to their Applaud target tables.
+
+**After Brad completes it:** Commit the filled-in `fbdi_applaud_mapping.xlsx` to master. That file is then a versioned config artifact — update it after each release cycle as mappings are confirmed or changed.
 
 ---
 
-## 6. Full Pipeline Command — Phase 3
+## 6. Build the Audrey Report (`report.py`) — Phase 2
+
+**The problem:** The comparison output (`Comparison_Report_*.xlsx`) is a raw diff. The Audrey change-tracking format used for client deliverables has a different structure. Currently this reformatting is done manually.
+
+**The fix:** `fbdi/report.py` — reads the comparison output and the completed `fbdi_applaud_mapping.xlsx`, and produces a formatted Audrey-compatible Excel file. This is primarily a formatting/layout problem, not a data problem.
+
+**Why sixth:** Depends on item 5 (completed mapping) and the comparison output being correct.
+
+---
+
+## 7. Full Pipeline Command — Phase 3
 
 **The problem:** Three separate commands (download, compare, report) with manual handoffs between them.
 
