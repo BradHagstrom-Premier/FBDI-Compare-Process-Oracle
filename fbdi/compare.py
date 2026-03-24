@@ -9,7 +9,7 @@ from openpyxl.cell.cell import MergedCell
 from openpyxl.styles import Font
 from openpyxl.worksheet.worksheet import Worksheet
 
-from fbdi.config import REPORT_HEADERS, SKIP_TABS
+from fbdi.config import MAX_FILE_SIZE_BYTES, REPORT_HEADERS, SKIP_TABS
 from fbdi.detect_header import detect_header_row
 from fbdi.utils import col_index_to_letter, match_fbdi_files
 
@@ -55,6 +55,19 @@ def compare_fbdi_pair(old_path: Path, new_path: Path) -> list[ComparisonRow]:
     """Compare one old/new FBDI template pair across all non-skipped tabs."""
     file_stem = old_path.stem
     rows: list[ComparisonRow] = []
+
+    old_size = old_path.stat().st_size
+    new_size = new_path.stat().st_size
+
+    if old_size > MAX_FILE_SIZE_BYTES or new_size > MAX_FILE_SIZE_BYTES:
+        larger = max(old_size, new_size)
+        logger.warning(
+            "SKIPPED (file > %dMB): %s — %.1fMB. Manual review required.",
+            MAX_FILE_SIZE_BYTES // (1024 * 1024),
+            file_stem,
+            larger / (1024 * 1024),
+        )
+        return rows
 
     try:
         old_wb = load_workbook(old_path, read_only=True, data_only=True)
@@ -145,8 +158,13 @@ def compare_all(
     new_dir: Path,
     output_path: Path,
     changes_only: bool = True,
-) -> Path:
-    """Compare all matched FBDI pairs and write Comparison_Report.xlsx."""
+) -> tuple[Path, list[dict]]:
+    """Compare all matched FBDI pairs and write Comparison_Report.xlsx.
+
+    Returns:
+        (output_path, skipped_files) where skipped_files is a list of dicts
+        with keys 'name' and 'size_mb' for each pair skipped due to file size.
+    """
     old_dir = Path(old_dir)
     new_dir = Path(new_dir)
     output_path = Path(output_path)
@@ -159,10 +177,31 @@ def compare_all(
         logger.warning("New-only file (no match in old): %s", f.name)
 
     all_rows: list[ComparisonRow] = []
+    skipped_files: list[dict] = []
+
     for old_path, new_path in matched:
+        old_size = old_path.stat().st_size
+        new_size = new_path.stat().st_size
+
+        if old_size > MAX_FILE_SIZE_BYTES or new_size > MAX_FILE_SIZE_BYTES:
+            larger_mb = max(old_size, new_size) / (1024 * 1024)
+            skipped_files.append({"name": old_path.stem, "size_mb": larger_mb})
+            # compare_fbdi_pair will log the skip warning
         logger.info("Comparing: %s", old_path.stem)
         pair_rows = compare_fbdi_pair(old_path, new_path)
         all_rows.extend(pair_rows)
+
+    if skipped_files:
+        names = "\n  - ".join(
+            f"{s['name']} ({s['size_mb']:.1f}MB)" for s in skipped_files
+        )
+        logger.warning(
+            "%d file(s) were skipped (>%dMB) and excluded from this report.\n"
+            "These files require manual review:\n  - %s",
+            len(skipped_files),
+            MAX_FILE_SIZE_BYTES // (1024 * 1024),
+            names,
+        )
 
     # Write output
     wb = Workbook()
@@ -213,4 +252,4 @@ def compare_all(
         len(matched), change_count, output_path,
     )
 
-    return output_path
+    return output_path, skipped_files

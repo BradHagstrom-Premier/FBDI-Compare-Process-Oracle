@@ -82,7 +82,7 @@ def _run_compare(args: argparse.Namespace) -> None:
 
     print(f"\nComparing {len(matched)} file pairs...")
 
-    output_path = compare_all(
+    output_path, skipped_files = compare_all(
         old_dir,
         new_dir,
         args.output,
@@ -98,3 +98,13 @@ def _run_compare(args: argparse.Namespace) -> None:
 
     print(f"\nChanges found: {change_count}")
     print(f"Output written to: {output_path}")
+
+    if skipped_files:
+        from fbdi.config import MAX_FILE_SIZE_BYTES
+        limit_mb = MAX_FILE_SIZE_BYTES // (1024 * 1024)
+        print(f"\n{'=' * 60}")
+        print(f"WARNING: {len(skipped_files)} file(s) were skipped (>{limit_mb}MB) and excluded from this report.")
+        print("These files require manual review:")
+        for s in skipped_files:
+            print(f"  - {s['name']} ({s['size_mb']:.1f}MB)")
+        print(f"{'=' * 60}")

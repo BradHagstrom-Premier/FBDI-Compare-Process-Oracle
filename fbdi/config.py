@@ -1,5 +1,9 @@
 """Configuration constants for the FBDI comparison engine."""
 
+# Maximum file size in bytes before skipping (files larger than this are excluded
+# from automated comparison and must be reviewed manually)
+MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+
 # Tabs to skip during comparison (case-sensitive match against sheet names)
 SKIP_TABS = {
     "Instructions and CSV Generation",
