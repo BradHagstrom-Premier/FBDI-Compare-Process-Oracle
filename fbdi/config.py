@@ -4,6 +4,9 @@
 # from automated comparison and must be reviewed manually)
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
 
+# Minimum non-empty cells for a row to be a header candidate
+MIN_CELLS = 2
+
 # Tabs to skip during comparison (case-sensitive match against sheet names)
 SKIP_TABS = {
     "Instructions and CSV Generation",
@@ -17,6 +20,7 @@ SKIP_TABS = {
     "LOV",
     "XDO_METADATA",
     "Lookups",
+    "Messages",  # Oracle error code lookup table — not an import field definition tab
 }
 
 # Output column headers for Comparison_Report.xlsx

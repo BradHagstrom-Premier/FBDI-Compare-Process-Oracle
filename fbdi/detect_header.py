@@ -19,6 +19,8 @@ import re
 from openpyxl.cell.cell import MergedCell
 from openpyxl.worksheet.worksheet import Worksheet
 
+from fbdi.config import MIN_CELLS
+
 logger = logging.getLogger(__name__)
 
 # Oracle FBDI technical column names: UPPER_SNAKE_CASE
@@ -26,9 +28,6 @@ UPPER_SNAKE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]+$")
 
 # Maximum length for header-like strings (instruction text is longer)
 HEADER_LIKE_MAX_LEN = 50
-
-# Minimum non-empty cells for a row to be a header candidate
-MIN_CELLS = 3
 
 # Tier 1 threshold: fraction of non-empty cells that must be UPPER_SNAKE_CASE
 TIER1_PATTERN_THRESHOLD = 0.5
@@ -68,12 +67,15 @@ def _scan_rows(ws: Worksheet, max_scan: int) -> list[dict]:
 
     for row_idx in range(1, min(max_scan + 1, (ws.max_row or 0) + 1)):
         cells = []
+        actual_max_col = 0
         for col_idx in range(1, max_col + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
             if isinstance(cell, MergedCell):
                 cells.append(None)
             else:
                 cells.append(cell.value)
+                if cell.value is not None and str(cell.value).strip() != "":
+                    actual_max_col = col_idx
 
         non_empty = [v for v in cells if v is not None and str(v).strip() != ""]
         if len(non_empty) < MIN_CELLS:
@@ -92,7 +94,8 @@ def _scan_rows(ws: Worksheet, max_scan: int) -> list[dict]:
             "non_empty": n,
             "upper_snake_ratio": len(upper_snake) / n,
             "header_like_ratio": len(header_like) / n,
-            "fill_ratio": n / max_col if max_col > 0 else 0.0,
+            # Use actual populated column extent, not ws.max_column (which can be phantom-wide)
+            "fill_ratio": n / actual_max_col if actual_max_col > 0 else 0.0,
             "str_ratio": ns / n,
             "brevity_ratio": len(short_strs) / ns if ns > 0 else 0.0,
         })

@@ -125,10 +125,28 @@ class TestDetectHeaderRow:
         assert detect_header_row(ws) == 4
 
     def test_below_minimum_cells_returns_none(self):
-        """Rows with fewer than 3 non-empty cells should be skipped."""
+        """Rows with fewer than 2 non-empty cells should be skipped."""
         wb = Workbook()
         ws = wb.active
         ws.cell(row=1, column=1, value="HEADER_A")
-        ws.cell(row=1, column=2, value="HEADER_B")
-        # Only 2 cells — below threshold
+        # Only 1 cell — below MIN_CELLS=2 threshold
         assert detect_header_row(ws) is None
+
+    def test_two_column_header_detected(self):
+        """Headers with exactly 2 columns should now be detected (MIN_CELLS=2)."""
+        ws = _make_ws_with_headers(4, ["FIELD_A", "FIELD_B"])
+        assert detect_header_row(ws) == 4
+
+    def test_phantom_wide_columns_do_not_suppress_detection(self):
+        """Headers should be detected even when max_column is phantom-wide."""
+        wb = Workbook()
+        ws = wb.active
+        # Place headers at row 4 in columns 1-6 only
+        for col, val in enumerate(SAMPLE_HEADERS[:6], start=1):
+            ws.cell(row=4, column=col, value=val)
+        # Simulate phantom wide column by writing a single value far out,
+        # then clearing it — openpyxl still reports high max_column
+        ws.cell(row=20, column=400, value="phantom")
+        ws.cell(row=20, column=400, value=None)
+        # Detection should still find row 4
+        assert detect_header_row(ws) == 4

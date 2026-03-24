@@ -41,10 +41,9 @@ class TestDiagnoseFile:
         assert data_rows[0].fbdi_file == "Template"
 
     def test_no_header_tab_returns_no_header(self, tmp_path):
-        """A tab with only short lowercase text and fewer than MIN_CELLS returns NO_HEADER."""
+        """A tab with only 1 non-empty cell (below MIN_CELLS=2) returns NO_HEADER."""
         f = tmp_path / "Template.xlsm"
-        # Only 2 non-empty cells (below MIN_CELLS=3) — triggers "No candidate rows"
-        cells = [(1, 1, "a"), (1, 2, "b")]
+        cells = [(1, 1, "a")]
         _make_workbook(f, {"Data": cells})
 
         rows = diagnose_file(f)
@@ -89,8 +88,8 @@ class TestDiagnoseFile:
     def test_no_header_row_has_best_score(self, tmp_path):
         """NO_HEADER rows have best_score populated (may be 0.0 if no candidates)."""
         f = tmp_path / "Template.xlsm"
-        # 2 cells only — no candidates found by _scan_rows
-        cells = [(1, 1, "a"), (1, 2, "b")]
+        # 1 cell only — below MIN_CELLS=2, no candidates found by _scan_rows
+        cells = [(1, 1, "a")]
         _make_workbook(f, {"Data": cells})
 
         rows = diagnose_file(f)

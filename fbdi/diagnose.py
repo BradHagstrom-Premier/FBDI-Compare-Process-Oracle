@@ -11,7 +11,7 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 
-from fbdi.config import MAX_FILE_SIZE_BYTES, SKIP_TABS
+from fbdi.config import MAX_FILE_SIZE_BYTES, MIN_CELLS, SKIP_TABS
 from fbdi.detect_header import TIER2_SCORE_THRESHOLD, _scan_rows, detect_header_row
 
 logger = logging.getLogger(__name__)
@@ -127,7 +127,7 @@ def diagnose_file(file_path: Path) -> list[DiagnosticRow]:
             best_score = _best_score_for_ws(ws)
             scan_rows = _scan_rows(ws, max_scan=20)
             if not scan_rows:
-                reason = "No rows with MIN_CELLS >= 3 found in first 20 rows"
+                reason = f"No rows with MIN_CELLS >= {MIN_CELLS} found in first 20 rows"
             else:
                 reason = f"Best score {best_score:.3f} below {TIER2_SCORE_THRESHOLD} threshold"
             rows.append(DiagnosticRow(
