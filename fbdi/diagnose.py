@@ -81,7 +81,9 @@ def diagnose_file(file_path: Path) -> list[DiagnosticRow]:
         return rows
 
     try:
-        wb = load_workbook(file_path, read_only=True, data_only=True)
+        # Use regular (non-read_only) mode for ~160x faster cell access.
+        # Safe here because files >MAX_FILE_SIZE_BYTES are already returned above.
+        wb = load_workbook(file_path, data_only=True)
     except Exception as e:
         logger.error("DIAGNOSTIC: Cannot load %s: %s", file_path.name, e)
         rows.append(DiagnosticRow(
