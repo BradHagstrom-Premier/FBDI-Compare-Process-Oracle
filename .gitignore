@@ -16,3 +16,4 @@ test_output.xlsx
 __pycache__/
 *.pyc
 .pytest_cache/
+.worktrees/
