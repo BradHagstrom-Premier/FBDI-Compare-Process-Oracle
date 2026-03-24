@@ -17,9 +17,18 @@ WorkOrderResourceTransactionTemplate. These 6 files require manual review agains
 
 ---
 
-## 2. Fix the 7 Non-Standard Header Tabs (Medium Value, Low-to-Medium Effort)
+## 2. ~~Fix the 7 Non-Standard Header Tabs~~ — RESOLVED
 
-**Diagnostic results (Phase 2):** Running `python -m fbdi diagnose --old baselines/25d --new baselines/26a`
+**Resolution (Phase 3):** Three targeted fixes eliminated all 14 `NO_HEADER` rows (7 pairs × 2 releases).
+Post-fix diagnostic confirms: **0 NO_HEADER rows** across 1692 tab entries.
+
+- `fill_ratio` now computed against actual populated column extent per row, not `ws.max_column` (fixes phantom-wide ImportAwards tabs)
+- `MIN_CELLS` lowered from 3 → 2 and centralized in `config.py` (fixes 4 two-column header tabs)
+- `"Messages"` added to `SKIP_TABS` (correctly excludes Oracle error-code lookup tab)
+
+---
+
+**Original diagnostic results (Phase 2):** Running `python -m fbdi diagnose --old baselines/25d --new baselines/26a`
 across 421 files and 1692 tab entries identified 7 unique file/tab pairs with `NO_HEADER`:
 
 | File | Tab | Best Score | Root Cause |
