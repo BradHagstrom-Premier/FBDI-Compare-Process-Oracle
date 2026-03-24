@@ -41,6 +41,31 @@ def main(argv: list[str] | None = None) -> None:
         help="Set logging to DEBUG (shows header detection scores)",
     )
 
+    diagnose_parser = subparsers.add_parser(
+        "diagnose",
+        help="Diagnose header detection outcomes for FBDI templates",
+    )
+    diagnose_parser.add_argument(
+        "--release", type=str, default=None,
+        help="Release label (e.g. 26a) — looks in baselines/<release>/",
+    )
+    diagnose_parser.add_argument(
+        "--old", type=Path, default=None,
+        help="Path to old release directory",
+    )
+    diagnose_parser.add_argument(
+        "--new", type=Path, default=None,
+        help="Path to new release directory",
+    )
+    diagnose_parser.add_argument(
+        "--output", type=Path, default=None,
+        help="Output file path (default: Diagnostic_Report_<label>.xlsx)",
+    )
+    diagnose_parser.add_argument(
+        "--verbose", action="store_true",
+        help="Set logging to DEBUG",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -49,6 +74,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "compare":
         _run_compare(args)
+    elif args.command == "diagnose":
+        _run_diagnose(args)
 
 
 def _run_compare(args: argparse.Namespace) -> None:
@@ -108,3 +135,66 @@ def _run_compare(args: argparse.Namespace) -> None:
         for s in skipped_files:
             print(f"  - {s['name']} ({s['size_mb']:.1f}MB)")
         print(f"{'=' * 60}")
+
+
+def _run_diagnose(args: argparse.Namespace) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s: %(name)s: %(message)s",
+    )
+
+    from fbdi.diagnose import diagnose_file, write_diagnostic_report
+
+    # Resolve directories
+    dirs: list[Path] = []
+    label_parts: list[str] = []
+
+    if args.release:
+        release_dir = Path("baselines") / args.release
+        if not release_dir.is_dir():
+            print(f"Error: release directory not found: {release_dir}")
+            sys.exit(1)
+        dirs.append(release_dir)
+        label_parts.append(args.release.upper())
+    elif args.old or args.new:
+        if not args.old or not args.new:
+            print("Error: --old and --new must be used together")
+            sys.exit(1)
+        for d, flag in [(args.old, "--old"), (args.new, "--new")]:
+            if not d.is_dir():
+                print(f"Error: directory not found ({flag}): {d}")
+                sys.exit(1)
+        dirs.extend([args.old, args.new])
+        label_parts.extend([args.old.name.upper(), args.new.name.upper()])
+    else:
+        print("Error: provide --release or --old/--new")
+        sys.exit(1)
+
+    # Determine output path
+    label = "_".join(label_parts)
+    output_path = args.output or Path(f"Diagnostic_Report_{label}.xlsx")
+
+    # Scan files
+    all_rows = []
+    for directory in dirs:
+        xlsm_files = sorted(directory.glob("*.xlsm"))
+        print(f"Scanning {len(xlsm_files)} files in {directory} ...")
+        for file_path in xlsm_files:
+            rows = diagnose_file(file_path)
+            all_rows.extend(rows)
+
+    detected = sum(1 for r in all_rows if r.detection_result == "DETECTED")
+    no_header = sum(1 for r in all_rows if r.detection_result == "NO_HEADER")
+    skipped_tab = sum(1 for r in all_rows if r.detection_result == "SKIPPED_TAB")
+    file_too_large = sum(1 for r in all_rows if r.detection_result == "FILE_TOO_LARGE")
+    file_error = sum(1 for r in all_rows if r.detection_result == "FILE_ERROR")
+
+    write_diagnostic_report(all_rows, output_path)
+
+    print(f"\nDiagnostic complete: {len(all_rows)} tab entries")
+    print(f"  DETECTED:       {detected}")
+    print(f"  NO_HEADER:      {no_header}")
+    print(f"  SKIPPED_TAB:    {skipped_tab}")
+    print(f"  FILE_TOO_LARGE: {file_too_large}")
+    print(f"  FILE_ERROR:     {file_error}")
+    print(f"Output written to: {output_path}")
