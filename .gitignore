@@ -12,8 +12,10 @@ Originals/
 26A/
 baselines/
 Comparison_Report*.xlsx
+Diagnostic_Report*.xlsx
 test_output.xlsx
 __pycache__/
 *.pyc
 .pytest_cache/
 .worktrees/
+handoff_*.md
