@@ -14,6 +14,7 @@ baselines/
 Comparison_Report*.xlsx
 Diagnostic_Report*.xlsx
 test_output.xlsx
+applaud_table_coverage.xlsx
 __pycache__/
 *.pyc
 .pytest_cache/

@@ -81,5 +81,5 @@ python -m fbdi compare --help
 ## Status
 
 - **Phase 1 — Complete:** Python comparison engine (`fbdi/` package), CLI (`python -m fbdi compare`), 33 unit tests, dynamic header detection, 7-column Excel output
-- **Phase 2 — Planned:** Audrey report automation (`report.py`) — reformatting comparison output for the Audrey change-tracking format
+- **Phase 2 — In Progress:** Applaud compliance report automation (`report.py`) — reformatting comparison output for the Applaud change-tracking format
 - **Phase 3 — Planned:** Full integrated pipeline (`python -m fbdi run`) — download, compare, and report in a single command
