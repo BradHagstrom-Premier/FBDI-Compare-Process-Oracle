@@ -8,8 +8,6 @@ Blank Copies/
 Old Blank Copies/
 Old Originals/
 Originals/
-25D/
-26A/
 baselines/
 Comparison_Report*.xlsx
 Diagnostic_Report*.xlsx
@@ -20,3 +18,5 @@ __pycache__/
 .pytest_cache/
 .worktrees/
 handoff_*.md
+graphify-out/
+.claude/settings.local.json
