@@ -1,0 +1,242 @@
+WARNING: fbdi.compare: Old-only file (no match in new): ProjectBudgetsImportTemplate.xlsm
+WARNING: fbdi.compare: New-only file (no match in old): ItemImportReferenceOrgTemplate.xlsm
+INFO: fbdi.compare: [1/210] Comparing: AccountCombinationsImportTemplate
+INFO: fbdi.compare: [2/210] Comparing: AttachmentsImportTemplate
+INFO: fbdi.compare: [3/210] Comparing: AutoInvoiceImportTemplate
+INFO: fbdi.compare: [4/210] Comparing: BillingDataImportTemplate
+INFO: fbdi.compare: [5/210] Comparing: BudgetImportTemplate
+INFO: fbdi.compare: [6/210] Comparing: CashManagementBankStatementImportTemplate
+INFO: fbdi.compare: [7/210] Comparing: CashManagementBankStmtReconImportTemplate
+INFO: fbdi.compare: [8/210] Comparing: CashManagementCPDataImportTemplate
+INFO: fbdi.compare: [9/210] Comparing: CashManagementExternalTransactionsImportTemplate
+INFO: fbdi.compare: [10/210] Comparing: ChangeOrderImportTemplate
+INFO: fbdi.compare: [11/210] Comparing: ChartofAccountsMappingRulesImportTemplate
+INFO: fbdi.compare: [12/210] Comparing: ChartofAccountsSegmentValuesandHierarchiesImportTemplate
+INFO: fbdi.compare: [13/210] Comparing: ConfiguratorRedwoodRuleConversionTemplate
+INFO: fbdi.compare: [14/210] Comparing: CostListsImportTemplate
+INFO: fbdi.compare: [15/210] Comparing: CreateBillingEventsTemplate
+INFO: fbdi.compare: [16/210] Comparing: CrossReferenceDataImportTemplate
+INFO: fbdi.compare: [17/210] Comparing: CrossValidationCombinationsImportTemplate
+INFO: fbdi.compare: [18/210] Comparing: CrossValidationRulesImportTemplate
+C:\Users\10193\AppData\Roaming\Python\Python314\site-packages\openpyxl\worksheet\_reader.py:329: UserWarning: Data Validation extension is not supported and will be removed
+  warn(msg)
+INFO: fbdi.compare: [19/210] Comparing: CseGenealogyBulkImport
+C:\Users\10193\AppData\Roaming\Python\Python314\site-packages\openpyxl\worksheet\_reader.py:329: UserWarning: Data Validation extension is not supported and will be removed
+  warn(msg)
+INFO: fbdi.compare: [20/210] Comparing: CseInstalledBaseAssetImport
+C:\Users\10193\AppData\Roaming\Python\Python314\site-packages\openpyxl\worksheet\_reader.py:329: UserWarning: Data Validation extension is not supported and will be removed
+  warn(msg)
+INFO: fbdi.compare: [21/210] Comparing: CseMeterReadingsImport
+INFO: fbdi.compare: [22/210] Comparing: CseWarrantyCoverageImport
+C:\Users\10193\AppData\Roaming\Python\Python314\site-packages\openpyxl\worksheet\_reader.py:329: UserWarning: Data Validation extension is not supported and will be removed
+  warn(msg)
+INFO: fbdi.compare: [23/210] Comparing: CustomerImportTemplate
+INFO: fbdi.compare: [24/210] Comparing: CycleCountImportTemplate
+INFO: fbdi.compare: [25/210] Comparing: DailyRatesImportTemplate
+INFO: fbdi.compare: [26/210] Comparing: DiscountListImportTemplate
+INFO: fbdi.compare: [27/210] Comparing: DosSupplyOrderImportTemplate
+INFO: fbdi.compare: [28/210] Comparing: EgpCatalogImportTemplate
+INFO: fbdi.compare: [29/210] Comparing: ExpenseLeaseMiscellaneousPaymentsTemplate
+INFO: fbdi.compare: [30/210] Comparing: FinancialProjectPlansImportTemplate
+INFO: fbdi.compare: [31/210] Comparing: FiscalDocumentImportTemplate
+INFO: fbdi.compare: [32/210] Comparing: FixedAssetDeprnTaxRepImportTemplate
+INFO: fbdi.compare: [33/210] Comparing: FixedAssetLeasesImportTemplate
+INFO: fbdi.compare: [34/210] Comparing: FixedAssetMassAdditionsImportTemplate
+INFO: fbdi.compare: [35/210] Comparing: FixedAssetMassAdjustmentsImportTemplate
+FixedAssetMassAdjustmentsImportTemplate: tab 'FA_ADJ_RATES_INT_V' exists in old but not in new — skipping
+INFO: fbdi.compare: [36/210] Comparing: FixedAssetMassRetirementsImportTemplate
+INFO: fbdi.compare: [37/210] Comparing: FixedAssetMassRevaluationsImportTemplate
+INFO: fbdi.compare: [38/210] Comparing: FixedAssetMassTransfersImportTemplate
+INFO: fbdi.compare: [39/210] Comparing: FixedAssetPhysicalInventoryTemplate
+INFO: fbdi.compare: [40/210] Comparing: FixedAssetRcConversionImportTemplate
+INFO: fbdi.compare: [41/210] Comparing: FixedAssetUnitsofProductionImportTemplate
+INFO: fbdi.compare: [42/210] Comparing: FixedAssetUpdateDescriptiveDetailTemplate
+INFO: fbdi.compare: [43/210] Comparing: GeneralLedgerBudgetBalanceImportTemplate
+INFO: fbdi.compare: [44/210] Comparing: GlHistoricalRatesImportTemplate
+INFO: fbdi.compare: [45/210] Comparing: IbyLegacyCreditCardImportTemplate
+INFO: fbdi.compare: [46/210] Comparing: IdeaImportTemplate
+INFO: fbdi.compare: [47/210] Comparing: ImportAssignmentLaborSchedules
+INFO: fbdi.compare: [48/210] Comparing: ImportAwards
+INFO: fbdi.compare: [49/210] Comparing: ImportDocumentActionsTemplate
+INFO: fbdi.compare: [50/210] Comparing: ImportFundingSources
+INFO: fbdi.compare: [51/210] Comparing: ImportGrantsPersonnel
+INFO: fbdi.compare: [52/210] Comparing: ImportKeywords
+INFO: fbdi.compare: [53/210] Comparing: ImportPayrollCosts
+INFO: fbdi.compare: [54/210] Comparing: ImportProjectContractBillTransactions
+INFO: fbdi.compare: [55/210] Comparing: ImportProjectKeyPerformanceIndicatorsTemplate
+INFO: fbdi.compare: [56/210] Comparing: ImportStandaloneFiscalDocumentTemplate
+INFO: fbdi.compare: [57/210] Comparing: InboundFiscalDocumentImportTemplate
+INFO: fbdi.compare: [58/210] Comparing: IntercompanyTransactionImportTemplate
+INFO: fbdi.compare: [59/210] Comparing: InterfacedPickTransactionsImportTemplate
+INFO: fbdi.compare: [60/210] Comparing: InventoryBalanceImportTemplate
+INFO: fbdi.compare: [61/210] Comparing: InventoryReservationImportTemplate
+INFO: fbdi.compare: [62/210] Comparing: InventoryTransactionImportTemplate
+INFO: fbdi.compare: [63/210] Comparing: ItemImportTemplate
+INFO: fbdi.compare: [64/210] Comparing: ItemStructureImportTemplate
+INFO: fbdi.compare: [65/210] Comparing: JournalImportTemplate
+INFO: fbdi.compare: [66/210] Comparing: LeaseContractAmendTemplate
+INFO: fbdi.compare: [67/210] Comparing: LeaseContractImpairmentTemplate
+INFO: fbdi.compare: [68/210] Comparing: LeaseContractImportTemplate
+INFO: fbdi.compare: [69/210] Comparing: LeaseContractManageTemplate
+INFO: fbdi.compare: [70/210] Comparing: LeasePropertyImportTemplate
+INFO: fbdi.compare: [71/210] Comparing: MaintenanceWorkDefinitionTemplate
+C:\Users\10193\AppData\Roaming\Python\Python314\site-packages\openpyxl\worksheet\_reader.py:329: UserWarning: Data Validation extension is not supported and will be removed
+  warn(msg)
+INFO: fbdi.compare: [72/210] Comparing: MaintenanceWorkOrderTemplate
+C:\Users\10193\AppData\Roaming\Python\Python314\site-packages\openpyxl\worksheet\_reader.py:329: UserWarning: Data Validation extension is not supported and will be removed
+  warn(msg)
+INFO: fbdi.compare: [73/210] Comparing: MntMaintenanceProgramImport
+C:\Users\10193\AppData\Roaming\Python\Python314\site-packages\openpyxl\worksheet\_reader.py:329: UserWarning: Data Validation extension is not supported and will be removed
+  warn(msg)
+INFO: fbdi.compare: [74/210] Comparing: NettingAgreementsImport
+INFO: fbdi.compare: [75/210] Comparing: OrderOrchestrationImportTemplate
+INFO: fbdi.compare: [76/210] Comparing: PayablesBankReturns
+INFO: fbdi.compare: [77/210] Comparing: PayablesCollectionDocuments
+INFO: fbdi.compare: [78/210] Comparing: PayablesPaymentRequestImportTemplate
+INFO: fbdi.compare: [79/210] Comparing: PayablesStandardInvoiceImportTemplate
+INFO: fbdi.compare: [80/210] Comparing: PerformShippingTransactionImportTemplate
+INFO: fbdi.compare: [81/210] Comparing: POBlanketPurchaseAgreementImportTemplate
+INFO: fbdi.compare: [82/210] Comparing: POContractPurchaseAgreementImportTemplate
+INFO: fbdi.compare: [83/210] Comparing: PoiDataSetImportTemplate
+INFO: fbdi.compare: [84/210] Comparing: PONNegotiationLinesImportTemplate
+INFO: fbdi.compare: [85/210] Comparing: POPurchaseOrderImportTemplate
+INFO: fbdi.compare: [86/210] Comparing: PriceListImportTemplate
+INFO: fbdi.compare: [87/210] Comparing: PriceListsImportBatchTemplate
+INFO: fbdi.compare: [88/210] Comparing: ProcessWorkDefinitionTemplate
+INFO: fbdi.compare: [89/210] Comparing: ProcessWorkOrderMaterialTransactionTemplate
+INFO: fbdi.compare: [90/210] Comparing: ProcessWorkOrderOperationTransactionTemplate
+INFO: fbdi.compare: [91/210] Comparing: ProcessWorkOrderTemplate
+INFO: fbdi.compare: [92/210] Comparing: ProductionReportImportTemplate
+INFO: fbdi.compare: [93/210] Comparing: ProductProposalImportTemplate
+INFO: fbdi.compare: [94/210] Comparing: ProjectAssetLinesProcessingImportTemplate
+INFO: fbdi.compare: [95/210] Comparing: ProjectAssetProcessingImportTemplate
+INFO: fbdi.compare: [96/210] Comparing: ProjectEnterpriseExpenseResourcesImportTemplate
+INFO: fbdi.compare: [97/210] Comparing: ProjectEnterpriseResourcesImportTemplate
+INFO: fbdi.compare: [98/210] Comparing: ProjectForecastsImportTemplate
+INFO: fbdi.compare: [99/210] Comparing: ProjectImportTemplate
+INFO: fbdi.compare: [100/210] Comparing: ProjectPlanImportTemplate
+C:\Users\10193\AppData\Roaming\Python\Python314\site-packages\openpyxl\worksheet\_reader.py:329: UserWarning: Unknown extension is not supported and will be removed
+  warn(msg)
+INFO: fbdi.compare: [101/210] Comparing: ProjectProgressImportTemplate
+INFO: fbdi.compare: [102/210] Comparing: ProjectRateScheduleImportTemplate
+INFO: fbdi.compare: [103/210] Comparing: ProjectResourceAssignmentImportTemplate
+INFO: fbdi.compare: [104/210] Comparing: ProjectResourceRequestImportTemplate
+INFO: fbdi.compare: [105/210] Comparing: ProjectTasksImportTemplate
+INFO: fbdi.compare: [106/210] Comparing: ProjectTransactionControlsImportTemplate
+INFO: fbdi.compare: [107/210] Comparing: ProjectUnprocessedExpenseReportExpenditureItemImportTemplate
+INFO: fbdi.compare: [108/210] Comparing: ProjectUnprocessedInventoryExpenditureItemImportTemplate
+INFO: fbdi.compare: [109/210] Comparing: ProjectUnprocessedLaborExpenditureItemImportTemplate
+INFO: fbdi.compare: [110/210] Comparing: ProjectUnprocessedMiscellaneousExpenditureItemImportTemplate
+INFO: fbdi.compare: [111/210] Comparing: ProjectUnprocessedNonlaborExpenditureItemImportTemplate
+INFO: fbdi.compare: [112/210] Comparing: ProjectUnprocessedSupplierInvoiceExpenditureItemImportTemplate
+INFO: fbdi.compare: [113/210] Comparing: ReceivablesBankReturns
+INFO: fbdi.compare: [114/210] Comparing: ReceivablesStandardReceiptImportTemplate
+INFO: fbdi.compare: [115/210] Comparing: ReceivingReceiptImportTemplate
+INFO: fbdi.compare: [116/210] Comparing: RequirementImportTemplate
+INFO: fbdi.compare: [117/210] Comparing: RequisitionImportTemplate
+INFO: fbdi.compare: [118/210] Comparing: ResourceActualHoursImportTemplate
+INFO: fbdi.compare: [119/210] Comparing: ResourceBreakdownStructureImportTemplate
+INFO: fbdi.compare: [120/210] Comparing: ResourcePoolImportTemplate
+INFO: fbdi.compare: [121/210] Comparing: RevenueDataImportTemplate
+INFO: fbdi.compare: [122/210] Comparing: RevenueLeaseContractAmendTemplate
+INFO: fbdi.compare: [123/210] Comparing: RevenueLeaseContractImportTemplate
+INFO: fbdi.compare: [124/210] Comparing: RevenueLeaseContractManageTemplate
+INFO: fbdi.compare: [125/210] Comparing: RevenueLeaseMiscellaneousPaymentsTemplate
+INFO: fbdi.compare: [126/210] Comparing: SchExternalPurchasePricesImportTemplate
+INFO: fbdi.compare: [127/210] Comparing: ScpApprovedSupplierCapacityImportTemplate
+INFO: fbdi.compare: [128/210] Comparing: ScpApprovedSupplierListImportTemplate
+INFO: fbdi.compare: [129/210] Comparing: ScpATPRulesImportTemplate
+INFO: fbdi.compare: [130/210] Comparing: ScpBillofMaterialImportTemplate
+INFO: fbdi.compare: [131/210] Comparing: ScpBillOfResourcesImportTemplate
+INFO: fbdi.compare: [132/210] Comparing: ScpBookingHistoryImportTemplate
+INFO: fbdi.compare: [133/210] Comparing: ScpCalendarAssignmentsImportTemplate
+INFO: fbdi.compare: [134/210] Comparing: ScpCalendarImportTemplate
+INFO: fbdi.compare: [135/210] Comparing: ScpCarrierImportTemplate
+INFO: fbdi.compare: [136/210] Comparing: ScpCatalogImportTemplate
+INFO: fbdi.compare: [137/210] Comparing: ScpCausalFactorsImportTemplate
+INFO: fbdi.compare: [138/210] Comparing: ScpCurrencyImportTemplate
+INFO: fbdi.compare: [139/210] Comparing: ScpCustomerImportTemplate
+INFO: fbdi.compare: [140/210] Comparing: ScpDemandClassImportTemplate
+INFO: fbdi.compare: [141/210] Comparing: ScpErpIntegrationServiceParamsImportTemplate
+INFO: fbdi.compare: [142/210] Comparing: ScpExternalForecastImportTemplate
+INFO: fbdi.compare: [143/210] Comparing: ScpFiscalCalendarImportTemplate
+INFO: fbdi.compare: [144/210] Comparing: ScpForecastMeasureImportTemplate
+INFO: fbdi.compare: [145/210] Comparing: ScpInterLocationShipMethodsImportTemplate
+INFO: fbdi.compare: [146/210] Comparing: ScpItemCostImportTemplate
+INFO: fbdi.compare: [147/210] Comparing: ScpItemImportTemplate
+INFO: fbdi.compare: [148/210] Comparing: ScpItemPolicyOverridesImportTemplate
+INFO: fbdi.compare: [149/210] Comparing: ScpItemSubinventoryImportTemplate
+INFO: fbdi.compare: [150/210] Comparing: ScpItemSubstituteImportTemplate
+INFO: fbdi.compare: [151/210] Comparing: ScpKeyCustomerOptionsImportTemplate
+INFO: fbdi.compare: [152/210] Comparing: ScpLocationsImportTemplate
+INFO: fbdi.compare: [153/210] Comparing: ScpMeasuresImportTemplate
+INFO: fbdi.compare: [154/210] Comparing: ScpMovementRequestsImportTemplate
+INFO: fbdi.compare: [155/210] Comparing: ScpOnhandImportTemplate
+INFO: fbdi.compare: [156/210] Comparing: ScpOptionBookingHistoryImportTemplate
+INFO: fbdi.compare: [157/210] Comparing: ScpOptionShipmentHistoryImportTemplate
+INFO: fbdi.compare: [158/210] Comparing: ScpOrganizationImportTemplate
+INFO: fbdi.compare: [159/210] Comparing: ScpPlannedOrderSupplyImportTemplate
+INFO: fbdi.compare: [160/210] Comparing: ScpPlannersImportTemplate
+INFO: fbdi.compare: [161/210] Comparing: ScpPlanningAllocationRulesImportTemplate
+INFO: fbdi.compare: [162/210] Comparing: ScpPlanningAttributeValuesImportTemplate
+INFO: fbdi.compare: [163/210] Comparing: ScpPriceListImportTemplate
+INFO: fbdi.compare: [164/210] Comparing: ScpPurchaseOrderRcvHistoryImportTemplate
+INFO: fbdi.compare: [165/210] Comparing: ScpPurchaseOrderRequisitionImportTemplate
+INFO: fbdi.compare: [166/210] Comparing: ScpRealTimeSupplyUpdatesImportTemplate
+INFO: fbdi.compare: [167/210] Comparing: ScpRegionsImportTemplate
+INFO: fbdi.compare: [168/210] Comparing: ScpRegionZoneMappingImportTemplate
+INFO: fbdi.compare: [169/210] Comparing: ScpReservationImportTemplate
+INFO: fbdi.compare: [170/210] Comparing: ScpResourceAvailabilityImportTemplate
+INFO: fbdi.compare: [171/210] Comparing: ScpResourcesImportTemplate
+INFO: fbdi.compare: [172/210] Comparing: ScpRoutingsImportTemplate
+INFO: fbdi.compare: [173/210] Comparing: ScpSafetyStockLevelImportTemplate
+INFO: fbdi.compare: [174/210] Comparing: ScpSalesOrderImportTemplate
+INFO: fbdi.compare: [175/210] Comparing: ScpShipmentHistoryImportTemplate
+INFO: fbdi.compare: [176/210] Comparing: ScpSourcingImportTemplate
+INFO: fbdi.compare: [177/210] Comparing: ScpSubInventoryImportTemplate
+INFO: fbdi.compare: [178/210] Comparing: ScpSupplierImportTemplate
+INFO: fbdi.compare: [179/210] Comparing: ScpTransferOrderImportTemplate
+INFO: fbdi.compare: [180/210] Comparing: ScpUOMImportTemplate
+INFO: fbdi.compare: [181/210] Comparing: ScpUser-DefinedHierarchyImportTemplate
+INFO: fbdi.compare: [182/210] Comparing: ScpWIPComponentDemandsImportTemplate
+INFO: fbdi.compare: [183/210] Comparing: ScpWIPOperationResourceImportTemplate
+INFO: fbdi.compare: [184/210] Comparing: ScpWorkOrderSuppliesImportTemplate
+INFO: fbdi.compare: [185/210] Comparing: ScpZonesImportTemplate
+INFO: fbdi.compare: [186/210] Comparing: ShipmentRequestImportTemplate
+INFO: fbdi.compare: [187/210] Comparing: SourceSalesOrderImportTemplate
+INFO: fbdi.compare: [188/210] Comparing: StandardCostImportTemplate
+INFO: fbdi.compare: [189/210] Comparing: SupplierAddressImportTemplate
+INFO: fbdi.compare: [190/210] Comparing: SupplierAttachmentImportTemplate
+INFO: fbdi.compare: [191/210] Comparing: SupplierBankAccountImportTemplate
+INFO: fbdi.compare: [192/210] Comparing: SupplierBusinessClassificationImportTemplate
+INFO: fbdi.compare: [193/210] Comparing: SupplierContactImportTemplate
+INFO: fbdi.compare: [194/210] Comparing: SupplierImportTemplate
+INFO: fbdi.compare: [195/210] Comparing: SupplierProductsandServicesCategoryImportTemplate
+INFO: fbdi.compare: [196/210] Comparing: SupplierSiteAssignmentImportTemplate
+INFO: fbdi.compare: [197/210] Comparing: SupplierSiteImportTemplate
+INFO: fbdi.compare: [198/210] Comparing: SusActivityImportTemplate
+INFO: fbdi.compare: [199/210] Comparing: TaxAuthorityReturnImportTemplate
+INFO: fbdi.compare: [200/210] Comparing: UploadCreditDataTemplate
+INFO: fbdi.compare: [201/210] Comparing: UploadCustomersTemplate
+C:\Users\10193\AppData\Roaming\Python\Python314\site-packages\openpyxl\worksheet\_reader.py:329: UserWarning: Data Validation extension is not supported and will be removed
+  warn(msg)
+INFO: fbdi.compare: [202/210] Comparing: VcsCollaborationOrderForecastImportTemplate
+INFO: fbdi.compare: [203/210] Comparing: VcsVMIRelationshipsImportTemplate
+INFO: fbdi.compare: [204/210] Comparing: WorkDefinitionTemplate
+INFO: fbdi.compare: [205/210] Comparing: WorkOrderMaterialTransactionTemplate
+INFO: fbdi.compare: [206/210] Comparing: WorkOrderOperationTransactionTemplate
+INFO: fbdi.compare: [207/210] Comparing: WorkOrderResourceTransactionTemplate
+INFO: fbdi.compare: [208/210] Comparing: WorkOrderTemplate
+INFO: fbdi.compare: [209/210] Comparing: XlaMappingsImportTemplate
+INFO: fbdi.compare: [210/210] Comparing: ZX_TER_IMPORT
+INFO: fbdi.compare: Comparison complete: 210 file pairs, 707 changes found, output: Comparison_Report_26A_26B.xlsx
+Matched file pairs: 210
+Old-only files (1):
+  - ProjectBudgetsImportTemplate.xlsm
+New-only files (1):
+  - ItemImportReferenceOrgTemplate.xlsm
+
+Comparing 210 file pairs...
+
+Changes found: 707
+Output written to: Comparison_Report_26A_26B.xlsx
