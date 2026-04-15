@@ -35,3 +35,7 @@ REPORT_HEADERS = [
     "New FBDI Field Name",
     "Difference?",
 ]
+
+# Per-file timeout (seconds) for catalog subprocess workers.
+# Mirrors COMPARE_TIMEOUT in compare.py; isolates openpyxl resource leaks.
+CATALOG_TIMEOUT = 120
