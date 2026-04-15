@@ -12,6 +12,7 @@ existing release regenerates only that release's tab plus Issues/Drift.
 """
 
 import logging
+import multiprocessing
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,7 +22,7 @@ from openpyxl.cell.cell import MergedCell
 from openpyxl.worksheet.worksheet import Worksheet
 
 from fbdi.catalog_normalize import normalize_label
-from fbdi.config import SKIP_TABS
+from fbdi.config import CATALOG_TIMEOUT, SKIP_TABS
 from fbdi.detect_header import UPPER_SNAKE_PATTERN, detect_header_row
 from fbdi.type_parser import parse_data_type
 
@@ -315,3 +316,84 @@ def extract_file(
     finally:
         wb.close()
     return all_rows, all_issues
+
+
+def _rows_to_tuples(rows: list[CatalogRow]) -> list[tuple]:
+    return [(
+        r.release, r.file_name, r.tab_name, r.position,
+        r.column_label, r.column_technical,
+        r.data_type, r.length, r.scale, r.data_type_raw,
+        r.required,
+    ) for r in rows]
+
+
+def _issues_to_tuples(issues: list[IssueRow]) -> list[tuple]:
+    return [(i.release, i.file, i.tab, i.issue_type, i.detail) for i in issues]
+
+
+def _tuples_to_rows(tuples: list[tuple]) -> list[CatalogRow]:
+    return [CatalogRow(*t) for t in tuples]
+
+
+def _tuples_to_issues(tuples: list[tuple]) -> list[IssueRow]:
+    return [IssueRow(*t) for t in tuples]
+
+
+def _catalog_worker(path_str: str, release: str, queue: multiprocessing.Queue) -> None:
+    """Subprocess entry point. Mirrors _compare_worker for resource isolation."""
+    # Some templates hit openpyxl's Font.family.max=14 cap; 255 matches compare.
+    from openpyxl.styles.fonts import Font as WorkerFont
+    WorkerFont.family.max = 255
+
+    try:
+        rows, issues = extract_file(Path(path_str), release=release)
+        queue.put((_rows_to_tuples(rows), _issues_to_tuples(issues)))
+    except Exception as e:
+        queue.put(f"ERROR: {type(e).__name__}: {e}")
+
+
+def _run_file_in_subprocess(
+    path: Path, release: str, timeout: int = CATALOG_TIMEOUT
+) -> tuple[list[CatalogRow], list[IssueRow]]:
+    """Run extract_file in a fresh subprocess with timeout. Returns issue rows on failure."""
+    queue: multiprocessing.Queue = multiprocessing.Queue()
+    proc = multiprocessing.Process(
+        target=_catalog_worker, args=(str(path), release, queue)
+    )
+    proc.start()
+    proc.join(timeout=timeout)
+
+    file_stem = path.stem
+    if proc.is_alive():
+        proc.terminate()
+        proc.join(5)
+        return [], [IssueRow(
+            release=release, file=file_stem, tab="",
+            issue_type="TIMEOUT", detail=f"exceeded {timeout}s",
+        )]
+
+    if proc.exitcode != 0:
+        return [], [IssueRow(
+            release=release, file=file_stem, tab="",
+            issue_type="SUBPROCESS_FAILED",
+            detail=f"exit code {proc.exitcode}",
+        )]
+
+    try:
+        result = queue.get_nowait()
+    except Exception:
+        return [], [IssueRow(
+            release=release, file=file_stem, tab="",
+            issue_type="SUBPROCESS_FAILED",
+            detail="no result on queue",
+        )]
+
+    if isinstance(result, str) and result.startswith("ERROR:"):
+        return [], [IssueRow(
+            release=release, file=file_stem, tab="",
+            issue_type="SUBPROCESS_FAILED",
+            detail=result,
+        )]
+
+    row_tuples, issue_tuples = result
+    return _tuples_to_rows(row_tuples), _tuples_to_issues(issue_tuples)
