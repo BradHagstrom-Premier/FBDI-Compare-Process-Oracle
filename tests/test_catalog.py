@@ -231,6 +231,101 @@ class TestExtractTabRowsRich:
         assert rows[0].column_label == "Required Label"
 
 
+from fbdi.catalog import _compute_drift
+
+
+def _row(**kwargs) -> CatalogRow:
+    defaults = dict(
+        release="26A", file_name="F", tab_name="T", position=1,
+        column_label="L", column_technical="T", data_type="VARCHAR2",
+        length=50, scale=None, data_type_raw="VARCHAR2(50)", required=False,
+    )
+    defaults.update(kwargs)
+    return CatalogRow(**defaults)
+
+
+class TestComputeDrift:
+    def test_unchanged_rows_not_in_drift(self):
+        old = [_row(release="26A")]
+        new = [_row(release="26B")]
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        assert drift == []
+
+    def test_added_column(self):
+        old = []
+        new = [_row(release="26B")]
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        assert len(drift) == 1
+        assert drift[0].change_type == "ADDED"
+        assert drift[0].col_label_old == ""
+        assert drift[0].col_label_new == "L"
+
+    def test_removed_column(self):
+        old = [_row(release="26A")]
+        new = []
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        assert len(drift) == 1
+        assert drift[0].change_type == "REMOVED"
+        assert drift[0].col_label_new == ""
+
+    def test_renamed_label_only(self):
+        old = [_row(release="26A", column_label="Old Name")]
+        new = [_row(release="26B", column_label="New Name")]
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        assert len(drift) == 1
+        assert drift[0].change_type == "RENAMED"
+
+    def test_renamed_technical_only(self):
+        old = [_row(release="26A", column_technical="OLD_NAME")]
+        new = [_row(release="26B", column_technical="NEW_NAME")]
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        assert drift[0].change_type == "RENAMED"
+
+    def test_type_changed_only(self):
+        old = [_row(release="26A", data_type="VARCHAR2")]
+        new = [_row(release="26B", data_type="NUMBER")]
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        assert drift[0].change_type == "TYPE_CHANGED"
+
+    def test_length_changed_only(self):
+        old = [_row(release="26A", length=50)]
+        new = [_row(release="26B", length=100)]
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        assert drift[0].change_type == "LENGTH_CHANGED"
+
+    def test_scale_changed_classified_as_length(self):
+        old = [_row(release="26A", data_type="NUMBER", length=18, scale=None, data_type_raw="NUMBER(18)")]
+        new = [_row(release="26B", data_type="NUMBER", length=18, scale=4, data_type_raw="NUMBER(18,4)")]
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        # data_type same, length same, only scale differs — classified as LENGTH_CHANGED
+        assert drift[0].change_type == "LENGTH_CHANGED"
+
+    def test_required_changed_only(self):
+        old = [_row(release="26A", required=False)]
+        new = [_row(release="26B", required=True)]
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        assert drift[0].change_type == "REQUIRED_CHANGED"
+
+    def test_multi_change(self):
+        old = [_row(release="26A", data_type="VARCHAR2", length=50, required=False)]
+        new = [_row(release="26B", data_type="NUMBER", length=18, required=True)]
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        assert drift[0].change_type == "MULTI"
+
+    def test_aligns_by_file_tab_position(self):
+        old = [
+            _row(release="26A", file_name="F1", tab_name="T1", position=1),
+            _row(release="26A", file_name="F2", tab_name="T2", position=1),
+        ]
+        new = [
+            _row(release="26B", file_name="F1", tab_name="T1", position=1, column_label="NEW"),
+            _row(release="26B", file_name="F2", tab_name="T2", position=1),
+        ]
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        assert len(drift) == 1
+        assert drift[0].file == "F1"
+
+
 from fbdi.catalog import extract_file
 
 

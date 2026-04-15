@@ -397,3 +397,103 @@ def _run_file_in_subprocess(
 
     row_tuples, issue_tuples = result
     return _tuples_to_rows(row_tuples), _tuples_to_issues(issue_tuples)
+
+
+def _compute_drift(
+    old_rows: list[CatalogRow],
+    new_rows: list[CatalogRow],
+    release_old: str,
+    release_new: str,
+) -> list[DriftRow]:
+    """Position-aligned diff between two release row sets.
+
+    Aligns by (file_name, tab_name, position). Emits DriftRows only for
+    positions where something changed. change_type classified by the
+    rules in the spec: ADDED, REMOVED, RENAMED (name only),
+    TYPE_CHANGED, LENGTH_CHANGED (length or scale), REQUIRED_CHANGED,
+    MULTI when more than one axis changes.
+    """
+    def key(r: CatalogRow) -> tuple:
+        return (r.file_name, r.tab_name, r.position)
+
+    old_by_key = {key(r): r for r in old_rows}
+    new_by_key = {key(r): r for r in new_rows}
+    all_keys = sorted(set(old_by_key.keys()) | set(new_by_key.keys()))
+
+    drift: list[DriftRow] = []
+    for k in all_keys:
+        old = old_by_key.get(k)
+        new = new_by_key.get(k)
+        if old is None:
+            drift.append(_drift_row(None, new, "ADDED"))
+            continue
+        if new is None:
+            drift.append(_drift_row(old, None, "REMOVED"))
+            continue
+
+        name_changed = (
+            old.column_label != new.column_label
+            or old.column_technical != new.column_technical
+        )
+        type_changed = old.data_type != new.data_type
+        length_changed = (old.length != new.length) or (old.scale != new.scale)
+        required_changed = old.required != new.required
+
+        changed_axes = sum([name_changed, type_changed, length_changed, required_changed])
+        if changed_axes == 0:
+            continue
+        if changed_axes > 1:
+            ctype = "MULTI"
+        elif name_changed:
+            ctype = "RENAMED"
+        elif type_changed:
+            ctype = "TYPE_CHANGED"
+        elif length_changed:
+            ctype = "LENGTH_CHANGED"
+        else:
+            ctype = "REQUIRED_CHANGED"
+
+        drift.append(_drift_row(old, new, ctype))
+    return drift
+
+
+def _drift_row(
+    old: CatalogRow | None, new: CatalogRow | None, change_type: str
+) -> DriftRow:
+    """Build a DriftRow from optional old/new CatalogRows."""
+    ref = new if new is not None else old
+    assert ref is not None  # at least one side must exist
+    return DriftRow(
+        file=ref.file_name,
+        tab=ref.tab_name,
+        position=ref.position,
+        col_label_old=old.column_label if old else "",
+        col_label_new=new.column_label if new else "",
+        col_technical_old=old.column_technical if old else "",
+        col_technical_new=new.column_technical if new else "",
+        data_type_old=_fmt_type(old),
+        data_type_new=_fmt_type(new),
+        length_old=_fmt_length(old),
+        length_new=_fmt_length(new),
+        required_old=_fmt_required(old),
+        required_new=_fmt_required(new),
+        change_type=change_type,
+    )
+
+
+def _fmt_type(r: CatalogRow | None) -> str:
+    return r.data_type if r else ""
+
+
+def _fmt_length(r: CatalogRow | None) -> str:
+    if r is None or r.length is None:
+        return ""
+    if r.scale is not None:
+        return f"{r.length},{r.scale}"
+    return str(r.length)
+
+
+def _fmt_required(r: CatalogRow | None) -> str:
+    if r is None or r.required is None:
+        return ""
+    return "TRUE" if r.required else "FALSE"
