@@ -26,6 +26,15 @@ logger = logging.getLogger(__name__)
 
 _MAX_COL = 500
 
+# Column-A keyword -> metadata role. Case-insensitive match after BOM strip.
+# Note: header row (tier 1) has col A starting with "Column name of the Table";
+# that's already handled by detect_header_row, we don't re-discover it here.
+_COL_A_ROLE_KEYWORDS = {
+    "name": "label",
+    "data type": "type",
+    "required or optional": "required",
+}
+
 
 @dataclass
 class CatalogRow:
@@ -169,6 +178,26 @@ def _extract_thin(
     return rows, []
 
 
+def _find_metadata_rows(
+    ws: Worksheet, header_row: int
+) -> dict[str, int]:
+    """Scan col A of rows 1..header_row-1. Return {role: row_idx} for matched rows.
+
+    Match is case-insensitive with BOM prefix stripped. Unmatched rows are
+    silently ignored (e.g., 'Description', 'Reserved for Future Use').
+    """
+    found: dict[str, int] = {}
+    for r in range(1, header_row):
+        cell = ws.cell(row=r, column=1).value
+        if cell is None:
+            continue
+        key = str(cell).lstrip("\ufeff").strip().lower()
+        role = _COL_A_ROLE_KEYWORDS.get(key)
+        if role and role not in found:
+            found[role] = r
+    return found
+
+
 def _extract_rich(
     ws: Worksheet,
     file_stem: str,
@@ -176,9 +205,74 @@ def _extract_rich(
     header_row: int,
     header_values: list[str | None],
 ) -> tuple[list[CatalogRow], list[IssueRow]]:
-    """Rich-tab extraction — implemented in the next task.
+    """Rich-tab extraction. header_values is the tier-1 (technical) row.
 
-    Temporary: returns empty to satisfy the Tier 1 path while tests for
-    Tier 2 are green.
+    Uses col-A keyword matching to locate the label/type/required rows
+    above header_row. Missing role rows leave the corresponding field
+    blank; other fields still populate. Unparseable data types emit
+    TYPE_PARSE_WARNING issues but the row still emits (raw preserved).
     """
-    raise NotImplementedError("Rich-tab extraction lands in Task 5")
+    roles = _find_metadata_rows(ws, header_row)
+
+    label_values = _read_row_values(ws, roles["label"]) if "label" in roles else []
+    type_values = _read_row_values(ws, roles["type"]) if "type" in roles else []
+    required_values = _read_row_values(ws, roles["required"]) if "required" in roles else []
+
+    rows: list[CatalogRow] = []
+    issues: list[IssueRow] = []
+
+    def _val_at(values: list[str | None], sheet_col: int) -> str:
+        """Return the cell value at sheet column `sheet_col` (1-based) or ''."""
+        idx = sheet_col - 1
+        if 0 <= idx < len(values):
+            v = values[idx]
+            return str(v) if v is not None else ""
+        return ""
+
+    # Iterate data columns (col B onward) in the header row
+    for sheet_col in range(2, len(header_values) + 1):
+        tech_raw = header_values[sheet_col - 1]
+        if not tech_raw:
+            continue
+        technical = str(tech_raw).strip()
+        label_raw = _val_at(label_values, sheet_col)
+        type_raw = _val_at(type_values, sheet_col)
+        req_raw = _val_at(required_values, sheet_col)
+
+        parsed = parse_data_type(type_raw)
+        if parsed.parse_warning:
+            issues.append(IssueRow(
+                release=release,
+                file=file_stem,
+                tab=ws.title,
+                issue_type="TYPE_PARSE_WARNING",
+                detail=type_raw,
+            ))
+
+        rows.append(CatalogRow(
+            release=release,
+            file_name=file_stem,
+            tab_name=ws.title,
+            position=sheet_col - 1,  # renumber data columns starting from 1
+            column_label=normalize_label(label_raw),
+            column_technical=technical,
+            data_type=parsed.data_type,
+            length=parsed.length,
+            scale=parsed.scale,
+            data_type_raw=type_raw,
+            required=_parse_required_flag(req_raw),
+        ))
+
+    return rows, issues
+
+
+def _parse_required_flag(raw: str) -> bool | None:
+    """Parse 'Required'/'Optional' (case-insensitive) to bool. Unknown -> None."""
+    if not raw:
+        return None
+    v = raw.strip().lower()
+    if v.startswith("required"):
+        return True
+    if v.startswith("optional"):
+        return False
+    return None

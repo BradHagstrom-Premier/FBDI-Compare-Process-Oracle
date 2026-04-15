@@ -83,3 +83,149 @@ class TestExtractTabRowsThin:
         assert issues[0].tab == "EmptyTab"
         assert issues[0].release == "26A"
         assert issues[0].file == "Tpl"
+
+
+def _make_rich_tab(
+    ws,
+    labels: list[str],
+    descriptions: list[str] | None = None,
+    data_types: list[str] | None = None,
+    required_flags: list[str] | None = None,
+    technicals: list[str] | None = None,
+    header_row: int = 5,
+    table_name: str = "RCS_ATTACHMENTS_INT",
+):
+    """Build a rich-tab workbook with metadata rows + technical header."""
+    def _row(row_idx, label_a, values):
+        ws.cell(row=row_idx, column=1, value=label_a)
+        for col_idx, v in enumerate(values, start=2):
+            ws.cell(row=row_idx, column=col_idx, value=v)
+    # Header row: "Column name of the Table X" in col A, then tech names col B..
+    _row(header_row, f"Column name of the Table {table_name}", technicals or labels)
+    # Name row above, then Description, Data Type, Required
+    if header_row >= 2:
+        _row(header_row - 1, "Required or Optional", required_flags or ["Optional"] * len(labels))
+    if header_row >= 3:
+        _row(header_row - 2, "Data Type", data_types or [""] * len(labels))
+    if header_row >= 4:
+        _row(header_row - 3, "Description", descriptions or [""] * len(labels))
+    if header_row >= 5:
+        _row(header_row - 4, "Name", labels)
+
+
+class TestExtractTabRowsRich:
+    def test_rich_tab_all_metadata_rows(self, tmp_path):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Attachment Details"
+        _make_rich_tab(
+            ws,
+            labels=["Attachment Type", "Attachment Name", "Document ID"],
+            data_types=["VARCHAR2(5 CHAR)", "VARCHAR2(2048 CHAR)", "NUMBER(18)"],
+            required_flags=["Required", "Required", "Optional"],
+            technicals=["ATTACHMENT_TYPE", "ATTACHMENT_NAME", "DOCUMENT_ID"],
+            table_name="RCS_ATTACHMENTS_INT",
+            header_row=5,
+        )
+
+        rows, issues = extract_tab_rows(ws, file_stem="AttachmentsImportTemplate", release="26B")
+
+        assert issues == []
+        assert len(rows) == 3
+        r0 = rows[0]
+        assert r0.position == 1
+        assert r0.column_label == "Attachment Type"
+        assert r0.column_technical == "ATTACHMENT_TYPE"
+        assert r0.data_type == "VARCHAR2"
+        assert r0.length == 5
+        assert r0.scale is None
+        assert r0.data_type_raw == "VARCHAR2(5 CHAR)"
+        assert r0.required is True
+        assert rows[1].length == 2048
+        assert rows[2].data_type == "NUMBER"
+        assert rows[2].length == 18
+        assert rows[2].required is False
+
+    def test_rich_tab_with_bom_on_required_row(self, tmp_path):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "TabWithBOM"
+        _make_rich_tab(
+            ws, labels=["Col A"],
+            data_types=["VARCHAR2(80)"],
+            technicals=["COL_A"],
+        )
+        # Overwrite the 'Required or Optional' col-A label with BOM-prefixed variant
+        # In _make_rich_tab, required is at header_row - 1 = row 4
+        ws.cell(row=4, column=1, value="\ufeffRequired or Optional")
+        ws.cell(row=4, column=2, value="Required")
+
+        rows, _ = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        assert rows[0].required is True
+
+    def test_rich_tab_case_insensitive_col_a_match(self, tmp_path):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "MixedCase"
+        _make_rich_tab(
+            ws, labels=["Col A"],
+            data_types=["VARCHAR2(80)"],
+            technicals=["COL_A"],
+        )
+        # Lowercase the 'Data Type' label
+        ws.cell(row=3, column=1, value="DATA type")  # row 3 = Data Type row
+        rows, _ = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        assert rows[0].data_type == "VARCHAR2"
+        assert rows[0].length == 80
+
+    def test_rich_tab_missing_data_type_row(self, tmp_path):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "NoDataType"
+        _make_rich_tab(
+            ws, labels=["Col A"],
+            data_types=["VARCHAR2(80)"],
+            technicals=["COL_A"],
+        )
+        # Clear the Data Type row's column A label so it's not recognized
+        ws.cell(row=3, column=1, value="Reserved for Future Use")
+
+        rows, _ = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        # Type fields blank; other fields still populate
+        assert rows[0].column_label == "Col A"
+        assert rows[0].column_technical == "COL_A"
+        assert rows[0].data_type == ""
+        assert rows[0].length is None
+        assert rows[0].data_type_raw == ""
+
+    def test_rich_tab_unparseable_type_emits_warning_issue(self, tmp_path):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "WeirdType"
+        _make_rich_tab(
+            ws, labels=["Col A"],
+            data_types=["???junk???"],
+            technicals=["COL_A"],
+        )
+        rows, issues = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        # Row still emitted, raw preserved, parsed fields blank
+        assert rows[0].data_type == ""
+        assert rows[0].length is None
+        assert rows[0].data_type_raw == "???junk???"
+        # One warning issue for that raw string
+        warnings = [i for i in issues if i.issue_type == "TYPE_PARSE_WARNING"]
+        assert len(warnings) == 1
+        assert warnings[0].detail == "???junk???"
+
+    def test_rich_tab_asterisk_in_label_stripped(self, tmp_path):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "StarLabel"
+        _make_rich_tab(
+            ws, labels=["*Required Label"],
+            data_types=["VARCHAR2(80)"],
+            technicals=["REQ_LABEL"],
+        )
+        rows, _ = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        # Asterisk stripped by normalize_label; required comes from R4 row anyway
+        assert rows[0].column_label == "Required Label"
