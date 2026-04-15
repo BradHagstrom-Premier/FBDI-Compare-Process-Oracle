@@ -10,26 +10,52 @@ This repo automates comparison of Oracle FBDI (File-Based Data Import) template 
 
 ---
 
-## Active Pipeline (Built and Working)
+## Quick Start
 
-- **`fbdi/` package** — Python comparison engine
-  - `detect_header.py` — dynamically identifies the header row in each FBDI tab using content scoring (no hardcoded filename map)
-  - `compare.py` — diffs two releases tab-by-tab, field-by-field; uses subprocess isolation + per-file timeout
-  - `clear.py` — smart clearing of FBDI templates using `detect_header_row` (preserves headers at any row)
-  - `cli.py` / `__main__.py` — CLI entry point: `python -m fbdi compare --old 26A --new 26B` (release label or explicit path)
-  - `config.py`, `utils.py` — shared configuration and helpers
-- **`tools/download_and_clear.py`** — standalone Selenium downloader + smart clearing entry point. Not integrated into `fbdi` (keeps Selenium dependencies out of the comparison engine).
-- **`tests/`** — 54 unit tests, all passing (`python -m pytest tests/`)
-- **Output** — `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column format (columns A–G): Module, Template File, Tab, Field, Old Value, New Value, Change Type
-- **Baseline layout** — `baselines/<ver>/originals/` (as-downloaded) and `baselines/<ver>/blanks/` (smart-cleared copies for client use)
+```bash
+# Compare two releases (uses baselines/<ver>/originals/)
+python -m fbdi compare --old 26A --new 26B --output Comparison_Report_26A_26B.xlsx
+
+# Diagnose header detection across releases
+python -m fbdi diagnose --old baselines/26A/originals --new baselines/26B/originals --output Diagnostic_Report_26A_26B.xlsx
+
+# Download + smart-clear FBDI templates for a new release
+python tools/download_and_clear.py 26B                 # download + clear
+python tools/download_and_clear.py 26B --clear-only    # re-clear only (skip download)
+
+# Tests
+python -m pytest tests/            # full suite
+python -m pytest tests/test_clear.py -v
+```
+
+**Requirements:** Python 3.14+, `openpyxl`, `selenium`, `webdriver-manager`, `requests`, `pytest`. No `requirements.txt` — dependencies are installed ad-hoc.
 
 ---
 
-## What Is Not Built Yet
+## Active Pipeline (Built and Working)
 
-- **Downloader integration** — `reference/test.py` (Dan's Selenium script) has not been ported into the `fbdi/` package. Baselines are still populated manually or by running the legacy script directly.
-- **`report.py`** — Audrey report automation. Phase 2: reformats comparison output into the Audrey change-tracking format used for client deliverables.
-- **`python -m fbdi run`** — Full pipeline command (Phase 3). Would chain download → compare → report in one call.
+- **`fbdi/` package** — Python comparison engine
+  - `detect_header.py` — dynamically identifies the header row in each FBDI tab using content scoring (no hardcoded filename map). Uses `iter_rows` for streaming scans.
+  - `compare.py` — diffs two releases tab-by-tab, field-by-field. Each pair runs in a `multiprocessing.Process` with a 120s timeout (prevents openpyxl resource-leak hangs).
+  - `clear.py` — smart clearing of FBDI templates using `detect_header_row` (preserves headers at any row — 4, 5, 8, etc.)
+  - `diagnose.py` — reports header-detection outcomes per tab (`DETECTED`, `NO_HEADER`, `SKIPPED_TAB`, `FILE_TOO_LARGE`, `FILE_ERROR`). Uses full (non-read_only) openpyxl mode.
+  - `build_mapping.py` — builds the `fbdi_applaud_mapping.xlsx` workbook that maps FBDI tabs/fields to Applaud target tables for downstream integrations.
+  - `cli.py` / `__main__.py` — CLI entry point. `_resolve_dir()` makes `--old 26A` resolve to `baselines/26A/originals/`.
+  - `config.py`, `utils.py` — shared configuration and helpers.
+- **`tools/download_and_clear.py`** — standalone Selenium downloader + smart clearing entry point. Imports `fbdi.clear` but lives outside the `fbdi/` package so Selenium/webdriver dependencies stay out of the comparison engine.
+- **`tests/`** — 54 unit tests, all passing (`python -m pytest tests/`)
+- **Output** — `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column format (columns A–G): FBDI File, FBDI Tab, Column Letter, Column Number, Old FBDI Field Name, New FBDI Field Name, Difference?
+- **Baseline layout** — `baselines/26A/originals/` (as-downloaded) and `baselines/26A/blanks/` (smart-cleared copies for client use)
+
+---
+
+## Current Frontier
+
+- **FBDI → Applaud mapping** — `fbdi_applaud_mapping.xlsx` (built by `fbdi/build_mapping.py`) is partially populated. Brad is filling in TBD rows manually. See `Applaud Mapping Review To Do 04022026.md`.
+- **`report.py`** (not built) — Will reformat comparison output into the Audrey change-tracking format used for client deliverables. Blocked on mapping completion.
+- **`python -m fbdi run`** (not built) — Would chain download → compare → report in a single command.
+
+See `NEXT_STEPS.md` for the prioritized backlog and historical phase-by-phase resolutions.
 
 ---
 
@@ -37,7 +63,7 @@ This repo automates comparison of Oracle FBDI (File-Based Data Import) template 
 
 | Decision | Choice |
 |---|---|
-| Baseline storage | Folder-based: `baselines/25d/`, `baselines/26a/` — not Git-based |
+| Baseline storage | Folder-based: `baselines/26A/originals/`, `baselines/26A/blanks/` — gitignored, not Git-tracked |
 | Header detection | Dynamic content scoring per tab — no hardcoded filename-to-header map |
 | Excel reading | `openpyxl` with `data_only=True` where formula evaluation is needed |
 | Comparison output | 7-column `.xlsx` — columns A–G as specified |
@@ -73,27 +99,32 @@ This repo automates comparison of Oracle FBDI (File-Based Data Import) template 
 
 ---
 
-## Workflow
+## Testing
 
-Planning happens in Claude Chat (claude.ai). Implementation happens in Claude Code (this CLI). The bridge is a handoff `.md` file written in Claude Chat and executed here.
+- `python -m pytest tests/` — run full suite (54 tests)
+- `python -m pytest tests/test_clear.py -v` — run one module
+- `tests/validate_against_vba.py` and `tests/vba_fieldrow_map.json` — ad-hoc validation against the legacy VBA macro's expected header rows (not pytest, kept for spot-checks against regressions)
 
-Pattern:
-1. Brad and Claude Chat design the next phase → produce a `handoff_*.md`
-2. Brad opens Claude Code → runs the handoff plan
-3. Claude Code executes, commits, pushes
+Tests use `openpyxl.Workbook` to build synthetic FBDI files per test (see `_make_fbdi_workbook` / `_create_fbdi_workbook` helpers). There are no fixtures — fixture-like workbooks are built inline in each test so the expected layout is visible next to the assertions.
+
+**Test-data gotcha:** `detect_header_row` scores rows by UPPER_SNAKE_CASE content. Synthetic sample data like `"CREATE"`, `"V1"`, `"DR_ECO_1"` will false-positive as headers. Use lowercase/mixed-case values in test data rows (e.g. `"Create Order"`, `"V1-org"`).
 
 ---
 
-## Plugins Active in This Project
+## Docs & Planning
 
-- **superpowers** — brainstorming, plan writing, plan execution, debugging, finishing branches, code review
-- **context7** (MCP) — library documentation lookup
-- **github** (MCP) — PR creation, branch management
-- **coderabbit** — automated code review
-- **commit-commands** — `/commit`, `/commit-push-pr`
-- **claude-md-management** — CLAUDE.md auditing and improvement
-- **feature-dev** — feature development with architecture focus
-- **pr-review-toolkit** — PR review workflows
+Two patterns have been used in this repo — both are still valid:
+
+- **Old:** `handoff_*.md` files (written in Claude Chat, executed by Claude Code) — now gitignored, kept in conversation or local scratch.
+- **Current:** `docs/superpowers/specs/*.md` (design) and `docs/superpowers/plans/*.md` (implementation plans) — produced via the `superpowers:brainstorming` and `superpowers:writing-plans` skills and committed to the repo so the history is auditable.
+
+`NEXT_STEPS.md` at the project root is the prioritized backlog / resolution log — read it for historical context on what was fixed when and why.
+
+---
+
+## Plugins / Tooling
+
+Project uses the `superpowers` skill family (brainstorming, writing-plans, executing-plans, systematic-debugging, verification-before-completion). CodeRabbit is wired up for PR review. See user-level `~/.claude/` config for the full plugin list — no project-specific plugin requirements.
 
 ## graphify
 
