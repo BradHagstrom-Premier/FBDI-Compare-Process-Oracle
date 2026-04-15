@@ -16,7 +16,7 @@ HUMAN_HEADERS = [
     "Change Number", "Change Name", "Description",
 ]
 
-SAMPLE_DATA_ROW = ["CREATE", "10017", "V1", "DR_ECO_1", "Test Change", "A description"]
+SAMPLE_DATA_ROW = ["Create Order", "10017", "V1-org", "eco test 1", "Test Change", "A description"]
 
 
 def _make_fbdi_workbook(
@@ -215,7 +215,7 @@ class TestClearWorkbook:
             ws2.cell(row=4, column=col, value=val)
         for col, val in enumerate(["Description"] * 6, start=1):
             ws2.cell(row=5, column=col, value=val)
-        for col, val in enumerate(["VARCHAR2"] * 6, start=1):
+        for col, val in enumerate(["VARCHAR2(10)"] * 6, start=1):
             ws2.cell(row=6, column=col, value=val)
         ws2.cell(row=7, column=1, value="Reserved")
         for col, val in enumerate(UPPER_SNAKE_HEADERS, start=1):
