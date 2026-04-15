@@ -18,6 +18,9 @@ import shutil
 import sys
 import time
 
+# Add project root to sys.path so subprocesses can import fbdi
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import requests
 from requests.adapters import HTTPAdapter
 from selenium import webdriver
