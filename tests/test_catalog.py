@@ -229,3 +229,64 @@ class TestExtractTabRowsRich:
         rows, _ = extract_tab_rows(ws, file_stem="Tpl", release="26B")
         # Asterisk stripped by normalize_label; required comes from R4 row anyway
         assert rows[0].column_label == "Required Label"
+
+
+from fbdi.catalog import extract_file
+
+
+class TestExtractFile:
+    def test_extract_file_multiple_tabs(self, tmp_path):
+        path = tmp_path / "MultiTab.xlsm"
+        wb = Workbook()
+        wb.remove(wb.active)
+
+        # Thin tab
+        ws1 = wb.create_sheet("THIN_TAB")
+        _make_thin_tab(ws1, ["*Field A", "Field B"])
+
+        # Rich tab
+        ws2 = wb.create_sheet("RICH_TAB")
+        _make_rich_tab(
+            ws2,
+            labels=["Col A", "Col B"],
+            data_types=["VARCHAR2(50)", "NUMBER(10)"],
+            required_flags=["Required", "Optional"],
+            technicals=["COL_A", "COL_B"],
+        )
+        wb.save(path)
+
+        rows, issues = extract_file(path, release="26B")
+        tabs = {r.tab_name for r in rows}
+        assert tabs == {"THIN_TAB", "RICH_TAB"}
+        # Thin tab contributes 2 rows, rich tab contributes 2 rows
+        assert len(rows) == 4
+        assert issues == []
+
+    def test_extract_file_skips_instruction_tabs(self, tmp_path):
+        from fbdi.config import SKIP_TABS
+        path = tmp_path / "WithInstructions.xlsm"
+        wb = Workbook()
+        wb.remove(wb.active)
+        for name in list(SKIP_TABS)[:2]:
+            ws = wb.create_sheet(name)
+            ws.cell(row=1, column=1, value="Instruction content")
+        data_ws = wb.create_sheet("DATA_TAB")
+        _make_thin_tab(data_ws, ["*Field One", "Field Two"])
+        wb.save(path)
+
+        rows, issues = extract_file(path, release="26B")
+        tabs = {r.tab_name for r in rows}
+        assert tabs == {"DATA_TAB"}
+        assert issues == []
+
+    def test_extract_file_load_error_yields_issue(self, tmp_path):
+        path = tmp_path / "Corrupt.xlsm"
+        path.write_bytes(b"not a real xlsx file")
+
+        rows, issues = extract_file(path, release="26B")
+        assert rows == []
+        assert len(issues) == 1
+        assert issues[0].issue_type == "FILE_ERROR"
+        assert issues[0].file == "Corrupt"
+        assert issues[0].tab == ""
+        assert issues[0].release == "26B"

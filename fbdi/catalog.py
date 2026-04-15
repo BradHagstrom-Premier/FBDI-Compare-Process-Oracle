@@ -14,11 +14,14 @@ existing release regenerates only that release's tab plus Issues/Drift.
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
+from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.worksheet.worksheet import Worksheet
 
 from fbdi.catalog_normalize import normalize_label
+from fbdi.config import SKIP_TABS
 from fbdi.detect_header import UPPER_SNAKE_PATTERN, detect_header_row
 from fbdi.type_parser import parse_data_type
 
@@ -276,3 +279,39 @@ def _parse_required_flag(raw: str) -> bool | None:
     if v.startswith("optional"):
         return False
     return None
+
+
+def extract_file(
+    path: Path, release: str
+) -> tuple[list[CatalogRow], list[IssueRow]]:
+    """Open one .xlsm and extract catalog rows for every non-skipped tab.
+
+    Returns (rows, issues). FILE_ERROR on load failure produces one
+    IssueRow with tab="". Each data tab that extract_tab_rows flags with
+    issues contributes its issues to the combined list.
+    """
+    file_stem = path.stem
+    try:
+        wb = load_workbook(path, read_only=True, data_only=True)
+    except Exception as e:
+        return [], [IssueRow(
+            release=release,
+            file=file_stem,
+            tab="",
+            issue_type="FILE_ERROR",
+            detail=f"{type(e).__name__}: {str(e)[:200]}",
+        )]
+
+    all_rows: list[CatalogRow] = []
+    all_issues: list[IssueRow] = []
+    try:
+        for sheet_name in wb.sheetnames:
+            if sheet_name in SKIP_TABS:
+                continue
+            ws = wb[sheet_name]
+            rows, issues = extract_tab_rows(ws, file_stem=file_stem, release=release)
+            all_rows.extend(rows)
+            all_issues.extend(issues)
+    finally:
+        wb.close()
+    return all_rows, all_issues
