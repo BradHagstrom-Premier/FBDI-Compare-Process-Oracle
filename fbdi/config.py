@@ -1,7 +1,9 @@
 """Configuration constants for the FBDI comparison engine."""
 
-# Maximum file size in bytes before skipping (files larger than this are excluded
-# from automated comparison and must be reviewed manually)
+# Maximum file size in bytes before skipping in diagnostics / mapping builds.
+# These tools load workbooks in non-read_only mode (everything in memory), so
+# the limit is a memory safeguard. The comparison engine uses streaming
+# read-only + iter_rows and is not bounded by this limit.
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
 
 # Minimum non-empty cells for a row to be a header candidate

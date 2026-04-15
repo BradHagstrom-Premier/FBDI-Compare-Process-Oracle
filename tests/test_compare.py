@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from fbdi.compare import ComparisonRow, compare_fbdi_pair, compare_all
-from fbdi.config import SKIP_TABS, MAX_FILE_SIZE_BYTES
+from fbdi.config import SKIP_TABS
 
 
 HEADERS_OLD = ["INVOICE_NUMBER", "PO_LINE_ID", "VENDOR_NAME", "AMOUNT", "CURRENCY_CODE"]
@@ -189,53 +189,9 @@ class TestCompareAll:
         wb.close()
 
 
-class TestLargeFileSkip:
-    def test_oversized_old_file_returns_empty(self, tmp_path):
-        """compare_fbdi_pair returns empty list when old file exceeds MAX_FILE_SIZE_BYTES."""
-        large_path = tmp_path / "Large.xlsm"
-        normal_path = tmp_path / "Normal.xlsm"
-        large_path.write_bytes(b"0" * (MAX_FILE_SIZE_BYTES + 1))
-        _create_fbdi_workbook(normal_path, {"Data": HEADERS_NEW})
-
-        rows = compare_fbdi_pair(large_path, normal_path)
-        assert rows == []
-
-    def test_oversized_new_file_returns_empty(self, tmp_path):
-        """compare_fbdi_pair returns empty list when new file exceeds MAX_FILE_SIZE_BYTES."""
-        large_path = tmp_path / "Large.xlsm"
-        normal_path = tmp_path / "Normal.xlsm"
-        large_path.write_bytes(b"0" * (MAX_FILE_SIZE_BYTES + 1))
-        _create_fbdi_workbook(normal_path, {"Data": HEADERS_OLD})
-
-        rows = compare_fbdi_pair(normal_path, large_path)
-        assert rows == []
-
-    def test_compare_all_returns_skipped_list(self, tmp_path):
-        """compare_all returns (output_path, skipped_files) where skipped_files tracks oversized pairs."""
-        old_dir = tmp_path / "old"
-        new_dir = tmp_path / "new"
-        old_dir.mkdir()
-        new_dir.mkdir()
-
-        # One normal pair
-        _create_fbdi_workbook(old_dir / "Template.xlsm", {"Data": HEADERS_OLD})
-        _create_fbdi_workbook(new_dir / "Template.xlsm", {"Data": HEADERS_NEW})
-
-        # One oversized pair
-        large_bytes = b"0" * (MAX_FILE_SIZE_BYTES + 1)
-        (old_dir / "HugeFile.xlsm").write_bytes(large_bytes)
-        (new_dir / "HugeFile.xlsm").write_bytes(large_bytes)
-
-        output = tmp_path / "report.xlsx"
-        result_path, skipped = compare_all(old_dir, new_dir, output)
-
-        assert result_path.exists()
-        assert len(skipped) == 1
-        assert skipped[0]["name"] == "HugeFile"
-        assert skipped[0]["size_mb"] > 5.0
-
-    def test_compare_all_no_large_files_empty_skipped(self, tmp_path):
-        """compare_all returns empty skipped list when all files are within size limit."""
+class TestCompareAllReturnSignature:
+    def test_compare_all_returns_empty_timed_out_on_fast_files(self, tmp_path):
+        """compare_all returns (output_path, timed_out) where timed_out is empty for normal files."""
         old_dir = tmp_path / "old"
         new_dir = tmp_path / "new"
         old_dir.mkdir()
@@ -245,7 +201,7 @@ class TestLargeFileSkip:
         _create_fbdi_workbook(new_dir / "Template.xlsm", {"Data": HEADERS_NEW})
 
         output = tmp_path / "report.xlsx"
-        result_path, skipped = compare_all(old_dir, new_dir, output)
+        result_path, timed_out = compare_all(old_dir, new_dir, output)
 
         assert result_path.exists()
-        assert skipped == []
+        assert timed_out == []
