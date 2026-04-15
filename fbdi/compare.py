@@ -1,6 +1,7 @@
 """Core FBDI comparison engine."""
 
 import logging
+import multiprocessing
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,6 +13,11 @@ from openpyxl.worksheet.worksheet import Worksheet
 from fbdi.config import MAX_FILE_SIZE_BYTES, REPORT_HEADERS, SKIP_TABS
 from fbdi.detect_header import detect_header_row
 from fbdi.utils import col_index_to_letter, match_fbdi_files
+
+# Per-file timeout for comparison (seconds). openpyxl can hang on certain files
+# due to resource accumulation across sequential loads. Subprocess isolation
+# gives each file a clean process; this timeout caps how long we wait.
+COMPARE_TIMEOUT = 120
 
 logger = logging.getLogger(__name__)
 
@@ -153,13 +159,39 @@ def compare_fbdi_pair(old_path: Path, new_path: Path) -> list[ComparisonRow]:
     return rows
 
 
+def _compare_worker(old_path: str, new_path: str, queue: multiprocessing.Queue) -> None:
+    """Subprocess worker: compare one file pair and put results on the queue.
+
+    Runs in a separate process so that openpyxl resource leaks (file handles,
+    memory) are cleaned up by process exit. This prevents the accumulation of
+    leaked resources that causes hangs after ~50 sequential file loads.
+    """
+    from openpyxl.styles.fonts import Font as WorkerFont
+    WorkerFont.family.max = 255
+
+    try:
+        rows = compare_fbdi_pair(Path(old_path), Path(new_path))
+        # Serialize dataclass instances to tuples for pickling
+        queue.put([
+            (r.fbdi_file, r.fbdi_tab, r.column_letter, r.column_number,
+             r.old_field_name, r.new_field_name, r.difference)
+            for r in rows
+        ])
+    except Exception as e:
+        queue.put(f"ERROR: {e}")
+
+
 def compare_all(
     old_dir: Path,
     new_dir: Path,
     output_path: Path,
     changes_only: bool = True,
+    timeout: int = COMPARE_TIMEOUT,
 ) -> tuple[Path, list[dict]]:
     """Compare all matched FBDI pairs and write Comparison_Report.xlsx.
+
+    Each file pair is compared in a subprocess to isolate openpyxl resources.
+    This prevents resource leaks from accumulating and causing hangs.
 
     Returns:
         (output_path, skipped_files) where skipped_files is a list of dicts
@@ -178,18 +210,59 @@ def compare_all(
 
     all_rows: list[ComparisonRow] = []
     skipped_files: list[dict] = []
+    timed_out: list[str] = []
 
-    for old_path, new_path in matched:
+    for i, (old_path, new_path) in enumerate(matched, 1):
         old_size = old_path.stat().st_size
         new_size = new_path.stat().st_size
 
         if old_size > MAX_FILE_SIZE_BYTES or new_size > MAX_FILE_SIZE_BYTES:
             larger_mb = max(old_size, new_size) / (1024 * 1024)
             skipped_files.append({"name": old_path.stem, "size_mb": larger_mb})
-            # compare_fbdi_pair will log the skip warning
-        logger.info("Comparing: %s", old_path.stem)
-        pair_rows = compare_fbdi_pair(old_path, new_path)
-        all_rows.extend(pair_rows)
+            logger.warning(
+                "SKIPPED (file > %dMB): %s — %.1fMB",
+                MAX_FILE_SIZE_BYTES // (1024 * 1024),
+                old_path.stem, larger_mb,
+            )
+            continue
+
+        logger.info("[%d/%d] Comparing: %s", i, len(matched), old_path.stem)
+
+        queue: multiprocessing.Queue = multiprocessing.Queue()
+        proc = multiprocessing.Process(
+            target=_compare_worker,
+            args=(str(old_path), str(new_path), queue),
+        )
+        proc.start()
+        proc.join(timeout=timeout)
+
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(5)
+            timed_out.append(old_path.stem)
+            logger.warning(
+                "TIMEOUT after %ds: %s — skipped", timeout, old_path.stem,
+            )
+            continue
+
+        if proc.exitcode != 0:
+            logger.error(
+                "Subprocess failed (exit %d): %s", proc.exitcode, old_path.stem,
+            )
+            continue
+
+        try:
+            result = queue.get_nowait()
+        except Exception:
+            logger.error("No result from subprocess: %s", old_path.stem)
+            continue
+
+        if isinstance(result, str) and result.startswith("ERROR:"):
+            logger.error("Compare error for %s: %s", old_path.stem, result)
+            continue
+
+        for row_tuple in result:
+            all_rows.append(ComparisonRow(*row_tuple))
 
     if skipped_files:
         names = "\n  - ".join(
@@ -201,6 +274,12 @@ def compare_all(
             len(skipped_files),
             MAX_FILE_SIZE_BYTES // (1024 * 1024),
             names,
+        )
+
+    if timed_out:
+        logger.warning(
+            "%d file(s) timed out (>%ds) and were excluded from this report:\n  - %s",
+            len(timed_out), timeout, "\n  - ".join(timed_out),
         )
 
     # Write output
