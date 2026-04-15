@@ -59,17 +59,26 @@ def _is_header_like(value: str) -> bool:
 
 
 def _scan_rows(ws: Worksheet, max_scan: int) -> list[dict]:
-    """Scan rows and compute metrics for each."""
+    """Scan rows and compute metrics for each.
+
+    Uses iter_rows() (streaming) rather than ws.cell(row, col) lookups.
+    In read-only mode, ws.cell() is O(n) per call (re-scans streamed rows),
+    so per-cell access on a 500-wide sheet is O(n*m) overall. iter_rows() is
+    O(n) for the whole scan. On wide sheets (e.g. 679 columns) this turns
+    a 74-second detection into <1 second.
+    """
     # Cap at 500 columns — real headers never exceed this, and some sheets
     # report max_column=16384 (Excel max) due to phantom formatting.
     max_col = min(ws.max_column or 1, 500)
     row_data = []
 
-    for row_idx in range(1, min(max_scan + 1, (ws.max_row or 0) + 1)):
+    for row_idx, row_cells in enumerate(
+        ws.iter_rows(min_row=1, max_row=max_scan, max_col=max_col),
+        start=1,
+    ):
         cells = []
         actual_max_col = 0
-        for col_idx in range(1, max_col + 1):
-            cell = ws.cell(row=row_idx, column=col_idx)
+        for col_idx, cell in enumerate(row_cells, start=1):
             if isinstance(cell, MergedCell):
                 cells.append(None)
             else:

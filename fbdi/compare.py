@@ -34,27 +34,39 @@ class ComparisonRow:
 
 
 def _read_header_values(ws: Worksheet, header_row: int) -> list[str | None]:
-    """Read all header values from the detected header row."""
-    max_col = 1
-    # Find the last populated column in the header row.
-    # Cap at 500 to avoid scanning phantom columns (some sheets report max_column=16384).
-    for col_idx in range(1, min((ws.max_column or 1) + 1, 501)):
-        cell = ws.cell(row=header_row, column=col_idx)
-        if isinstance(cell, MergedCell):
-            continue
-        if cell.value is not None and str(cell.value).strip() != "":
-            max_col = col_idx
+    """Read all header values from the detected header row.
 
-    values = []
-    for col_idx in range(1, max_col + 1):
-        cell = ws.cell(row=header_row, column=col_idx)
+    Uses iter_rows() (streaming) to read the single header row. ws.cell(row, col)
+    in read-only mode is O(n) per call and pathologically slow on wide sheets
+    (e.g. 500+ columns); iter_rows streams in O(n) total.
+    """
+    # Cap at 500 to avoid scanning phantom columns (some sheets report max_column=16384).
+    max_col = min((ws.max_column or 1), 500)
+
+    row_cells = next(
+        iter(ws.iter_rows(min_row=header_row, max_row=header_row, max_col=max_col)),
+        None,
+    )
+    if row_cells is None:
+        return []
+
+    # Extract raw values (one pass), then trim trailing Nones
+    raw = []
+    for cell in row_cells:
         if isinstance(cell, MergedCell):
-            values.append(None)
-        elif cell.value is not None:
-            values.append(str(cell.value).strip())
+            raw.append(None)
+        elif cell.value is not None and str(cell.value).strip() != "":
+            raw.append(str(cell.value).strip())
         else:
-            values.append(None)
-    return values
+            raw.append(None)
+
+    # Find last populated column
+    last_populated = 0
+    for i, v in enumerate(raw, start=1):
+        if v is not None:
+            last_populated = i
+
+    return raw[:last_populated]
 
 
 def compare_fbdi_pair(old_path: Path, new_path: Path) -> list[ComparisonRow]:
