@@ -14,11 +14,14 @@ This repo automates comparison of Oracle FBDI (File-Based Data Import) template 
 
 - **`fbdi/` package** — Python comparison engine
   - `detect_header.py` — dynamically identifies the header row in each FBDI tab using content scoring (no hardcoded filename map)
-  - `compare.py` — diffs two releases tab-by-tab, field-by-field
-  - `cli.py` / `__main__.py` — CLI entry point: `python -m fbdi compare --old 25d --new 26a`
+  - `compare.py` — diffs two releases tab-by-tab, field-by-field; uses subprocess isolation + per-file timeout
+  - `clear.py` — smart clearing of FBDI templates using `detect_header_row` (preserves headers at any row)
+  - `cli.py` / `__main__.py` — CLI entry point: `python -m fbdi compare --old 26A --new 26B` (release label or explicit path)
   - `config.py`, `utils.py` — shared configuration and helpers
-- **`tests/`** — 33 unit tests, all passing (`python -m pytest tests/`)
+- **`tools/download_and_clear.py`** — standalone Selenium downloader + smart clearing entry point. Not integrated into `fbdi` (keeps Selenium dependencies out of the comparison engine).
+- **`tests/`** — 54 unit tests, all passing (`python -m pytest tests/`)
 - **Output** — `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column format (columns A–G): Module, Template File, Tab, Field, Old Value, New Value, Change Type
+- **Baseline layout** — `baselines/<ver>/originals/` (as-downloaded) and `baselines/<ver>/blanks/` (smart-cleared copies for client use)
 
 ---
 
@@ -42,14 +45,18 @@ This repo automates comparison of Oracle FBDI (File-Based Data Import) template 
 
 ---
 
-## Known Hazards (From Phase 1 Implementation)
+## Known Hazards
 
-- **6 files >5MB are currently skipped** — performance issue, not a bug. Large files time out during openpyxl load. Address in a future optimization pass.
-- **~8 tabs with non-standard headers fail detection** — known edge case. Engine logs them and moves on. Do not assume detection is 100%.
-- **Full comparison run is ~75 minutes** for 209 file pairs (25D vs 26A). This is expected given openpyxl's read speed on xlsm files.
 - **Phantom columns (`max_column=16384`)** — some xlsm files report 16384 columns due to corrupt metadata. The engine caps column scanning at 500.
-- **Corrupt XML in some xlsm files** — handled gracefully; engine catches `zipfile.BadZipFile` and logs the file as unreadable.
+- **Corrupt XML in some xlsm files** — handled gracefully; engine catches `zipfile.BadZipFile` and logs the file as unreadable. 26B has ~11 such files (diagnose reports FILE_ERROR).
 - **`Comparison_Report_25D_26A.xlsx` (VBA output)** — has a corrupt stylesheet. Cannot be loaded with standard `openpyxl.load_workbook`. Use `read_only=True` or `data_only=True` with exception handling if you need to read it.
+- **Diagnose and build_mapping are still bounded by `MAX_FILE_SIZE_BYTES` (5MB)** — they load workbooks in full (non-read_only) mode for memory reasons. Comparison is unbounded and streams via `iter_rows`.
+
+## Resolved Hazards (historical note)
+
+- ~~6 files >5MB are currently skipped~~ — fixed by subprocess isolation + `iter_rows` optimization. Comparison now processes all 210 file pairs with no size limit.
+- ~~~8 tabs with non-standard headers fail detection~~ — fixed in Phase 3. Diagnose reports `NO_HEADER: 0`.
+- ~~Full comparison run is ~75 minutes~~ — much faster now due to `iter_rows` streaming (74s → 0.02s per tab on wide sheets).
 
 ---
 
