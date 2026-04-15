@@ -9,6 +9,21 @@ from fbdi.compare import compare_all
 from fbdi.utils import match_fbdi_files
 
 
+def _resolve_dir(path: Path) -> Path:
+    """Resolve a release label to its baselines originals directory.
+
+    If path is already a directory, return it unchanged.
+    Otherwise, try baselines/<path>/originals/ as a convenience shorthand.
+    Falls through to the original path if no match (caller handles the error).
+    """
+    if path.is_dir():
+        return path
+    candidate = Path("baselines") / str(path) / "originals"
+    if candidate.is_dir():
+        return candidate
+    return path
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="fbdi",
@@ -84,8 +99,8 @@ def _run_compare(args: argparse.Namespace) -> None:
         format="%(levelname)s: %(name)s: %(message)s",
     )
 
-    old_dir = args.old
-    new_dir = args.new
+    old_dir = _resolve_dir(args.old)
+    new_dir = _resolve_dir(args.new)
 
     if not old_dir.is_dir():
         print(f"Error: old directory not found: {old_dir}")
