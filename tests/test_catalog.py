@@ -494,3 +494,131 @@ class TestWriteMasterWorkbook:
         wb = load_workbook(out)
         assert "26A" in wb.sheetnames
         assert "26B" in wb.sheetnames
+
+
+from fbdi.catalog import generate_catalog
+
+
+def _make_rich_xlsm(path: Path, tab_name: str, labels, types, techs, required):
+    wb = Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet(title=tab_name)
+    _make_rich_tab(
+        ws, labels=labels, data_types=types,
+        required_flags=required, technicals=techs,
+    )
+    wb.save(path)
+
+
+class TestGenerateCatalog:
+    def test_end_to_end_single_release(self, tmp_path):
+        release_dir = tmp_path / "baselines" / "TESTA" / "originals"
+        release_dir.mkdir(parents=True)
+        _make_rich_xlsm(
+            release_dir / "Fake.xlsm",
+            tab_name="MY_TAB",
+            labels=["Col A", "Col B"],
+            types=["VARCHAR2(50)", "NUMBER(18)"],
+            techs=["COL_A", "COL_B"],
+            required=["Required", "Optional"],
+        )
+        master = tmp_path / "Catalog.xlsx"
+        generate_catalog(
+            release="TESTA",
+            baselines_dir=release_dir,
+            master_path=master,
+            timeout=60,
+        )
+        assert master.exists()
+        wb = load_workbook(master)
+        assert "TESTA" in wb.sheetnames
+        assert "Issues" in wb.sheetnames
+        assert "Drift" in wb.sheetnames
+        ws = wb["TESTA"]
+        data = [[c.value for c in row] for row in ws.iter_rows(min_row=2)]
+        assert len(data) == 2
+        drift_ws = wb["Drift"]
+        drift_rows = [
+            r for r in drift_ws.iter_rows(min_row=2)
+            if any(c.value is not None for c in r)
+        ]
+        assert drift_rows == []
+
+    def test_end_to_end_two_releases_drift_classifications(self, tmp_path):
+        testa_dir = tmp_path / "baselines" / "TESTA" / "originals"
+        testa_dir.mkdir(parents=True)
+        _make_rich_xlsm(
+            testa_dir / "Fake.xlsm",
+            tab_name="MY_TAB",
+            labels=["Col A", "Col B", "Col C"],
+            types=["VARCHAR2(50)", "NUMBER(18)", "DATE"],
+            techs=["COL_A", "COL_B", "COL_C"],
+            required=["Required", "Optional", "Optional"],
+        )
+        testb_dir = tmp_path / "baselines" / "TESTB" / "originals"
+        testb_dir.mkdir(parents=True)
+        _make_rich_xlsm(
+            testb_dir / "Fake.xlsm",
+            tab_name="MY_TAB",
+            labels=["Col A", "Col B", "Col C", "Col D"],
+            types=["VARCHAR2(50)", "NUMBER(32)", "DATE", "VARCHAR2(10)"],
+            techs=["COL_A_RENAMED", "COL_B", "COL_C", "COL_D"],
+            required=["Required", "Optional", "Required", "Optional"],
+        )
+        master = tmp_path / "Catalog.xlsx"
+        generate_catalog(
+            release="TESTA", baselines_dir=testa_dir,
+            master_path=master, timeout=60,
+        )
+        generate_catalog(
+            release="TESTB", baselines_dir=testb_dir,
+            master_path=master, timeout=60,
+        )
+        wb = load_workbook(master)
+        assert "TESTA" in wb.sheetnames
+        assert "TESTB" in wb.sheetnames
+        drift_ws = wb["Drift"]
+        drift = [[c.value for c in row] for row in drift_ws.iter_rows(min_row=2)]
+        change_types = {r[-1] for r in drift}
+        assert "RENAMED" in change_types
+        assert "LENGTH_CHANGED" in change_types
+        assert "REQUIRED_CHANGED" in change_types
+        assert "ADDED" in change_types
+
+    def test_end_to_end_file_error_in_issues(self, tmp_path):
+        release_dir = tmp_path / "baselines" / "TESTA" / "originals"
+        release_dir.mkdir(parents=True)
+        (release_dir / "Broken.xlsm").write_bytes(b"not a real xlsx file")
+        master = tmp_path / "Catalog.xlsx"
+        generate_catalog(
+            release="TESTA", baselines_dir=release_dir,
+            master_path=master, timeout=60,
+        )
+        wb = load_workbook(master)
+        ws = wb["Issues"]
+        issue_rows = [[c.value for c in row] for row in ws.iter_rows(min_row=2)]
+        assert any(r[3] == "FILE_ERROR" and r[1] == "Broken" for r in issue_rows)
+
+    def test_end_to_end_idempotent(self, tmp_path):
+        release_dir = tmp_path / "baselines" / "TESTA" / "originals"
+        release_dir.mkdir(parents=True)
+        _make_rich_xlsm(
+            release_dir / "Fake.xlsm",
+            tab_name="MY_TAB",
+            labels=["Col A"],
+            types=["VARCHAR2(50)"],
+            techs=["COL_A"],
+            required=["Required"],
+        )
+        master = tmp_path / "Catalog.xlsx"
+        generate_catalog(release="TESTA", baselines_dir=release_dir,
+                         master_path=master, timeout=60)
+        wb1 = load_workbook(master)
+        snap1 = {sn: [[c.value for c in row] for row in wb1[sn].iter_rows()]
+                 for sn in wb1.sheetnames}
+        generate_catalog(release="TESTA", baselines_dir=release_dir,
+                         master_path=master, timeout=60)
+        wb2 = load_workbook(master)
+        snap2 = {sn: [[c.value for c in row] for row in wb2[sn].iter_rows()]
+                 for sn in wb2.sheetnames}
+        assert snap1 == snap2

@@ -608,3 +608,147 @@ def _write_master_workbook(
     wb.save(tmp_path)
     wb.close()
     tmp_path.replace(output_path)
+
+
+def _load_existing_release_rows(
+    master_path: Path, current_release: str
+) -> dict[str, list[CatalogRow]]:
+    """Read rows for every release tab in master_path except `current_release`."""
+    if not master_path.exists():
+        return {}
+    try:
+        wb = load_workbook(master_path, read_only=True, data_only=True)
+    except Exception as e:
+        logger.warning(
+            "Could not load existing master at %s: %s — starting fresh",
+            master_path, e,
+        )
+        return {}
+    result: dict[str, list[CatalogRow]] = {}
+    try:
+        for sn in wb.sheetnames:
+            if sn in {"Issues", "Drift"} or sn == current_release:
+                continue
+            rows = _read_release_tab_rows(wb[sn])
+            if rows:
+                result[sn] = rows
+    finally:
+        wb.close()
+    return result
+
+
+def _read_release_tab_rows(ws) -> list[CatalogRow]:
+    """Reconstruct CatalogRows from an existing release tab in the master workbook."""
+    rows: list[CatalogRow] = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not any(v is not None for v in row):
+            continue
+        padded = list(row) + [None] * (11 - len(row))
+        (release_v, file_v, tab_v, pos_v, label_v, tech_v,
+         dtype_v, length_v, scale_v, raw_v, required_v) = padded[:11]
+        required: bool | None
+        if required_v in (None, ""):
+            required = None
+        elif str(required_v).upper() == "TRUE":
+            required = True
+        else:
+            required = False
+        rows.append(CatalogRow(
+            release=str(release_v) if release_v else "",
+            file_name=str(file_v) if file_v else "",
+            tab_name=str(tab_v) if tab_v else "",
+            position=int(pos_v) if pos_v is not None else 0,
+            column_label=str(label_v) if label_v else "",
+            column_technical=str(tech_v) if tech_v else "",
+            data_type=str(dtype_v) if dtype_v else "",
+            length=int(length_v) if isinstance(length_v, (int, float)) else None,
+            scale=int(scale_v) if isinstance(scale_v, (int, float)) else None,
+            data_type_raw=str(raw_v) if raw_v else "",
+            required=required,
+        ))
+    return rows
+
+
+def _load_existing_issues_excluding(
+    master_path: Path, current_release: str
+) -> list[IssueRow]:
+    """Read Issues tab, excluding rows for current_release."""
+    if not master_path.exists():
+        return []
+    try:
+        wb = load_workbook(master_path, read_only=True, data_only=True)
+    except Exception:
+        return []
+    try:
+        if "Issues" not in wb.sheetnames:
+            return []
+        ws = wb["Issues"]
+        out: list[IssueRow] = []
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not any(v is not None for v in row):
+                continue
+            padded = list(row) + [None] * (5 - len(row))
+            release_v, file_v, tab_v, itype_v, detail_v = padded[:5]
+            if release_v == current_release:
+                continue
+            out.append(IssueRow(
+                release=str(release_v) if release_v else "",
+                file=str(file_v) if file_v else "",
+                tab=str(tab_v) if tab_v else "",
+                issue_type=str(itype_v) if itype_v else "",
+                detail=str(detail_v) if detail_v else "",
+            ))
+        return out
+    finally:
+        wb.close()
+
+
+def generate_catalog(
+    release: str,
+    baselines_dir: Path,
+    master_path: Path,
+    timeout: int = CATALOG_TIMEOUT,
+) -> None:
+    """Generate / update the master catalog for one release."""
+    baselines_dir = Path(baselines_dir)
+    master_path = Path(master_path)
+    new_rows: list[CatalogRow] = []
+    new_issues: list[IssueRow] = []
+    xlsm_files = sorted(baselines_dir.glob("*.xlsm"))
+    for i, path in enumerate(xlsm_files, 1):
+        logger.info("[%d/%d] Cataloging: %s", i, len(xlsm_files), path.stem)
+        rows, issues = _run_file_in_subprocess(path, release=release, timeout=timeout)
+        new_rows.extend(rows)
+        new_issues.extend(issues)
+    rows_by_release = _load_existing_release_rows(master_path, current_release=release)
+    rows_by_release[release] = new_rows
+    preserved_issues = _load_existing_issues_excluding(master_path, current_release=release)
+    all_issues = preserved_issues + new_issues
+    sorted_releases = sorted(rows_by_release.keys())
+    if len(sorted_releases) >= 2:
+        release_old = sorted_releases[-2]
+        release_new = sorted_releases[-1]
+        drift = _compute_drift(
+            rows_by_release[release_old],
+            rows_by_release[release_new],
+            release_old=release_old,
+            release_new=release_new,
+        )
+    else:
+        release_old = None
+        release_new = sorted_releases[0] if sorted_releases else None
+        drift = []
+    _write_master_workbook(
+        master_path,
+        rows_by_release=rows_by_release,
+        issues=all_issues,
+        drift=drift,
+        release_old=release_old,
+        release_new=release_new,
+    )
+    logger.info(
+        "Catalog written: %s (%d releases, %d rows, %d issues, %d drift)",
+        master_path, len(rows_by_release),
+        sum(len(v) for v in rows_by_release.values()),
+        len(all_issues), len(drift),
+    )
