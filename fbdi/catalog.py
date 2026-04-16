@@ -17,8 +17,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.cell.cell import MergedCell
+from openpyxl.styles import Font
 from openpyxl.worksheet.worksheet import Worksheet
 
 from fbdi.catalog_normalize import normalize_label
@@ -497,3 +498,113 @@ def _fmt_required(r: CatalogRow | None) -> str:
     if r is None or r.required is None:
         return ""
     return "TRUE" if r.required else "FALSE"
+
+
+_RELEASE_TAB_HEADERS = [
+    "release", "file_name", "tab_name", "position",
+    "column_label", "column_technical",
+    "data_type", "length", "scale", "data_type_raw",
+    "required",
+]
+
+_ISSUES_TAB_HEADERS = ["release", "file", "tab", "issue_type", "detail"]
+
+
+def _drift_tab_headers(release_old: str | None, release_new: str | None) -> list[str]:
+    """Build Drift tab headers with release names substituted."""
+    old = release_old or "OLD"
+    new = release_new or "NEW"
+    return [
+        "file", "tab", "position",
+        f"col_label_{old}", f"col_label_{new}",
+        f"col_technical_{old}", f"col_technical_{new}",
+        f"data_type_{old}", f"data_type_{new}",
+        f"length_{old}", f"length_{new}",
+        f"required_{old}", f"required_{new}",
+        "change_type",
+    ]
+
+
+def _write_master_workbook(
+    output_path: Path,
+    rows_by_release: dict[str, list[CatalogRow]],
+    issues: list[IssueRow],
+    drift: list[DriftRow],
+    release_old: str | None,
+    release_new: str | None,
+) -> None:
+    """Write the master workbook. Release tabs, Issues, Drift.
+
+    The caller is responsible for providing *all* release data (merged
+    from any existing workbook + fresh run). This function writes
+    atomically via .tmp + rename.
+    """
+    wb = Workbook()
+    # Remove the default empty sheet
+    wb.remove(wb.active)
+
+    bold = Font(name="Calibri", size=11, bold=True)
+    plain = Font(name="Calibri", size=11)
+
+    # Release tabs, in lexicographic order (26A < 26B < 26C < 27A)
+    for release in sorted(rows_by_release.keys()):
+        rows = rows_by_release[release]
+        ws = wb.create_sheet(title=release)
+        for col_idx, h in enumerate(_RELEASE_TAB_HEADERS, start=1):
+            c = ws.cell(row=1, column=col_idx, value=h)
+            c.font = bold
+        for row_idx, r in enumerate(rows, start=2):
+            ws.cell(row=row_idx, column=1, value=r.release).font = plain
+            ws.cell(row=row_idx, column=2, value=r.file_name).font = plain
+            ws.cell(row=row_idx, column=3, value=r.tab_name).font = plain
+            ws.cell(row=row_idx, column=4, value=r.position).font = plain
+            ws.cell(row=row_idx, column=5, value=r.column_label).font = plain
+            ws.cell(row=row_idx, column=6, value=r.column_technical).font = plain
+            ws.cell(row=row_idx, column=7, value=r.data_type).font = plain
+            ws.cell(row=row_idx, column=8, value=r.length).font = plain
+            ws.cell(row=row_idx, column=9, value=r.scale).font = plain
+            ws.cell(row=row_idx, column=10, value=r.data_type_raw).font = plain
+            ws.cell(
+                row=row_idx, column=11,
+                value="" if r.required is None else ("TRUE" if r.required else "FALSE"),
+            ).font = plain
+        ws.auto_filter.ref = f"A1:K{max(len(rows) + 1, 1)}"
+
+    # Issues tab
+    ws = wb.create_sheet(title="Issues")
+    for col_idx, h in enumerate(_ISSUES_TAB_HEADERS, start=1):
+        c = ws.cell(row=1, column=col_idx, value=h)
+        c.font = bold
+    for row_idx, i in enumerate(issues, start=2):
+        ws.cell(row=row_idx, column=1, value=i.release).font = plain
+        ws.cell(row=row_idx, column=2, value=i.file).font = plain
+        ws.cell(row=row_idx, column=3, value=i.tab).font = plain
+        ws.cell(row=row_idx, column=4, value=i.issue_type).font = plain
+        ws.cell(row=row_idx, column=5, value=i.detail).font = plain
+    ws.auto_filter.ref = f"A1:E{max(len(issues) + 1, 1)}"
+
+    # Drift tab
+    ws = wb.create_sheet(title="Drift")
+    drift_headers = _drift_tab_headers(release_old, release_new)
+    for col_idx, h in enumerate(drift_headers, start=1):
+        c = ws.cell(row=1, column=col_idx, value=h)
+        c.font = bold
+    for row_idx, d in enumerate(drift, start=2):
+        values = [
+            d.file, d.tab, d.position,
+            d.col_label_old, d.col_label_new,
+            d.col_technical_old, d.col_technical_new,
+            d.data_type_old, d.data_type_new,
+            d.length_old, d.length_new,
+            d.required_old, d.required_new,
+            d.change_type,
+        ]
+        for col_idx, v in enumerate(values, start=1):
+            ws.cell(row=row_idx, column=col_idx, value=v).font = plain
+    ws.auto_filter.ref = f"A1:N{max(len(drift) + 1, 1)}"
+
+    # Atomic save
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    wb.save(tmp_path)
+    wb.close()
+    tmp_path.replace(output_path)

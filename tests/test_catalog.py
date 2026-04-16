@@ -9,6 +9,7 @@ from fbdi.catalog import (
     IssueRow,
     DriftRow,
     extract_tab_rows,
+    _write_master_workbook,
 )
 
 
@@ -385,3 +386,111 @@ class TestExtractFile:
         assert issues[0].file == "Corrupt"
         assert issues[0].tab == ""
         assert issues[0].release == "26B"
+
+
+class TestWriteMasterWorkbook:
+    def test_writes_release_tab_with_correct_headers(self, tmp_path):
+        out = tmp_path / "Master.xlsx"
+        rows_by_release = {
+            "26A": [_row(release="26A", file_name="F", tab_name="T", position=1)],
+        }
+        _write_master_workbook(
+            out,
+            rows_by_release=rows_by_release,
+            issues=[],
+            drift=[],
+            release_old=None,
+            release_new="26A",
+        )
+        assert out.exists()
+        wb = load_workbook(out)
+        assert "26A" in wb.sheetnames
+        assert "Issues" in wb.sheetnames
+        assert "Drift" in wb.sheetnames
+        ws = wb["26A"]
+        headers = [c.value for c in ws[1]]
+        assert headers == [
+            "release", "file_name", "tab_name", "position",
+            "column_label", "column_technical",
+            "data_type", "length", "scale", "data_type_raw",
+            "required",
+        ]
+        # Data row
+        row2 = [c.value for c in ws[2]]
+        assert row2[0] == "26A"
+        assert row2[1] == "F"
+
+    def test_writes_issues_tab(self, tmp_path):
+        out = tmp_path / "Master.xlsx"
+        issues = [IssueRow("26B", "F", "T", "FILE_ERROR", "boom")]
+        _write_master_workbook(
+            out, rows_by_release={}, issues=issues, drift=[],
+            release_old=None, release_new=None,
+        )
+        wb = load_workbook(out)
+        ws = wb["Issues"]
+        headers = [c.value for c in ws[1]]
+        assert headers == ["release", "file", "tab", "issue_type", "detail"]
+        assert [c.value for c in ws[2]] == ["26B", "F", "T", "FILE_ERROR", "boom"]
+
+    def test_writes_drift_tab(self, tmp_path):
+        out = tmp_path / "Master.xlsx"
+        drift = [DriftRow(
+            file="F", tab="T", position=1,
+            col_label_old="A", col_label_new="B",
+            col_technical_old="A1", col_technical_new="B1",
+            data_type_old="VARCHAR2", data_type_new="VARCHAR2",
+            length_old="50", length_new="100",
+            required_old="FALSE", required_new="FALSE",
+            change_type="LENGTH_CHANGED",
+        )]
+        _write_master_workbook(
+            out, rows_by_release={}, issues=[], drift=drift,
+            release_old="26A", release_new="26B",
+        )
+        wb = load_workbook(out)
+        ws = wb["Drift"]
+        headers = [c.value for c in ws[1]]
+        assert "col_label_26A" in headers
+        assert "col_label_26B" in headers
+        assert "change_type" in headers
+
+    def test_idempotent_content(self, tmp_path):
+        out1 = tmp_path / "M1.xlsx"
+        out2 = tmp_path / "M2.xlsx"
+        rows_by_release = {"26A": [_row(release="26A")]}
+        for out in (out1, out2):
+            _write_master_workbook(
+                out, rows_by_release=rows_by_release, issues=[], drift=[],
+                release_old=None, release_new="26A",
+            )
+        wb1 = load_workbook(out1)
+        wb2 = load_workbook(out2)
+        assert wb1.sheetnames == wb2.sheetnames
+        for sn in wb1.sheetnames:
+            r1 = [[c.value for c in row] for row in wb1[sn].iter_rows()]
+            r2 = [[c.value for c in row] for row in wb2[sn].iter_rows()]
+            assert r1 == r2, f"Tab {sn} content differs"
+
+    def test_preserves_existing_release_tabs(self, tmp_path):
+        """Writing release X shouldn't wipe release Y if Y was already present in the file."""
+        out = tmp_path / "Master.xlsx"
+        # First run: writes 26A
+        _write_master_workbook(
+            out, rows_by_release={"26A": [_row(release="26A")]},
+            issues=[], drift=[],
+            release_old=None, release_new="26A",
+        )
+        # Second run: writes 26B but must preserve 26A
+        # (caller has loaded 26A rows from existing workbook and passes both)
+        _write_master_workbook(
+            out, rows_by_release={
+                "26A": [_row(release="26A")],
+                "26B": [_row(release="26B")],
+            },
+            issues=[], drift=[],
+            release_old="26A", release_new="26B",
+        )
+        wb = load_workbook(out)
+        assert "26A" in wb.sheetnames
+        assert "26B" in wb.sheetnames
