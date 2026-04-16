@@ -63,7 +63,26 @@ across both releases: 14 rows (7 pairs × 2 releases). Zero would remain after t
 
 ---
 
-## 3. Fix 5 Corrupt-Stylesheet Files (Low Value, Unknown Effort)
+## 3. ~~Build the FBDI Master Catalog~~ — RESOLVED
+
+**Resolution (2026-04-15):** `python -m fbdi catalog --release <label>` generates
+`FBDI_Master_Catalog.xlsx` with per-release snapshot tabs (file × tab × position ×
+label × technical × type × length × scale × required), plus `Issues` and `Drift`
+tabs. Rich tabs (~349 tabs in 26B) yield full metadata; thin tabs (~303) yield
+label-only rows with blanks honestly flagged. Subprocess-isolated per-file with
+120s timeout.
+
+**Follow-ups still open:**
+- 6 FILE_ERROR templates remain unreadable (corrupt stylesheets). Could be addressed
+  by unzipping, dropping styles.xml, re-zipping. Separate workstream.
+- CSV companion exports alongside `FBDI_Master_Catalog.xlsx` once applaud-mcp's
+  preferred ingestion format is known.
+- Shared `template_reader.py` refactor if duplication between `compare.py` and
+  `catalog.py` becomes painful.
+
+---
+
+## 4. Fix 5 Corrupt-Stylesheet Files (Low Value, Unknown Effort)
 
 **Diagnostic results (Phase 2):** 5 files in both releases fail with `FILE_ERROR` — corrupt XML
 stylesheet that openpyxl cannot parse:
@@ -84,7 +103,7 @@ fidelity rather than failing entirely.
 
 ---
 
-## 4. Port the Downloader into the `fbdi/` Package (Medium Value, Medium Effort)
+## 5. Port the Downloader into the `fbdi/` Package (Medium Value, Medium Effort)
 
 **The problem:** `reference/test.py` is Dan's original Selenium script and lives outside the package. Populating `baselines/` still requires running it manually and managing the output by hand.
 
@@ -94,7 +113,7 @@ fidelity rather than failing entirely.
 
 ---
 
-## 5. Complete the FBDI-to-Applaud Mapping (Manual — Brad)
+## 6. Complete the FBDI-to-Applaud Mapping (Manual — Brad)
 
 **Status:** `fbdi_applaud_mapping.xlsx` has been generated at repo root. Run with `python -m fbdi.build_mapping`.
 
@@ -108,7 +127,7 @@ fidelity rather than failing entirely.
 
 ---
 
-## 6. Build the Audrey Report (`report.py`) — Phase 2
+## 7. Build the Audrey Report (`report.py`) — Phase 2
 
 **The problem:** The comparison output (`Comparison_Report_*.xlsx`) is a raw diff. The Audrey change-tracking format used for client deliverables has a different structure. Currently this reformatting is done manually.
 
@@ -118,7 +137,7 @@ fidelity rather than failing entirely.
 
 ---
 
-## 7. Full Pipeline Command — Phase 3
+## 8. Full Pipeline Command — Phase 3
 
 **The problem:** Three separate commands (download, compare, report) with manual handoffs between them.
 

@@ -16,6 +16,9 @@ This repo automates comparison of Oracle FBDI (File-Based Data Import) template 
 # Compare two releases (uses baselines/<ver>/originals/)
 python -m fbdi compare --old 26A --new 26B --output Comparison_Report_26A_26B.xlsx
 
+# Generate/update the FBDI master catalog for a release
+python -m fbdi catalog --release 26B
+
 # Diagnose header detection across releases
 python -m fbdi diagnose --old baselines/26A/originals --new baselines/26B/originals --output Diagnostic_Report_26A_26B.xlsx
 
@@ -39,12 +42,17 @@ python -m pytest tests/test_clear.py -v
   - `compare.py` — diffs two releases tab-by-tab, field-by-field. Each pair runs in a `multiprocessing.Process` with a 120s timeout (prevents openpyxl resource-leak hangs).
   - `clear.py` — smart clearing of FBDI templates using `detect_header_row` (preserves headers at any row — 4, 5, 8, etc.)
   - `diagnose.py` — reports header-detection outcomes per tab (`DETECTED`, `NO_HEADER`, `SKIPPED_TAB`, `FILE_TOO_LARGE`, `FILE_ERROR`). Uses full (non-read_only) openpyxl mode.
+  - `catalog.py` — generates `FBDI_Master_Catalog.xlsx` with per-release snapshots (file × tab × position × label × technical × type × length × scale × required) + `Issues` + `Drift` tabs. Subprocess-isolated like `compare.py`.
+  - `type_parser.py` — parses Oracle data-type strings (`VARCHAR2(N CHAR)`, `NUMBER(p,s)`, `DATE`) into structured fields. Emits `TYPE_PARSE_WARNING` issues for unrecognized forms.
+  - `catalog_normalize.py` — normalizes FBDI labels (strips non-alphanumeric/underscore/whitespace) for Applaud MDB compatibility.
   - `build_mapping.py` — builds the `fbdi_applaud_mapping.xlsx` workbook that maps FBDI tabs/fields to Applaud target tables for downstream integrations.
   - `cli.py` / `__main__.py` — CLI entry point. `_resolve_dir()` makes `--old 26A` resolve to `baselines/26A/originals/`.
   - `config.py`, `utils.py` — shared configuration and helpers.
 - **`tools/download_and_clear.py`** — standalone Selenium downloader + smart clearing entry point. Imports `fbdi.clear` but lives outside the `fbdi/` package so Selenium/webdriver dependencies stay out of the comparison engine.
-- **`tests/`** — 54 unit tests, all passing (`python -m pytest tests/`)
-- **Output** — `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column format (columns A–G): FBDI File, FBDI Tab, Column Letter, Column Number, Old FBDI Field Name, New FBDI Field Name, Difference?
+- **`tests/`** — 116 unit tests, all passing (`python -m pytest tests/`)
+- **Outputs:**
+  - `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column diff for VBA validation (unchanged)
+  - `FBDI_Master_Catalog.xlsx` — per-release snapshots + Issues + Drift tabs
 - **Baseline layout** — `baselines/26A/originals/` (as-downloaded) and `baselines/26A/blanks/` (smart-cleared copies for client use)
 
 ---
@@ -101,7 +109,7 @@ See `NEXT_STEPS.md` for the prioritized backlog and historical phase-by-phase re
 
 ## Testing
 
-- `python -m pytest tests/` — run full suite (54 tests)
+- `python -m pytest tests/` — run full suite (116 tests)
 - `python -m pytest tests/test_clear.py -v` — run one module
 - `tests/validate_against_vba.py` and `tests/vba_fieldrow_map.json` — ad-hoc validation against the legacy VBA macro's expected header rows (not pytest, kept for spot-checks against regressions)
 
