@@ -11,6 +11,7 @@ Originals/
 baselines/
 Comparison_Report*.xlsx
 Diagnostic_Report*.xlsx
+FBDI_Master_Catalog.xlsx
 test_output.xlsx
 applaud_table_coverage.xlsx
 __pycache__/
