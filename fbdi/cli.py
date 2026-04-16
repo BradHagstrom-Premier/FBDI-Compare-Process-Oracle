@@ -81,6 +81,31 @@ def main(argv: list[str] | None = None) -> None:
         help="Set logging to DEBUG",
     )
 
+    catalog_parser = subparsers.add_parser(
+        "catalog",
+        help="Generate or update the FBDI master catalog for a release",
+    )
+    catalog_parser.add_argument(
+        "--release", required=True, type=str,
+        help="Release label (e.g. 26B) — looks in baselines/<release>/originals",
+    )
+    catalog_parser.add_argument(
+        "--baselines-dir", type=Path, default=None,
+        help="Explicit path to release originals dir (overrides --release resolution)",
+    )
+    catalog_parser.add_argument(
+        "--master", type=Path, default=Path("FBDI_Master_Catalog.xlsx"),
+        help="Output master workbook path (default: FBDI_Master_Catalog.xlsx)",
+    )
+    catalog_parser.add_argument(
+        "--timeout", type=int, default=120,
+        help="Per-file subprocess timeout in seconds (default: 120)",
+    )
+    catalog_parser.add_argument(
+        "--verbose", action="store_true",
+        help="Set logging to DEBUG",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -91,6 +116,8 @@ def main(argv: list[str] | None = None) -> None:
         _run_compare(args)
     elif args.command == "diagnose":
         _run_diagnose(args)
+    elif args.command == "catalog":
+        _run_catalog(args)
 
 
 def _run_compare(args: argparse.Namespace) -> None:
@@ -211,3 +238,53 @@ def _run_diagnose(args: argparse.Namespace) -> None:
     print(f"  FILE_TOO_LARGE: {file_too_large}")
     print(f"  FILE_ERROR:     {file_error}")
     print(f"Output written to: {output_path}")
+
+
+def _run_catalog(args: argparse.Namespace) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s: %(name)s: %(message)s",
+    )
+
+    from fbdi.catalog import generate_catalog
+
+    # Resolve baselines dir
+    if args.baselines_dir:
+        baselines_dir = args.baselines_dir
+    else:
+        candidate = Path("baselines") / args.release / "originals"
+        baselines_dir = candidate
+
+    if not baselines_dir.is_dir():
+        print(f"Error: baselines directory not found: {baselines_dir}")
+        sys.exit(1)
+
+    xlsm_count = len(list(baselines_dir.glob("*.xlsm")))
+    if xlsm_count == 0:
+        print(f"Error: no .xlsm files found in {baselines_dir}")
+        sys.exit(1)
+
+    print(f"Cataloging release {args.release.upper()} from {baselines_dir}")
+    print(f"  {xlsm_count} .xlsm files")
+    print(f"  Output: {args.master}")
+    print()
+
+    generate_catalog(
+        release=args.release.upper(),
+        baselines_dir=baselines_dir,
+        master_path=args.master,
+        timeout=args.timeout,
+    )
+
+    # Summary from the written workbook
+    from openpyxl import load_workbook as _lw
+    wb = _lw(args.master, read_only=True)
+    release_tabs = [sn for sn in wb.sheetnames if sn not in {"Issues", "Drift"}]
+    issue_count = max(0, (wb["Issues"].max_row or 1) - 1)
+    drift_count = max(0, (wb["Drift"].max_row or 1) - 1)
+    wb.close()
+
+    print(f"\nCatalog updated: {args.master}")
+    print(f"  Release tabs: {', '.join(release_tabs)}")
+    print(f"  Issues: {issue_count}")
+    print(f"  Drift rows: {drift_count}")
