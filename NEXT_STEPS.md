@@ -127,11 +127,11 @@ fidelity rather than failing entirely.
 
 ---
 
-## 7. Build the Audrey Report (`report.py`) — Phase 2
+## 7. Build the Compliance Report (`report.py`) — Phase 2
 
-**The problem:** The comparison output (`Comparison_Report_*.xlsx`) is a raw diff. The Audrey change-tracking format used for client deliverables has a different structure. Currently this reformatting is done manually.
+**The problem:** The comparison output (`Comparison_Report_*.xlsx`) is a raw diff. The compliance change-tracking format used for client deliverables has a different structure. Currently this reformatting is done manually.
 
-**The fix:** `fbdi/report.py` — reads the comparison output and the completed `fbdi_applaud_mapping.xlsx`, and produces a formatted Audrey-compatible Excel file. This is primarily a formatting/layout problem, not a data problem.
+**The fix:** `fbdi/report.py` — reads the comparison output and the completed `fbdi_applaud_mapping.xlsx`, and produces a formatted compliance-ready Excel file. This is primarily a formatting/layout problem, not a data problem.
 
 **Why sixth:** Depends on item 5 (completed mapping) and the comparison output being correct.
 

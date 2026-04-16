@@ -60,7 +60,7 @@ python -m pytest tests/test_clear.py -v
 ## Current Frontier
 
 - **FBDI → Applaud mapping** — `fbdi_applaud_mapping.xlsx` (built by `fbdi/build_mapping.py`) is partially populated. Brad is filling in TBD rows manually. See `Applaud Mapping Review To Do 04022026.md`.
-- **`report.py`** (not built) — Will reformat comparison output into the Audrey change-tracking format used for client deliverables. Blocked on mapping completion.
+- **`report.py`** (not built) — Will reformat comparison output into the compliance change-tracking format used for client deliverables. Blocked on mapping completion.
 - **`python -m fbdi run`** (not built) — Would chain download → compare → report in a single command.
 
 See `NEXT_STEPS.md` for the prioritized backlog and historical phase-by-phase resolutions.
