@@ -39,17 +39,18 @@ python -m pytest tests/test_clear.py -v
 
 - **`fbdi/` package** — Python comparison engine
   - `detect_header.py` — dynamically identifies the header row in each FBDI tab using content scoring (no hardcoded filename map). Uses `iter_rows` for streaming scans.
-  - `compare.py` — diffs two releases tab-by-tab, field-by-field. Each pair runs in a `multiprocessing.Process` with a 120s timeout (prevents openpyxl resource-leak hangs).
+  - `compare.py` — diffs two releases tab-by-tab, field-by-field. Each pair runs in a fresh subprocess (via `_subprocess_util.run_worker`) with a 120s timeout to isolate openpyxl resource leaks.
   - `clear.py` — smart clearing of FBDI templates using `detect_header_row` (preserves headers at any row — 4, 5, 8, etc.)
   - `diagnose.py` — reports header-detection outcomes per tab (`DETECTED`, `NO_HEADER`, `SKIPPED_TAB`, `FILE_TOO_LARGE`, `FILE_ERROR`). Uses full (non-read_only) openpyxl mode.
-  - `catalog.py` — generates `FBDI_Master_Catalog.xlsx` with per-release snapshots (file × tab × position × label × technical × type × length × scale × required) + `Issues` + `Drift` tabs. Subprocess-isolated like `compare.py`.
-  - `type_parser.py` — parses Oracle data-type strings (`VARCHAR2(N CHAR)`, `NUMBER(p,s)`, `DATE`) into structured fields. Emits `TYPE_PARSE_WARNING` issues for unrecognized forms.
+  - `catalog.py` — generates `FBDI_Master_Catalog.xlsx` with per-release snapshots (file × tab × position × label × technical × type × length × scale × required) + `Issues` + `Drift` tabs. Shares `_subprocess_util.run_worker` with `compare.py`.
+  - `type_parser.py` — parses Oracle data-type strings (`VARCHAR2(N CHAR)`, `NUMBER(p,s)`, `DATE`, `DATE(YYYY/MM/DD)`, `TimeStamp(hh24:mm)`, trailing-period variants) into structured fields. Emits `TYPE_PARSE_WARNING` only for genuinely malformed strings.
+  - `_subprocess_util.py` — shared `run_worker(target, args, timeout)` helper used by `catalog.py` and `compare.py`. Drains the result queue *before* joining the child process — required to avoid a pipe-buffer deadlock on Windows when payloads exceed ~64 KB.
   - `catalog_normalize.py` — normalizes FBDI labels (strips non-alphanumeric/underscore/whitespace) for Applaud MDB compatibility.
   - `build_mapping.py` — builds the `fbdi_applaud_mapping.xlsx` workbook that maps FBDI tabs/fields to Applaud target tables for downstream integrations.
   - `cli.py` / `__main__.py` — CLI entry point. `_resolve_dir()` makes `--old 26A` resolve to `baselines/26A/originals/`.
   - `config.py`, `utils.py` — shared configuration and helpers.
 - **`tools/download_and_clear.py`** — standalone Selenium downloader + smart clearing entry point. Imports `fbdi.clear` but lives outside the `fbdi/` package so Selenium/webdriver dependencies stay out of the comparison engine.
-- **`tests/`** — 116 unit tests, all passing (`python -m pytest tests/`)
+- **`tests/`** — 139 unit tests, all passing (`python -m pytest tests/`)
 - **Outputs:**
   - `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column diff for VBA validation (unchanged)
   - `FBDI_Master_Catalog.xlsx` — per-release snapshots + Issues + Drift tabs
@@ -91,6 +92,8 @@ See `NEXT_STEPS.md` for the prioritized backlog and historical phase-by-phase re
 - ~~6 files >5MB are currently skipped~~ — fixed by subprocess isolation + `iter_rows` optimization. Comparison now processes all 210 file pairs with no size limit.
 - ~~~8 tabs with non-standard headers fail detection~~ — fixed in Phase 3. Diagnose reports `NO_HEADER: 0`.
 - ~~Full comparison run is ~75 minutes~~ — much faster now due to `iter_rows` streaming (74s → 0.02s per tab on wide sheets).
+- ~~`ChangeOrderImportTemplate` and `ItemImportTemplate` report bogus TIMEOUT in the catalog~~ — fixed by extracting `_subprocess_util.run_worker` with drain-before-join semantics. Catalog now fully ingests both files (~1,400 rows each per release).
+- ~~463 TYPE_PARSE_WARNING rows in the catalog Issues tab~~ — collapsed to 9 (only the genuinely-broken Oracle strings) after `type_parser.py` was extended to accept temporal format masks (`DATE(YYYY/MM/DD)`, `TimeStamp(hh24:mm:ss)`) and the stray-trailing-period typo.
 
 ---
 
@@ -109,7 +112,7 @@ See `NEXT_STEPS.md` for the prioritized backlog and historical phase-by-phase re
 
 ## Testing
 
-- `python -m pytest tests/` — run full suite (116 tests)
+- `python -m pytest tests/` — run full suite (139 tests)
 - `python -m pytest tests/test_clear.py -v` — run one module
 - `tests/validate_against_vba.py` and `tests/vba_fieldrow_map.json` — ad-hoc validation against the legacy VBA macro's expected header rows (not pytest, kept for spot-checks against regressions)
 
