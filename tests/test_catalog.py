@@ -622,3 +622,49 @@ class TestGenerateCatalog:
         snap2 = {sn: [[c.value for c in row] for row in wb2[sn].iter_rows()]
                  for sn in wb2.sheetnames}
         assert snap1 == snap2
+
+
+import time
+
+from fbdi.catalog import _run_file_in_subprocess
+
+
+class TestRunFileInSubprocessLargePayload:
+    def test_large_file_does_not_deadlock(self, tmp_path):
+        # Regression for the Windows pipe-buffer deadlock that caused
+        # ChangeOrderImportTemplate and ItemImportTemplate to report
+        # bogus TIMEOUTs in the 26A/26B catalog. Build a rich tab with
+        # ~499 data columns (capped by _MAX_COL=500 in catalog.py). The
+        # resulting pickled CatalogRow payload (~150 KB) comfortably
+        # exceeds the ~64 KB pipe buffer, so this exercises the
+        # drain-before-join path added to run_worker().
+        # Build the sheet with 1500 writes so that if _MAX_COL is ever
+        # raised, the test still passes (we only assert on the rows
+        # that catalog actually returns, not on the raw sheet size).
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "BIG_TAB"
+        n_sheet = 1500
+        # header_row = 5; metadata rows above it
+        ws.cell(row=2, column=1, value="Name")
+        ws.cell(row=3, column=1, value="Data Type")
+        ws.cell(row=4, column=1, value="Required or Optional")
+        ws.cell(row=5, column=1, value="Column name of the Table BIG_TAB")
+        for i in range(1, n_sheet + 1):
+            ws.cell(row=2, column=i + 1, value=f"Label {i}")
+            ws.cell(row=3, column=i + 1, value="VARCHAR2(80)")
+            ws.cell(row=4, column=i + 1, value="Required" if i % 2 else "Optional")
+            ws.cell(row=5, column=i + 1, value=f"COL_{i:04d}")
+        path = tmp_path / "BigTemplate.xlsm"
+        wb.save(path)
+
+        t0 = time.perf_counter()
+        rows, issues = _run_file_in_subprocess(path, release="26A", timeout=30)
+        elapsed = time.perf_counter() - t0
+
+        assert issues == []
+        # catalog caps column scanning at _MAX_COL=500 → 499 data columns
+        assert len(rows) >= 499, f"got only {len(rows)} rows"
+        assert rows[0].column_technical == "COL_0001"
+        assert rows[-1].column_technical == f"COL_{len(rows):04d}"
+        assert elapsed < 20, f"returned in {elapsed:.1f}s (possible deadlock)"

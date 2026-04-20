@@ -22,6 +22,7 @@ from openpyxl.cell.cell import MergedCell
 from openpyxl.styles import Font
 from openpyxl.worksheet.worksheet import Worksheet
 
+from fbdi._subprocess_util import run_worker
 from fbdi.catalog_normalize import normalize_label
 from fbdi.config import CATALOG_TIMEOUT, SKIP_TABS
 from fbdi.detect_header import UPPER_SNAKE_PATTERN, detect_header_row
@@ -356,39 +357,29 @@ def _catalog_worker(path_str: str, release: str, queue: multiprocessing.Queue) -
 def _run_file_in_subprocess(
     path: Path, release: str, timeout: int = CATALOG_TIMEOUT
 ) -> tuple[list[CatalogRow], list[IssueRow]]:
-    """Run extract_file in a fresh subprocess with timeout. Returns issue rows on failure."""
-    queue: multiprocessing.Queue = multiprocessing.Queue()
-    proc = multiprocessing.Process(
-        target=_catalog_worker, args=(str(path), release, queue)
-    )
-    proc.start()
-    proc.join(timeout=timeout)
+    """Run extract_file in a fresh subprocess with timeout.
 
+    Translates WorkerOutcome into catalog-specific IssueRows on failure
+    paths (TIMEOUT, SUBPROCESS_FAILED). Happy path unpacks the
+    (row_tuples, issue_tuples) payload.
+    """
+    outcome = run_worker(_catalog_worker, args=(str(path), release), timeout=timeout)
     file_stem = path.stem
-    if proc.is_alive():
-        proc.terminate()
-        proc.join(5)
+
+    if outcome.status == "timeout":
         return [], [IssueRow(
             release=release, file=file_stem, tab="",
             issue_type="TIMEOUT", detail=f"exceeded {timeout}s",
         )]
 
-    if proc.exitcode != 0:
+    if outcome.status == "crashed":
         return [], [IssueRow(
             release=release, file=file_stem, tab="",
             issue_type="SUBPROCESS_FAILED",
-            detail=f"exit code {proc.exitcode}",
+            detail=f"exit code {outcome.exitcode}",
         )]
 
-    try:
-        result = queue.get_nowait()
-    except Exception:
-        return [], [IssueRow(
-            release=release, file=file_stem, tab="",
-            issue_type="SUBPROCESS_FAILED",
-            detail="no result on queue",
-        )]
-
+    result = outcome.payload
     if isinstance(result, str) and result.startswith("ERROR:"):
         return [], [IssueRow(
             release=release, file=file_stem, tab="",
