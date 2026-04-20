@@ -205,3 +205,44 @@ class TestCompareAllReturnSignature:
 
         assert result_path.exists()
         assert timed_out == []
+
+
+import time
+
+from openpyxl import Workbook
+
+from fbdi.compare import compare_all
+
+
+class TestCompareAllLargePayload:
+    def test_large_pair_does_not_deadlock(self, tmp_path):
+        # Regression for the same pipe-buffer deadlock as catalog.py.
+        # Build an old/new pair with a wide tab so the serialized
+        # ComparisonRow payload exceeds the OS pipe buffer.
+        old_dir = tmp_path / "old"
+        new_dir = tmp_path / "new"
+        old_dir.mkdir()
+        new_dir.mkdir()
+        n = 2500
+
+        def _build(path, tech_prefix):
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "WIDE_TAB"
+            ws.cell(row=5, column=1, value="Column name of the Table WIDE_TAB")
+            for i in range(1, n + 1):
+                ws.cell(row=5, column=i + 1, value=f"{tech_prefix}_{i:04d}")
+            wb.save(path)
+
+        _build(old_dir / "BigTemplate.xlsm", "OLD")
+        _build(new_dir / "BigTemplate.xlsm", "NEW")
+
+        output = tmp_path / "Comparison_Report.xlsx"
+        t0 = time.perf_counter()
+        out_path, timed_out = compare_all(old_dir, new_dir, output, timeout=30)
+        elapsed = time.perf_counter() - t0
+
+        assert timed_out == []
+        assert out_path == output
+        assert output.exists()
+        assert elapsed < 25, f"compare_all took {elapsed:.1f}s (possible deadlock)"

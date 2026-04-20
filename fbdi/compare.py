@@ -10,6 +10,7 @@ from openpyxl.cell.cell import MergedCell
 from openpyxl.styles import Font
 from openpyxl.worksheet.worksheet import Worksheet
 
+from fbdi._subprocess_util import run_worker
 from fbdi.config import REPORT_HEADERS, SKIP_TABS
 from fbdi.detect_header import detect_header_row
 from fbdi.utils import col_index_to_letter, match_fbdi_files
@@ -214,35 +215,27 @@ def compare_all(
     for i, (old_path, new_path) in enumerate(matched, 1):
         logger.info("[%d/%d] Comparing: %s", i, len(matched), old_path.stem)
 
-        queue: multiprocessing.Queue = multiprocessing.Queue()
-        proc = multiprocessing.Process(
-            target=_compare_worker,
-            args=(str(old_path), str(new_path), queue),
+        outcome = run_worker(
+            _compare_worker,
+            args=(str(old_path), str(new_path)),
+            timeout=timeout,
         )
-        proc.start()
-        proc.join(timeout=timeout)
 
-        if proc.is_alive():
-            proc.terminate()
-            proc.join(5)
+        if outcome.status == "timeout":
             timed_out.append(old_path.stem)
             logger.warning(
                 "TIMEOUT after %ds: %s — skipped", timeout, old_path.stem,
             )
             continue
 
-        if proc.exitcode != 0:
+        if outcome.status == "crashed":
             logger.error(
-                "Subprocess failed (exit %d): %s", proc.exitcode, old_path.stem,
+                "Subprocess failed (exit %s): %s",
+                outcome.exitcode, old_path.stem,
             )
             continue
 
-        try:
-            result = queue.get_nowait()
-        except Exception:
-            logger.error("No result from subprocess: %s", old_path.stem)
-            continue
-
+        result = outcome.payload
         if isinstance(result, str) and result.startswith("ERROR:"):
             logger.error("Compare error for %s: %s", old_path.stem, result)
             continue
