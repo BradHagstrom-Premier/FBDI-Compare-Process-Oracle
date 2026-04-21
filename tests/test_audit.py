@@ -133,3 +133,30 @@ def test_load_prior_mapping_basic(tmp_path):
     assert "AutoInvoiceImportTemplate" in row.mapping_text
     assert "T_GHOST_TABLE" in mapping
     assert mapping["T_GHOST_TABLE"].prior_status == "UNMAPPED"
+
+
+from fbdi.audit import extract_prefix, derive_bare_name
+
+def test_extract_prefix_standard():
+    assert extract_prefix("T_RA_INTERFACE_LINES_ALL (TA4)") == "TA4"
+
+def test_extract_prefix_alphanumeric():
+    assert extract_prefix("T_EGP_COMPONENTS_INTERFACE (T91)") == "T91"
+
+def test_extract_prefix_no_parens():
+    assert extract_prefix("T_GHOST_TABLE") is None
+
+def test_derive_bare_name_regular():
+    bare, is_legacy = derive_bare_name("TA4INVOICE_ID", "TA4")
+    assert bare == "INVOICE_ID"
+    assert not is_legacy
+
+def test_derive_bare_name_at_prefix():
+    bare, is_legacy = derive_bare_name("@TA4SITE", "TA4")
+    assert bare == "SITE"
+    assert is_legacy
+
+def test_derive_bare_name_no_prefix_match():
+    bare, is_legacy = derive_bare_name("SOMETHING_ELSE", "TA4")
+    assert bare == "SOMETHING_ELSE"
+    assert not is_legacy

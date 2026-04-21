@@ -277,3 +277,28 @@ def load_prior_mapping(path: Path = PRIOR_MAPPING_PATH) -> dict[str, PriorRow]:
         return result
     finally:
         wb.close()
+
+
+# ---------------------------------------------------------------------------
+# Prefix + bare_name utilities
+# ---------------------------------------------------------------------------
+
+_PREFIX_RE = re.compile(r'\(([A-Z0-9]+)\)\s*$')
+
+
+def extract_prefix(description: str) -> str | None:
+    m = _PREFIX_RE.search(description.strip())
+    return m.group(1) if m else None
+
+
+def derive_bare_name(field_name: str, prefix: str) -> tuple[str, bool]:
+    """Return (bare_name, is_legacy_tracking)."""
+    name = field_name
+    is_legacy = False
+    if name.startswith("@"):
+        is_legacy = True
+        name = name[1:]  # strip @
+    upper_prefix = prefix.upper()
+    if name.upper().startswith(upper_prefix):
+        return name[len(prefix):], is_legacy
+    return name, is_legacy
