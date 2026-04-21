@@ -382,5 +382,10 @@ def test_evaluate_confidence_medium_key_coverage():
     assert evaluate_confidence(c) == "M"
 
 def test_evaluate_confidence_low():
-    c = _cand("PARTIAL", 0.0, 0.1)
+    c = _cand("NONE", 0.0, 0.1)
     assert evaluate_confidence(c) == "L"
+
+def test_evaluate_confidence_partial_low_overlap_still_medium():
+    # PARTIAL name match alone → M regardless of overlap
+    c = _cand("PARTIAL", 0.0, 0.05)
+    assert evaluate_confidence(c) == "M"

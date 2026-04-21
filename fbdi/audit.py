@@ -455,9 +455,8 @@ def evaluate_confidence(candidate: Candidate) -> str:
         and (candidate.key_coverage == 1.0 or candidate.column_overlap >= 0.7)
     ):
         return "H"
-    if (
-        (candidate.name_alignment == "PARTIAL" and candidate.column_overlap >= 0.4)
-        or (0 < candidate.key_coverage < 1.0 and candidate.column_overlap >= 0.4)
+    if candidate.name_alignment == "PARTIAL" or (
+        0 < candidate.key_coverage < 1.0 and candidate.column_overlap >= 0.4
     ):
         return "M"
     return "L"
