@@ -160,3 +160,80 @@ def test_derive_bare_name_no_prefix_match():
     bare, is_legacy = derive_bare_name("SOMETHING_ELSE", "TA4")
     assert bare == "SOMETHING_ELSE"
     assert not is_legacy
+
+
+from fbdi.audit import (
+    compute_name_alignment, compute_key_coverage,
+    compute_column_overlap, check_prefix_conformance,
+    SnapshotField,
+)
+
+# --- name_alignment ---
+
+def test_name_alignment_exact():
+    assert compute_name_alignment("T_RA_INTERFACE_LINES_ALL", "RA_INTERFACE_LINES_ALL") == "EXACT"
+
+def test_name_alignment_partial_strip_all():
+    assert compute_name_alignment("T_RA_INTERFACE_LINES_ALL", "RA_INTERFACE_LINES") == "PARTIAL"
+
+def test_name_alignment_partial_strip_interface():
+    assert compute_name_alignment("T_RCV_HEADERS_INTERFACE", "RCV_HEADERS") == "PARTIAL"
+
+def test_name_alignment_none():
+    assert compute_name_alignment("T_RA_INTERFACE_LINES_ALL", "TOTALLY_DIFFERENT_TAB") == "NONE"
+
+def test_name_alignment_case_insensitive():
+    assert compute_name_alignment("T_RA_INTERFACE_LINES_ALL", "ra_interface_lines_all") == "EXACT"
+
+# --- key_coverage ---
+
+def test_key_coverage_full():
+    keys = {"INVOICE_ID", "LINE_NUMBER"}
+    fbdi_cols = {"INVOICE_ID", "LINE_NUMBER", "BATCH_SOURCE_NAME"}
+    assert compute_key_coverage(keys, fbdi_cols) == 1.0
+
+def test_key_coverage_partial():
+    keys = {"INVOICE_ID", "LINE_NUMBER"}
+    fbdi_cols = {"INVOICE_ID", "BATCH_SOURCE_NAME"}
+    assert compute_key_coverage(keys, fbdi_cols) == 0.5
+
+def test_key_coverage_empty_keys():
+    assert compute_key_coverage(set(), {"INVOICE_ID"}) == 0.0
+
+# --- column_overlap ---
+
+def _biz_field(bare_name: str) -> SnapshotField:
+    return SnapshotField(name=f"TA4{bare_name}", bare_name=bare_name,
+                         is_legacy_tracking=False, data_type="X", length=30)
+
+def _legacy_field(bare_name: str) -> SnapshotField:
+    return SnapshotField(name=f"@TA4{bare_name}", bare_name=bare_name,
+                         is_legacy_tracking=True, data_type="X", length=10)
+
+def test_column_overlap_excludes_legacy():
+    fields = [_biz_field("INVOICE_ID"), _biz_field("LINE_NUM"), _legacy_field("SITE")]
+    fbdi_cols = {"INVOICE_ID", "LINE_NUM"}
+    assert compute_column_overlap(fields, fbdi_cols) == 1.0
+
+def test_column_overlap_partial():
+    fields = [_biz_field("INVOICE_ID"), _biz_field("LINE_NUM"), _biz_field("BATCH_NAME")]
+    fbdi_cols = {"INVOICE_ID", "LINE_NUM"}
+    assert abs(compute_column_overlap(fields, fbdi_cols) - 2/3) < 0.001
+
+def test_column_overlap_all_legacy():
+    fields = [_legacy_field("SITE"), _legacy_field("LEGACY_HEADER")]
+    fbdi_cols = {"INVOICE_ID"}
+    assert compute_column_overlap(fields, fbdi_cols) == 0.0
+
+def test_column_overlap_case_insensitive():
+    fields = [_biz_field("INVOICE_ID")]
+    fbdi_cols = {"invoice_id"}
+    assert compute_column_overlap(fields, fbdi_cols) == 1.0
+
+# --- prefix conformance ---
+
+def test_prefix_conformance_true():
+    assert check_prefix_conformance("T_RA_INTERFACE_LINES_ALL", "TA4", "RA_INTERFACE_LINES_ALL") is True
+
+def test_prefix_conformance_false():
+    assert check_prefix_conformance("T_RA_INTERFACE_LINES_ALL", "TA4", "RA_INTERFACE_LINES") is False

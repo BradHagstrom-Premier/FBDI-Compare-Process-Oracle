@@ -302,3 +302,58 @@ def derive_bare_name(field_name: str, prefix: str) -> tuple[str, bool]:
     if name.upper().startswith(upper_prefix):
         return name[len(prefix):], is_legacy
     return name, is_legacy
+
+
+# ---------------------------------------------------------------------------
+# Signal computation
+# ---------------------------------------------------------------------------
+
+def compute_name_alignment(applaud_table: str, fbdi_tab: str) -> str:
+    """Compare Applaud table name (strip T_) against FBDI tab name."""
+    stripped = applaud_table.upper().removeprefix("T_")
+    tab_upper = fbdi_tab.upper()
+
+    if stripped == tab_upper:
+        return "EXACT"
+
+    # Try stripping suffixes from both sides
+    def _base(s: str) -> str:
+        for suffix in _STRIP_SUFFIXES:
+            if s.endswith(suffix):
+                return s[: -len(suffix)]
+        return s
+
+    if _base(stripped) == _base(tab_upper):
+        return "PARTIAL"
+    if _base(stripped) == tab_upper or stripped == _base(tab_upper):
+        return "PARTIAL"
+
+    return "NONE"
+
+
+def compute_key_coverage(
+    applaud_key_bare_names: set[str], fbdi_columns: set[str]
+) -> float:
+    if not applaud_key_bare_names:
+        return 0.0
+    fbdi_upper = {c.upper() for c in fbdi_columns}
+    matched = sum(1 for k in applaud_key_bare_names if k.upper() in fbdi_upper)
+    return matched / len(applaud_key_bare_names)
+
+
+def compute_column_overlap(
+    applaud_fields: list[SnapshotField], fbdi_columns: set[str]
+) -> float:
+    biz_fields = [f for f in applaud_fields if not f.is_legacy_tracking]
+    if not biz_fields:
+        return 0.0
+    fbdi_upper = {c.upper() for c in fbdi_columns}
+    matched = sum(1 for f in biz_fields if f.bare_name.upper() in fbdi_upper)
+    return matched / len(biz_fields)
+
+
+def check_prefix_conformance(
+    applaud_table: str, prefix: str, fbdi_tab: str
+) -> bool:
+    """True when Applaud table name minus T_ exactly equals the FBDI tab name."""
+    return applaud_table.upper().removeprefix("T_") == fbdi_tab.upper()
