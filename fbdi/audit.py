@@ -138,3 +138,142 @@ class AuditRow:
 # Type aliases
 CatalogIndex = dict[tuple[str, str], set[str]]   # {(file_name, tab_name): set[column_technical]}
 CandidateIndex = dict[str, list[Candidate]]       # {applaud_table_name: sorted candidates}
+
+
+# ---------------------------------------------------------------------------
+# Loaders
+# ---------------------------------------------------------------------------
+
+def load_snapshot(path: Path = SNAPSHOT_PATH) -> ApplaudSnapshot:
+    if not path.exists():
+        raise FileNotFoundError(f"Snapshot missing — run Step A first: {path}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    tables = []
+    for t in data["tables"]:
+        fields = [
+            SnapshotField(
+                name=f["name"],
+                bare_name=f["bare_name"],
+                is_legacy_tracking=f["is_legacy_tracking"],
+                data_type=f["data_type"],
+                length=f["length"],
+            )
+            for f in t["fields"]
+        ]
+        key_seqs = [
+            SnapshotKeySeq(seq=k["seq"], keys=k["keys"])
+            for k in t["key_sequences"]
+        ]
+        tables.append(SnapshotTable(
+            name=t["name"],
+            prefix=t.get("prefix"),
+            description=t.get("description", ""),
+            type=t.get("type", ""),
+            key_sequences=key_seqs,
+            fields=fields,
+        ))
+    return ApplaudSnapshot(
+        mdb_path=data["mdb_path"],
+        extracted_at=data["extracted_at"],
+        extractor_version=data["extractor_version"],
+        tables=tables,
+        missing_tables=data.get("missing_tables", []),
+    )
+
+
+def load_catalog(
+    path: Path = CATALOG_PATH, release: str = CATALOG_RELEASE
+) -> CatalogIndex:
+    if not path.exists():
+        raise FileNotFoundError(f"Catalog missing: {path}")
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        if release not in wb.sheetnames:
+            raise ValueError(f"No '{release}' tab in catalog. Available: {wb.sheetnames}")
+        ws = wb[release]
+        rows_iter = ws.iter_rows(values_only=True)
+        raw_headers = next(rows_iter)
+        headers = [str(h).strip().lower() if h else "" for h in raw_headers]
+        try:
+            file_col = headers.index("file_name")
+            tab_col = headers.index("tab_name")
+            tech_col = headers.index("column_technical")
+        except ValueError as exc:
+            raise ValueError(f"Catalog missing expected header: {exc}. Got: {headers}")
+        index: CatalogIndex = {}
+        for row in rows_iter:
+            fname = str(row[file_col]).strip() if row[file_col] else ""
+            tab = str(row[tab_col]).strip() if row[tab_col] else ""
+            tech = str(row[tech_col]).strip() if row[tech_col] else ""
+            if fname and tab:
+                key = (fname, tab)
+                index.setdefault(key, set())
+                if tech:
+                    index[key].add(tech.upper())
+        return index
+    finally:
+        wb.close()
+
+
+def load_prior_mapping(path: Path = PRIOR_MAPPING_PATH) -> dict[str, PriorRow]:
+    if not path.exists():
+        raise FileNotFoundError(f"Prior mapping missing: {path}")
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        # Find Applaud Tables sheet by name (case-insensitive), fall back to index 1
+        ws = None
+        for name in wb.sheetnames:
+            if "applaud" in name.lower():
+                ws = wb[name]
+                break
+        if ws is None:
+            if len(wb.sheetnames) >= 2:
+                ws = wb.worksheets[1]
+            else:
+                raise ValueError(
+                    f"No 'Applaud Tables' sheet found. Sheets: {wb.sheetnames}"
+                )
+        rows_iter = ws.iter_rows(values_only=True)
+        raw_headers = next(rows_iter)
+        headers = [
+            str(h).strip().lower().replace(" ", "_") if h else ""
+            for h in raw_headers
+        ]
+
+        def _col(name: str) -> int:
+            return headers.index(name) if name in headers else -1
+
+        col_table = _col("applaud_table")
+        col_status = _col("status")
+        col_prefix = _col("prefix")
+        col_mapping = _col("fbdi_template_mappings")
+        col_module = _col("module")
+        col_notes = _col("notes")
+
+        if col_table == -1:
+            raise ValueError(
+                f"Sheet2 missing 'applaud_table' column. Headers found: {headers}"
+            )
+
+        result: dict[str, PriorRow] = {}
+        for row in rows_iter:
+            def _val(idx: int) -> str:
+                if idx == -1 or idx >= len(row):
+                    return ""
+                v = row[idx]
+                return str(v).strip() if v is not None else ""
+
+            table_name = _val(col_table)
+            if not table_name or table_name.startswith("#"):
+                continue
+            result[table_name] = PriorRow(
+                applaud_table=table_name,
+                prior_status=_val(col_status),
+                prefix=_val(col_prefix),
+                mapping_text=_val(col_mapping),
+                module=_val(col_module),
+                notes=_val(col_notes),
+            )
+        return result
+    finally:
+        wb.close()
