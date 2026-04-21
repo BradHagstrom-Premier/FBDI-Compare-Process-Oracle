@@ -10,6 +10,7 @@ Run: python -m fbdi.audit
 from __future__ import annotations
 
 import json
+import logging
 import re
 import warnings
 from dataclasses import dataclass, field
@@ -31,6 +32,7 @@ CATALOG_RELEASE = "26B"
 SNAPSHOT_MAX_AGE_DAYS = 30
 
 _STRIP_SUFFIXES = ("_ALL", "_INT", "_INTERFACE")
+_log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -419,3 +421,43 @@ def build_candidate_index(
         index[applaud_table_name] = candidates
 
     return index
+
+
+# ---------------------------------------------------------------------------
+# Prior-mapping text parser
+# ---------------------------------------------------------------------------
+
+def parse_prior_mapping(mapping_text: str) -> list[tuple[str, str]]:
+    """Parse "Template / Tab[; Template / Tab]" → [(file, tab), ...]."""
+    result: list[tuple[str, str]] = []
+    if not mapping_text or not mapping_text.strip():
+        return result
+    for segment in mapping_text.split(";"):
+        segment = segment.strip()
+        if not segment:
+            continue
+        parts = segment.split(" / ", maxsplit=1)
+        if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+            _log.warning("Malformed prior mapping segment (skipping): %r", segment)
+            continue
+        result.append((parts[0].strip(), parts[1].strip()))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Confidence tier evaluator
+# ---------------------------------------------------------------------------
+
+def evaluate_confidence(candidate: Candidate) -> str:
+    """Return H, M, or L per spec §6.2. Evaluated in order; first match wins."""
+    if (
+        candidate.name_alignment == "EXACT"
+        and (candidate.key_coverage == 1.0 or candidate.column_overlap >= 0.7)
+    ):
+        return "H"
+    if (
+        (candidate.name_alignment == "PARTIAL" and candidate.column_overlap >= 0.4)
+        or (0 < candidate.key_coverage < 1.0 and candidate.column_overlap >= 0.4)
+    ):
+        return "M"
+    return "L"

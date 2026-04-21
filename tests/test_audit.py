@@ -320,3 +320,67 @@ def test_pass1_sorted_strongest_first():
     candidates = idx["T_RA_INTERFACE_LINES_ALL"]
     assert len(candidates) == 2
     assert candidates[0].name_alignment == "EXACT"
+
+
+from fbdi.audit import parse_prior_mapping, evaluate_confidence, Candidate
+
+
+def _cand(name_align: str, key_cov: float, col_ovlp: float) -> Candidate:
+    return Candidate(
+        fbdi_file="F", fbdi_tab="T",
+        name_alignment=name_align,
+        key_coverage=key_cov,
+        column_overlap=col_ovlp,
+        prefix_conformance=True,
+        applaud_key_fields_matched=[],
+        applaud_fields_matched=[],
+        applaud_fields_missing=[],
+    )
+
+
+# --- parse_prior_mapping ---
+
+def test_parse_prior_mapping_single():
+    result = parse_prior_mapping("AutoInvoiceImportTemplate / RA_INTERFACE_LINES_ALL")
+    assert result == [("AutoInvoiceImportTemplate", "RA_INTERFACE_LINES_ALL")]
+
+def test_parse_prior_mapping_multi():
+    result = parse_prior_mapping(
+        "AutoInvoiceImportTemplate / RA_INTERFACE_LINES_ALL; "
+        "ItemStructureImportTemplate / EGP_COMPONENTS_INTERFACE"
+    )
+    assert len(result) == 2
+    assert ("AutoInvoiceImportTemplate", "RA_INTERFACE_LINES_ALL") in result
+    assert ("ItemStructureImportTemplate", "EGP_COMPONENTS_INTERFACE") in result
+
+def test_parse_prior_mapping_blank():
+    assert parse_prior_mapping("") == []
+    assert parse_prior_mapping("   ") == []
+
+def test_parse_prior_mapping_malformed(caplog):
+    import logging
+    with caplog.at_level(logging.WARNING):
+        result = parse_prior_mapping("NoSlashHere")
+    assert result == []
+
+# --- evaluate_confidence ---
+
+def test_evaluate_confidence_high():
+    c = _cand("EXACT", 1.0, 0.85)
+    assert evaluate_confidence(c) == "H"
+
+def test_evaluate_confidence_high_no_keys():
+    c = _cand("EXACT", 0.0, 0.75)
+    assert evaluate_confidence(c) == "H"
+
+def test_evaluate_confidence_medium_partial():
+    c = _cand("PARTIAL", 0.8, 0.5)
+    assert evaluate_confidence(c) == "M"
+
+def test_evaluate_confidence_medium_key_coverage():
+    c = _cand("NONE", 0.6, 0.45)
+    assert evaluate_confidence(c) == "M"
+
+def test_evaluate_confidence_low():
+    c = _cand("PARTIAL", 0.0, 0.1)
+    assert evaluate_confidence(c) == "L"
