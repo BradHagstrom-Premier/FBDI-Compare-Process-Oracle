@@ -357,3 +357,65 @@ def check_prefix_conformance(
 ) -> bool:
     """True when Applaud table name minus T_ exactly equals the FBDI tab name."""
     return applaud_table.upper().removeprefix("T_") == fbdi_tab.upper()
+
+
+# ---------------------------------------------------------------------------
+# Pass 1 — candidate index
+# ---------------------------------------------------------------------------
+
+_PASS1_MIN_NAME_ALIGNMENT = {"EXACT", "PARTIAL"}
+_PASS1_MIN_KEY_COVERAGE = 0.5
+_PASS1_MIN_COLUMN_OVERLAP = 0.3
+
+
+def _sort_key(c: Candidate) -> tuple:
+    align_order = {"EXACT": 0, "PARTIAL": 1, "NONE": 2}
+    return (align_order[c.name_alignment], -c.key_coverage, -c.column_overlap)
+
+
+def build_candidate_index(
+    snapshot: ApplaudSnapshot, catalog: CatalogIndex
+) -> CandidateIndex:
+    index: CandidateIndex = {}
+    table_by_name = snapshot.table_by_name()
+
+    for applaud_table_name, snap_table in table_by_name.items():
+        candidates: list[Candidate] = []
+        key_bare = snap_table.key_bare_names()
+
+        for (fbdi_file, fbdi_tab), fbdi_cols in catalog.items():
+            name_align = compute_name_alignment(applaud_table_name, fbdi_tab)
+            key_cov = compute_key_coverage(key_bare, fbdi_cols)
+            col_ovlp = compute_column_overlap(snap_table.fields, fbdi_cols)
+            prefix_ok = check_prefix_conformance(
+                applaud_table_name, snap_table.prefix or "", fbdi_tab
+            )
+
+            # Pass-1 threshold: keep if any signal clears its floor
+            if (
+                name_align in _PASS1_MIN_NAME_ALIGNMENT
+                or key_cov >= _PASS1_MIN_KEY_COVERAGE
+                or col_ovlp >= _PASS1_MIN_COLUMN_OVERLAP
+            ):
+                fbdi_upper = {c.upper() for c in fbdi_cols}
+                biz_fields = snap_table.business_fields()
+                matched = [f.bare_name for f in biz_fields if f.bare_name.upper() in fbdi_upper]
+                missing = [f.bare_name for f in biz_fields if f.bare_name.upper() not in fbdi_upper]
+                key_matched = [k for k in key_bare if k.upper() in fbdi_upper]
+
+                candidates.append(Candidate(
+                    fbdi_file=fbdi_file,
+                    fbdi_tab=fbdi_tab,
+                    name_alignment=name_align,
+                    key_coverage=key_cov,
+                    column_overlap=col_ovlp,
+                    prefix_conformance=prefix_ok,
+                    applaud_key_fields_matched=key_matched,
+                    applaud_fields_matched=matched,
+                    applaud_fields_missing=missing,
+                ))
+
+        candidates.sort(key=_sort_key)
+        index[applaud_table_name] = candidates
+
+    return index

@@ -237,3 +237,86 @@ def test_prefix_conformance_true():
 
 def test_prefix_conformance_false():
     assert check_prefix_conformance("T_RA_INTERFACE_LINES_ALL", "TA4", "RA_INTERFACE_LINES") is False
+
+
+# --- Pass 1 candidate index ---
+
+from fbdi.audit import build_candidate_index, ApplaudSnapshot, SnapshotTable, SnapshotField, SnapshotKeySeq
+
+def _make_snapshot_table(
+    name: str, prefix: str, fields: list[SnapshotField], key_fields: list[str]
+) -> SnapshotTable:
+    return SnapshotTable(
+        name=name, prefix=prefix,
+        description=f"{name} ({prefix})", type="1",
+        key_sequences=[SnapshotKeySeq(seq="1", keys=key_fields)],
+        fields=fields,
+    )
+
+def _make_snap(*tables: SnapshotTable) -> ApplaudSnapshot:
+    return ApplaudSnapshot(
+        mdb_path="", extracted_at="", extractor_version="1",
+        tables=list(tables), missing_tables=[],
+    )
+
+
+def test_pass1_exact_name_match_kept():
+    fields = [SnapshotField("TA4INVOICE_ID", "INVOICE_ID", False, "N", 15)]
+    table = _make_snapshot_table("T_RA_INTERFACE_LINES_ALL", "TA4", fields, ["TA4INVOICE_ID"])
+    catalog = {("AutoInvoiceImportTemplate", "RA_INTERFACE_LINES_ALL"): {"INVOICE_ID"}}
+    snap = _make_snap(table)
+    idx = build_candidate_index(snap, catalog)
+    assert "T_RA_INTERFACE_LINES_ALL" in idx
+    candidates = idx["T_RA_INTERFACE_LINES_ALL"]
+    assert len(candidates) == 1
+    c = candidates[0]
+    assert c.fbdi_file == "AutoInvoiceImportTemplate"
+    assert c.fbdi_tab == "RA_INTERFACE_LINES_ALL"
+    assert c.name_alignment == "EXACT"
+
+
+def test_pass1_below_threshold_dropped():
+    fields = [SnapshotField("TA4INVOICE_ID", "INVOICE_ID", False, "N", 15)]
+    table = _make_snapshot_table("T_RA_INTERFACE_LINES_ALL", "TA4", fields, ["TA4INVOICE_ID"])
+    catalog = {("SomeTemplate", "UNRELATED_TAB"): {"UNRELATED_COL"}}
+    snap = _make_snap(table)
+    idx = build_candidate_index(snap, catalog)
+    assert idx.get("T_RA_INTERFACE_LINES_ALL", []) == []
+
+
+def test_pass1_high_column_overlap_kept():
+    fields = [SnapshotField(f"TA4F{i}", f"F{i}", False, "X", 10) for i in range(5)]
+    table = _make_snapshot_table("T_SOME_TABLE", "TA4", fields, [])
+    fbdi_cols = {f"F{i}" for i in range(4)}
+    catalog = {("SomeTemplate", "UNRELATED_TAB"): fbdi_cols}
+    snap = _make_snap(table)
+    idx = build_candidate_index(snap, catalog)
+    candidates = idx.get("T_SOME_TABLE", [])
+    assert len(candidates) == 1
+    assert candidates[0].column_overlap >= 0.3
+
+
+def test_pass1_legacy_fields_excluded_from_overlap():
+    biz = SnapshotField("TA4INVOICE_ID", "INVOICE_ID", False, "N", 15)
+    leg = SnapshotField("@TA4SITE", "SITE", True, "X", 10)
+    table = _make_snapshot_table("T_RA", "TA4", [biz, leg], [])
+    catalog = {("AnyTemplate", "RA"): {"INVOICE_ID"}}
+    snap = _make_snap(table)
+    idx = build_candidate_index(snap, catalog)
+    candidates = idx.get("T_RA", [])
+    assert candidates  # kept because name PARTIAL match or high overlap
+    assert candidates[0].column_overlap == 1.0  # 1/1 biz field matched
+
+
+def test_pass1_sorted_strongest_first():
+    fields = [SnapshotField("TA4INVOICE_ID", "INVOICE_ID", False, "N", 15)]
+    table = _make_snapshot_table("T_RA_INTERFACE_LINES_ALL", "TA4", fields, ["TA4INVOICE_ID"])
+    catalog = {
+        ("TemplateA", "RA_INTERFACE_LINES_ALL"): {"INVOICE_ID"},   # EXACT + key 1.0
+        ("TemplateB", "RA_INTERFACE_LINES"): {"INVOICE_ID"},       # PARTIAL + key 1.0
+    }
+    snap = _make_snap(table)
+    idx = build_candidate_index(snap, catalog)
+    candidates = idx["T_RA_INTERFACE_LINES_ALL"]
+    assert len(candidates) == 2
+    assert candidates[0].name_alignment == "EXACT"
