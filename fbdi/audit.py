@@ -460,3 +460,181 @@ def evaluate_confidence(candidate: Candidate) -> str:
     ):
         return "M"
     return "L"
+
+
+# ---------------------------------------------------------------------------
+# Pass 2 — adjudication
+# ---------------------------------------------------------------------------
+
+_CARRYTHROUGH_VERDICTS = {"FILE_TOO_LARGE", "FILE_ERROR"}
+
+
+def _find_candidate(
+    candidates: list[Candidate], fbdi_file: str, fbdi_tab: str
+) -> Candidate | None:
+    for c in candidates:
+        if c.fbdi_file == fbdi_file and c.fbdi_tab == fbdi_tab:
+            return c
+    return None
+
+
+def adjudicate_table(
+    applaud_table: str,
+    snap_table: SnapshotTable | None,
+    candidates: list[Candidate],
+    prior: PriorRow,
+) -> AuditRow:
+    evidence = EvidenceBundle(candidates_evaluated=list(candidates))
+    prefix = snap_table.prefix or prior.prefix if snap_table else prior.prefix
+
+    # ── PREFLIGHT ────────────────────────────────────────────────────────────
+    if snap_table is None and prior.prior_status not in _CARRYTHROUGH_VERDICTS:
+        return AuditRow(
+            applaud_table=applaud_table, prefix=prefix,
+            verdict="UNMAPPED", fbdi_mapping="",
+            confidence="H", rationale="Applaud table not present in MDB snapshot",
+            prior_verdict=prior.prior_status, changed=False,
+            needs_deep_rationale=False, evidence=evidence,
+        )
+
+    if prior.prior_status in _CARRYTHROUGH_VERDICTS:
+        return AuditRow(
+            applaud_table=applaud_table, prefix=prefix,
+            verdict=prior.prior_status, fbdi_mapping=prior.mapping_text,
+            confidence="", rationale="Sized out / unreadable in 26B — unchanged from prior",
+            prior_verdict=prior.prior_status, changed=False,
+            needs_deep_rationale=False, evidence=evidence,
+        )
+
+    # ── PRIOR MAPPING PARSE ──────────────────────────────────────────────────
+    prior_claims = parse_prior_mapping(prior.mapping_text)
+    best_candidate = candidates[0] if candidates else None
+
+    verdict: str
+    fbdi_mapping: str
+    confidence: str
+    rationale: str
+
+    # ── UNMAPPED / blank ─────────────────────────────────────────────────────
+    if prior.prior_status in ("UNMAPPED", "") or (
+        prior.prior_status == "YES" and not prior.mapping_text.strip()
+    ):
+        if best_candidate:
+            conf = evaluate_confidence(best_candidate)
+            if conf == "H":
+                verdict = "YES"
+                fbdi_mapping = f"{best_candidate.fbdi_file} / {best_candidate.fbdi_tab}"
+                confidence = "H"
+                rationale = (
+                    f"Promoted from UNMAPPED — EXACT name match, "
+                    f"key={best_candidate.key_coverage:.0%}, overlap={best_candidate.column_overlap:.0%}"
+                )
+            elif conf == "M":
+                verdict = "NEEDS_REVIEW"
+                fbdi_mapping = f"{best_candidate.fbdi_file} / {best_candidate.fbdi_tab}"
+                confidence = "M"
+                rationale = "Potential new mapping — Medium confidence; verify with Brad"
+            else:
+                verdict = "UNMAPPED"
+                fbdi_mapping = ""
+                confidence = "H"
+                rationale = "No FBDI tab in 26B catalog scores above threshold"
+        else:
+            verdict = "UNMAPPED"
+            fbdi_mapping = ""
+            confidence = "H"
+            rationale = "No FBDI tab in 26B catalog scores above threshold"
+
+    # ── SINGLE prior claim ───────────────────────────────────────────────────
+    elif len(prior_claims) == 1:
+        file, tab = prior_claims[0]
+        matched_c = _find_candidate(candidates, file, tab)
+        if matched_c:
+            conf = evaluate_confidence(matched_c)
+            if conf in ("H", "M"):
+                verdict = "YES"
+                fbdi_mapping = f"{file} / {tab}"
+                confidence = conf
+                rationale = (
+                    f"name={matched_c.name_alignment}, "
+                    f"key={matched_c.key_coverage:.0%}, "
+                    f"overlap={matched_c.column_overlap:.0%}"
+                )
+            else:
+                verdict = "NEEDS_REVIEW"
+                fbdi_mapping = f"{file} / {tab}"
+                confidence = "L"
+                rationale = "Prior claim scores Low against 26B catalog — verify"
+        else:
+            verdict = "NEEDS_REVIEW"
+            fbdi_mapping = f"{file} / {tab}"
+            confidence = "L" if best_candidate else "H"
+            rationale = (
+                "Prior references file/tab not found in 26B catalog or below all thresholds"
+            )
+
+    # ── MULTI prior claims ───────────────────────────────────────────────────
+    else:
+        high_or_med: list[tuple[str, str, Candidate, str]] = []
+        low_or_absent: list[tuple[str, str]] = []
+        for file, tab in prior_claims:
+            c = _find_candidate(candidates, file, tab)
+            if c:
+                conf = evaluate_confidence(c)
+                if conf in ("H", "M"):
+                    high_or_med.append((file, tab, c, conf))
+                else:
+                    low_or_absent.append((file, tab))
+                    evidence.rejected_alternatives.append(c)
+            else:
+                low_or_absent.append((file, tab))
+
+        if len(high_or_med) == len(prior_claims):
+            # All claims score High or Medium → keep multi
+            verdict = "YES"
+            fbdi_mapping = "; ".join(f"{f} / {t}" for f, t, _, _ in high_or_med)
+            confidence = "H" if all(conf == "H" for _, _, _, conf in high_or_med) else "M"
+            rationale = f"Multi-mapping retained — {len(high_or_med)} legs verified"
+        elif len(high_or_med) == 1:
+            # One good leg — collapse to single
+            file, tab, c, conf = high_or_med[0]
+            verdict = "YES"
+            fbdi_mapping = f"{file} / {tab}"
+            confidence = conf
+            rationale = (
+                f"Collapsed from multi — 1/{len(prior_claims)} legs scored {conf}; "
+                f"rest below threshold"
+            )
+        else:
+            verdict = "NEEDS_REVIEW"
+            fbdi_mapping = "; ".join(f"{f} / {t}" for f, t in prior_claims)
+            confidence = "M" if high_or_med else "L"
+            rationale = "Multi-mapping contested — see audit.md for per-leg evidence"
+
+    # ── PREFIX AUDIT (all verdicts) ──────────────────────────────────────────
+    if verdict == "YES" and fbdi_mapping:
+        # Check prefix_conformance on the first/primary chosen candidate
+        first_claim = parse_prior_mapping(fbdi_mapping)
+        if first_claim:
+            chosen_c = _find_candidate(candidates, first_claim[0][0], first_claim[0][1])
+            if chosen_c and not chosen_c.prefix_conformance:
+                evidence.notes.append(
+                    f"Prefix mismatch — expected T_<tab> convention, "
+                    f"got prefix={prefix} for tab={first_claim[0][1]}"
+                )
+
+    changed = verdict != prior.prior_status or fbdi_mapping != prior.mapping_text.strip()
+    needs_deep = (
+        verdict == "NEEDS_REVIEW"
+        or changed
+        or confidence == "L"
+        or bool(evidence.notes)
+    )
+
+    return AuditRow(
+        applaud_table=applaud_table, prefix=prefix,
+        verdict=verdict, fbdi_mapping=fbdi_mapping,
+        confidence=confidence, rationale=rationale,
+        prior_verdict=prior.prior_status, changed=changed,
+        needs_deep_rationale=needs_deep, evidence=evidence,
+    )

@@ -389,3 +389,134 @@ def test_evaluate_confidence_partial_low_overlap_still_medium():
     # PARTIAL name match alone → M regardless of overlap
     c = _cand("PARTIAL", 0.0, 0.05)
     assert evaluate_confidence(c) == "M"
+
+
+from fbdi.audit import (
+    adjudicate_table, AuditRow, Candidate, EvidenceBundle,
+    SnapshotTable, SnapshotField, SnapshotKeySeq, PriorRow,
+)
+
+
+def _pr(status: str, mapping: str = "", prefix: str = "TA4",
+        module: str = "Fin", notes: str = "") -> PriorRow:
+    return PriorRow("T_TEST", status, prefix, mapping, module, notes)
+
+
+def _cand7(file: str, tab: str, align: str, key: float, overlap: float) -> Candidate:
+    return Candidate(
+        fbdi_file=file, fbdi_tab=tab,
+        name_alignment=align, key_coverage=key, column_overlap=overlap,
+        prefix_conformance=True,
+        applaud_key_fields_matched=[], applaud_fields_matched=[], applaud_fields_missing=[],
+    )
+
+
+# Branch 1: NOT_IN_APPLAUD → UNMAPPED High
+def test_adjudicate_not_in_applaud():
+    row = adjudicate_table("T_GHOST", None, [], _pr("UNMAPPED"))
+    assert row.verdict == "UNMAPPED"
+    assert row.confidence == "H"
+    assert "not present" in row.rationale.lower()
+
+
+# Branch 2: FILE_TOO_LARGE carry-through
+def test_adjudicate_file_too_large_carrythrough():
+    row = adjudicate_table("T_TEST", None, [], _pr("FILE_TOO_LARGE"))
+    assert row.verdict == "FILE_TOO_LARGE"
+    assert row.confidence == ""
+
+
+# Branch 3: Single prior, High signals → YES High
+def test_adjudicate_single_prior_high():
+    c = _cand7("AutoInvoice", "RA_INTERFACE_LINES_ALL", "EXACT", 1.0, 0.85)
+    prior = _pr("YES", "AutoInvoice / RA_INTERFACE_LINES_ALL")
+    snap_table = SnapshotTable("T_RA", "TA4", "T_RA (TA4)", "1", [], [])
+    row = adjudicate_table("T_RA", snap_table, [c], prior)
+    assert row.verdict == "YES"
+    assert row.confidence == "H"
+    assert not row.changed
+
+
+# Branch 4: Single prior, low signals → NEEDS_REVIEW
+def test_adjudicate_single_prior_low():
+    c = _cand7("AutoInvoice", "WRONG_TAB", "NONE", 0.0, 0.1)
+    prior = _pr("YES", "AutoInvoice / WRONG_TAB")
+    snap_table = SnapshotTable("T_RA", "TA4", "T_RA (TA4)", "1", [], [])
+    row = adjudicate_table("T_RA", snap_table, [c], prior)
+    assert row.verdict == "NEEDS_REVIEW"
+    assert row.needs_deep_rationale
+
+
+# Branch 5: Multi prior, both High → multi retained
+def test_adjudicate_multi_both_high():
+    c1 = _cand7("TemplA", "TAB_X", "EXACT", 1.0, 0.85)
+    c2 = _cand7("TemplB", "TAB_X", "EXACT", 1.0, 0.90)
+    prior = _pr("YES", "TemplA / TAB_X; TemplB / TAB_X")
+    snap_table = SnapshotTable("T_TAB_X", "TXX", "T_TAB_X (TXX)", "1", [], [])
+    row = adjudicate_table("T_TAB_X", snap_table, [c1, c2], prior)
+    assert row.verdict == "YES"
+    assert ";" in row.fbdi_mapping  # multi retained
+
+
+# Branch 6: Multi prior, one High + one Low → collapsed
+def test_adjudicate_multi_collapse():
+    c1 = _cand7("TemplA", "TAB_X", "EXACT", 1.0, 0.85)
+    # c2 not in candidates list (low signal, filtered by pass 1)
+    prior = _pr("YES", "TemplA / TAB_X; TemplB / TAB_MISSING")
+    snap_table = SnapshotTable("T_TAB_X", "TXX", "T_TAB_X (TXX)", "1", [], [])
+    row = adjudicate_table("T_TAB_X", snap_table, [c1], prior)
+    assert row.verdict == "YES"
+    assert "TemplB" not in row.fbdi_mapping
+    assert row.changed  # collapsed from multi
+
+
+# Branch 7: UNMAPPED + High candidate → promoted to YES
+def test_adjudicate_unmapped_promoted():
+    c = _cand7("AutoInvoice", "RA_INTERFACE_LINES_ALL", "EXACT", 1.0, 0.85)
+    prior = _pr("UNMAPPED")
+    snap_table = SnapshotTable("T_RA", "TA4", "T_RA (TA4)", "1", [], [])
+    row = adjudicate_table("T_RA", snap_table, [c], prior)
+    assert row.verdict == "YES"
+    assert row.confidence == "H"
+    assert row.changed
+
+
+# Branch 8: UNMAPPED + Medium candidate → NEEDS_REVIEW
+def test_adjudicate_unmapped_medium_candidate():
+    c = _cand7("AutoInvoice", "RA_INTERFACE_LINES", "PARTIAL", 0.5, 0.5)
+    prior = _pr("UNMAPPED")
+    snap_table = SnapshotTable("T_RA_INTERFACE_LINES_ALL", "TA4", "T_RA (TA4)", "1", [], [])
+    row = adjudicate_table("T_RA_INTERFACE_LINES_ALL", snap_table, [c], prior)
+    assert row.verdict == "NEEDS_REVIEW"
+    assert row.confidence == "M"
+
+
+# Branch 9: UNMAPPED + no viable candidate → stays UNMAPPED High
+def test_adjudicate_unmapped_no_candidate():
+    prior = _pr("UNMAPPED")
+    snap_table = SnapshotTable("T_GHOST", "TGH", "T_GHOST (TGH)", "1", [], [])
+    row = adjudicate_table("T_GHOST", snap_table, [], prior)
+    assert row.verdict == "UNMAPPED"
+    assert row.confidence == "H"
+    assert not row.changed
+
+
+# Branch 10: prefix mismatch surfaces in notes, doesn't change verdict
+def test_adjudicate_prefix_mismatch_noted():
+    c = _cand7("AutoInvoice", "RA_INTERFACE_LINES_ALL", "EXACT", 1.0, 0.85)
+    c.prefix_conformance = False
+    prior = _pr("YES", "AutoInvoice / RA_INTERFACE_LINES_ALL")
+    snap_table = SnapshotTable("T_RA_INTERFACE_LINES_ALL", "TA4", "T_RA (TA4)", "1", [], [])
+    row = adjudicate_table("T_RA_INTERFACE_LINES_ALL", snap_table, [c], prior)
+    assert row.verdict == "YES"
+    assert "prefix" in row.rationale.lower() or any("prefix" in n.lower() for n in row.evidence.notes)
+
+
+# Branch 11: deep_rationale trigger — changed from prior
+def test_adjudicate_deep_rationale_on_change():
+    c = _cand7("AutoInvoice", "RA_INTERFACE_LINES_ALL", "EXACT", 1.0, 0.85)
+    prior = _pr("UNMAPPED")  # was UNMAPPED, now promoted to YES
+    snap_table = SnapshotTable("T_RA", "TA4", "T_RA (TA4)", "1", [], [])
+    row = adjudicate_table("T_RA", snap_table, [c], prior)
+    assert row.changed
+    assert row.needs_deep_rationale
