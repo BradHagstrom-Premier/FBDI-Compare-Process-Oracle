@@ -638,3 +638,204 @@ def adjudicate_table(
         prior_verdict=prior.prior_status, changed=changed,
         needs_deep_rationale=needs_deep, evidence=evidence,
     )
+
+
+# ---------------------------------------------------------------------------
+# Output writers
+# ---------------------------------------------------------------------------
+
+_HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
+_HEADER_FONT = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+_DATA_FONT = Font(name="Calibri", size=11)
+
+_VERDICT_FILLS = {
+    "YES":            PatternFill("solid", fgColor="E2EFDA"),
+    "UNMAPPED":       PatternFill("solid", fgColor="FCE4D6"),
+    "NEEDS_REVIEW":   PatternFill("solid", fgColor="FFF2CC"),
+    "FILE_TOO_LARGE": PatternFill("solid", fgColor="F4B942"),
+    "FILE_ERROR":     PatternFill("solid", fgColor="F4B942"),
+}
+
+_S1_HEADERS = [
+    "FBDI Template", "FBDI Tab", "Applaud Table", "Prefix",
+    "Status", "Module", "Notes", "Match Type", "Confidence",
+]
+_S2_HEADERS = [
+    "#", "Applaud Table", "Status", "Prefix", "FBDI Template Mappings",
+    "Confidence", "Rationale", "Changed From Prior", "Prior Status",
+]
+
+
+def _style_header_row(ws, n_cols: int) -> None:
+    for col in range(1, n_cols + 1):
+        cell = ws.cell(row=1, column=col)
+        cell.fill = _HEADER_FILL
+        cell.font = _HEADER_FONT
+        cell.alignment = Alignment(horizontal="center")
+
+
+def _write_sheet1(ws, audit_rows: list[AuditRow], catalog: CatalogIndex) -> None:
+    """FBDI Mapping — one row per (file, tab) in the 26B catalog."""
+    tab_to_row: dict[tuple[str, str], AuditRow] = {}
+    for ar in audit_rows:
+        for file, tab in parse_prior_mapping(ar.fbdi_mapping):
+            tab_to_row[(file, tab)] = ar
+
+    ws.append(_S1_HEADERS)
+    _style_header_row(ws, len(_S1_HEADERS))
+
+    for (fbdi_file, fbdi_tab) in sorted(catalog):
+        ar = tab_to_row.get((fbdi_file, fbdi_tab))
+        if ar:
+            match_type = "EXACT" if ar.confidence == "H" else "PARTIAL" if ar.confidence == "M" else "PRIOR-CARRYOVER"
+            row = [fbdi_file, fbdi_tab, ar.applaud_table, ar.prefix,
+                   ar.verdict, "", "", match_type, ar.confidence]
+        else:
+            row = [fbdi_file, fbdi_tab, "", "", "UNMAPPED", "", "", "", ""]
+        ws.append(row)
+        fill = _VERDICT_FILLS.get(row[4])
+        if fill:
+            for col in range(1, len(_S1_HEADERS) + 1):
+                ws.cell(row=ws.max_row, column=col).fill = fill
+
+    ws.freeze_panes = "A2"
+
+
+def _write_sheet2(ws, audit_rows: list[AuditRow]) -> None:
+    """Applaud Tables — one row per Applaud table."""
+    ws.append(_S2_HEADERS)
+    _style_header_row(ws, len(_S2_HEADERS))
+
+    for i, ar in enumerate(audit_rows, start=1):
+        changed_mark = "✓" if ar.changed else ""
+        row = [i, ar.applaud_table, ar.verdict, ar.prefix, ar.fbdi_mapping,
+               ar.confidence, ar.rationale, changed_mark, ar.prior_verdict]
+        ws.append(row)
+        fill = _VERDICT_FILLS.get(ar.verdict)
+        if fill:
+            for col in range(1, len(_S2_HEADERS) + 1):
+                ws.cell(row=ws.max_row, column=col).fill = fill
+
+    ws.freeze_panes = "A2"
+
+
+def _write_sheet3(ws, audit_rows: list[AuditRow]) -> None:
+    """Needs Review — filtered subset, sorted by priority."""
+    ws.append(_S2_HEADERS)
+    _style_header_row(ws, len(_S2_HEADERS))
+
+    deep_rows = [ar for ar in audit_rows if ar.needs_deep_rationale]
+
+    def _sort(ar: AuditRow) -> tuple:
+        return (ar.verdict != "NEEDS_REVIEW", not ar.changed, ar.confidence != "L")
+
+    deep_rows.sort(key=_sort)
+
+    for i, ar in enumerate(deep_rows, start=1):
+        changed_mark = "✓" if ar.changed else ""
+        rationale = ar.rationale + " → see audit.md"
+        row = [i, ar.applaud_table, ar.verdict, ar.prefix, ar.fbdi_mapping,
+               ar.confidence, rationale, changed_mark, ar.prior_verdict]
+        ws.append(row)
+        fill = _VERDICT_FILLS.get(ar.verdict)
+        if fill:
+            for col in range(1, len(_S2_HEADERS) + 1):
+                ws.cell(row=ws.max_row, column=col).fill = fill
+
+    ws.freeze_panes = "A2"
+
+
+def write_output_xlsx(
+    audit_rows: list[AuditRow],
+    catalog: CatalogIndex,
+    output_path: Path = OUTPUT_MAPPING_PATH,
+) -> None:
+    wb = Workbook()
+    ws1 = wb.active
+    ws1.title = "FBDI Mapping"
+    _write_sheet1(ws1, audit_rows, catalog)
+
+    ws2 = wb.create_sheet("Applaud Tables")
+    _write_sheet2(ws2, audit_rows)
+
+    ws3 = wb.create_sheet("Needs Review")
+    _write_sheet3(ws3, audit_rows)
+
+    wb.save(output_path)
+    print(f"Wrote: {output_path}")
+
+
+def write_audit_md(
+    audit_rows: list[AuditRow],
+    snapshot_meta: dict,
+    output_path: Path = OUTPUT_AUDIT_PATH,
+) -> None:
+    deep_rows = [ar for ar in audit_rows if ar.needs_deep_rationale]
+    needs_review = [ar for ar in deep_rows if ar.verdict == "NEEDS_REVIEW"]
+    changed = [ar for ar in deep_rows if ar.changed and ar.verdict != "NEEDS_REVIEW"]
+
+    total = len(audit_rows)
+    yes_count = sum(1 for ar in audit_rows if ar.verdict == "YES")
+    unmapped_count = sum(1 for ar in audit_rows if ar.verdict == "UNMAPPED")
+    nr_count = len(needs_review)
+    changed_count = sum(1 for ar in audit_rows if ar.changed)
+
+    lines: list[str] = [
+        "# FBDI ↔ Applaud Mapping Audit — 26B",
+        "",
+        f"**Generated:** {datetime.now(timezone.utc).isoformat()}",
+        f"**Snapshot:** applaud_snapshot.json @ {snapshot_meta.get('extracted_at', 'unknown')}",
+        "**Catalog:** FBDI_Master_Catalog.xlsx 26B tab",
+        "**Prior mapping:** fbdi_applaud_mapping.xlsx",
+        "",
+        "## Summary",
+        "",
+        f"Of {total} Applaud tables audited: "
+        f"{yes_count} YES, {unmapped_count} UNMAPPED, {nr_count} NEEDS_REVIEW. "
+        f"{changed_count} rows changed from prior.",
+        "",
+    ]
+
+    if needs_review:
+        lines += [f"## Needs Review ({len(needs_review)} rows)", ""]
+        for ar in needs_review:
+            lines += _md_section(ar)
+
+    if changed:
+        lines += ["## Changed From Prior", ""]
+        for ar in changed:
+            lines += _md_section(ar)
+
+    prefix_mismatches = [ar for ar in audit_rows if ar.evidence.notes]
+    if prefix_mismatches:
+        lines += ["## Prefix Mismatches", ""]
+        lines += ["| Applaud Table | Prefix | Notes |", "|---|---|---|"]
+        for ar in prefix_mismatches:
+            for note in ar.evidence.notes:
+                lines.append(f"| {ar.applaud_table} | {ar.prefix} | {note} |")
+        lines.append("")
+
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"Wrote: {output_path}")
+
+
+def _md_section(ar: AuditRow) -> list[str]:
+    lines = [
+        f"### {ar.applaud_table} (prefix: {ar.prefix}) — {ar.verdict}",
+        f"- **Prior:** {ar.prior_verdict} → `{ar.fbdi_mapping or '(none)'}`",
+        f"- **Decision:** {ar.rationale}",
+    ]
+    if ar.evidence.candidates_evaluated:
+        lines.append("- **Candidates evaluated:**")
+        for c in ar.evidence.candidates_evaluated[:5]:
+            conf = evaluate_confidence(c)
+            lines.append(
+                f"  - `{c.fbdi_file} / {c.fbdi_tab}` — "
+                f"name={c.name_alignment}, "
+                f"keys={c.key_coverage:.0%}, "
+                f"cols={c.column_overlap:.0%} → {conf}"
+            )
+    for note in ar.evidence.notes:
+        lines.append(f"- **Note:** {note}")
+    lines.append("")
+    return lines

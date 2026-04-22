@@ -520,3 +520,90 @@ def test_adjudicate_deep_rationale_on_change():
     row = adjudicate_table("T_RA", snap_table, [c], prior)
     assert row.changed
     assert row.needs_deep_rationale
+
+
+from fbdi.audit import write_output_xlsx, write_audit_md, AuditRow, EvidenceBundle, CatalogIndex
+from openpyxl import load_workbook
+
+
+def _make_audit_row(
+    table: str, verdict: str, confidence: str, mapping: str,
+    prior_verdict: str = "YES", changed: bool = False,
+    needs_deep: bool = False, prefix: str = "TA4",
+) -> AuditRow:
+    return AuditRow(
+        applaud_table=table, prefix=prefix,
+        verdict=verdict, fbdi_mapping=mapping,
+        confidence=confidence,
+        rationale=f"{verdict} because signals",
+        prior_verdict=prior_verdict, changed=changed,
+        needs_deep_rationale=needs_deep,
+        evidence=EvidenceBundle(),
+    )
+
+
+def test_write_output_xlsx_sheets(tmp_path):
+    rows = [
+        _make_audit_row("T_RA", "YES", "H", "AutoInvoice / RA_TAB"),
+        _make_audit_row("T_GHOST", "UNMAPPED", "H", "", prior_verdict="UNMAPPED"),
+        _make_audit_row("T_PROBLEM", "NEEDS_REVIEW", "M", "SomeFile / SomeTab",
+                        prior_verdict="YES", changed=True, needs_deep=True),
+    ]
+    catalog: CatalogIndex = {
+        ("AutoInvoice", "RA_TAB"): {"INVOICE_ID"},
+    }
+    out = tmp_path / "Claude_test.xlsx"
+    write_output_xlsx(rows, catalog, out)
+    wb = load_workbook(out, read_only=True)
+    assert "FBDI Mapping" in wb.sheetnames
+    assert "Applaud Tables" in wb.sheetnames
+    assert "Needs Review" in wb.sheetnames
+    wb.close()
+
+
+def test_write_output_xlsx_sheet2_rows(tmp_path):
+    rows = [
+        _make_audit_row("T_RA", "YES", "H", "AutoInvoice / RA_TAB"),
+        _make_audit_row("T_GHOST", "UNMAPPED", "H", "", prior_verdict="UNMAPPED"),
+    ]
+    catalog: CatalogIndex = {}
+    out = tmp_path / "Claude_test.xlsx"
+    write_output_xlsx(rows, catalog, out)
+    wb = load_workbook(out, read_only=True, data_only=True)
+    ws2 = wb["Applaud Tables"]
+    data = list(ws2.iter_rows(values_only=True))
+    assert len(data) == 3  # header + 2 data rows
+    table_names = [r[1] for r in data[1:]]
+    assert "T_RA" in table_names
+    assert "T_GHOST" in table_names
+    wb.close()
+
+
+def test_write_output_xlsx_needs_review_sheet(tmp_path):
+    rows = [
+        _make_audit_row("T_NEEDS", "NEEDS_REVIEW", "M", "SomeFile / SomeTab",
+                        needs_deep=True),
+        _make_audit_row("T_OK", "YES", "H", "AutoInvoice / RA_TAB"),
+    ]
+    catalog: CatalogIndex = {}
+    out = tmp_path / "Claude_test.xlsx"
+    write_output_xlsx(rows, catalog, out)
+    wb = load_workbook(out, read_only=True, data_only=True)
+    ws3 = wb["Needs Review"]
+    data = list(ws3.iter_rows(values_only=True))
+    assert len(data) == 2  # header + 1 needs-review row
+    wb.close()
+
+
+def test_write_audit_md(tmp_path):
+    rows = [
+        _make_audit_row("T_NEEDS", "NEEDS_REVIEW", "M", "SomeFile / SomeTab",
+                        needs_deep=True, changed=True),
+        _make_audit_row("T_OK", "YES", "H", "AutoInvoice / RA_TAB"),
+    ]
+    out = tmp_path / "audit.md"
+    write_audit_md(rows, {"extracted_at": "2026-04-21T12:00:00Z"}, out)
+    content = out.read_text()
+    assert "T_NEEDS" in content
+    assert "T_OK" not in content  # High confidence unchanged → no entry
+    assert "NEEDS_REVIEW" in content
