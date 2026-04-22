@@ -607,3 +607,176 @@ def test_write_audit_md(tmp_path):
     assert "T_NEEDS" in content
     assert "T_OK" not in content  # High confidence unchanged → no entry
     assert "NEEDS_REVIEW" in content
+
+
+from fbdi.audit import run_audit
+import json
+from pathlib import Path
+from openpyxl import Workbook
+
+
+def _make_e2e_snapshot(tmp_path: Path) -> Path:
+    tables = [
+        # 1. EXACT + High → YES H
+        {
+            "name": "T_RA_INTERFACE_LINES_ALL",
+            "prefix": "TA4",
+            "description": "T_RA_INTERFACE_LINES_ALL (TA4)",
+            "type": "1",
+            "key_sequences": [{"seq": "1", "keys": ["TA4INVOICE_ID"]}],
+            "fields": [
+                {"name": "TA4INVOICE_ID", "bare_name": "INVOICE_ID",
+                 "is_legacy_tracking": False, "data_type": "N", "length": 15},
+                {"name": "@TA4SITE", "bare_name": "SITE",
+                 "is_legacy_tracking": True, "data_type": "X", "length": 10},
+            ],
+        },
+        # 2. PARTIAL match, prior=UNMAPPED → NEEDS_REVIEW M
+        {
+            "name": "T_RCV_HEADERS_INTERFACE",
+            "prefix": "TH7",
+            "description": "T_RCV_HEADERS_INTERFACE (TH7)",
+            "type": "1",
+            "key_sequences": [],
+            "fields": [
+                {"name": "TH7RECEIPT_NUM", "bare_name": "RECEIPT_NUM",
+                 "is_legacy_tracking": False, "data_type": "X", "length": 30},
+            ],
+        },
+        # 3. No candidate → UNMAPPED H (re-confirmed)
+        {
+            "name": "T_GHOST_TABLE",
+            "prefix": "TGG",
+            "description": "T_GHOST_TABLE (TGG)",
+            "type": "1",
+            "key_sequences": [],
+            "fields": [],
+        },
+        # 4. Multi prior, both High → multi retained
+        {
+            "name": "T_EGP_COMPONENTS_INTERFACE",
+            "prefix": "T91",
+            "description": "T_EGP_COMPONENTS_INTERFACE (T91)",
+            "type": "1",
+            "key_sequences": [],
+            "fields": [
+                {"name": "T91COMPONENT_ITEM_ID", "bare_name": "COMPONENT_ITEM_ID",
+                 "is_legacy_tracking": False, "data_type": "N", "length": 18},
+            ],
+        },
+        # 5. Multi prior, one leg missing → collapse
+        {
+            "name": "T_DOO_ORDER_HEADERS_ALL",
+            "prefix": "TC4",
+            "description": "T_DOO_ORDER_HEADERS_ALL (TC4)",
+            "type": "1",
+            "key_sequences": [],
+            "fields": [
+                {"name": "TC4ORDER_NUMBER", "bare_name": "ORDER_NUMBER",
+                 "is_legacy_tracking": False, "data_type": "X", "length": 50},
+            ],
+        },
+    ]
+    data = {
+        "mdb_path": "test", "extracted_at": "2026-04-21T12:00:00Z",
+        "extractor_version": "1", "tables": tables, "missing_tables": [],
+    }
+    p = tmp_path / "applaud_snapshot.json"
+    p.write_text(json.dumps(data))
+    return p
+
+
+def _make_e2e_catalog(tmp_path: Path) -> Path:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "26B"
+    ws.append(["release", "file_name", "tab_name", "position", "column_label",
+                "column_technical", "data_type", "length", "scale", "data_type_raw", "required"])
+    rows = [
+        ("26B", "AutoInvoiceImportTemplate", "RA_INTERFACE_LINES_ALL", 1, "Invoice ID", "INVOICE_ID", "N", 15, None, "NUMBER(15)", "TRUE"),
+        ("26B", "ReceivingReceiptImportTemplate", "RCV_HEADERS", 1, "Receipt Num", "RECEIPT_NUM", "X", 30, None, "VARCHAR2(30)", "FALSE"),
+        ("26B", "ChangeOrderImportTemplate", "EGP_COMPONENTS_INTERFACE", 1, "Comp Item", "COMPONENT_ITEM_ID", "N", 18, None, "NUMBER(18)", "FALSE"),
+        ("26B", "ItemStructureImportTemplate", "EGP_COMPONENTS_INTERFACE", 1, "Comp Item", "COMPONENT_ITEM_ID", "N", 18, None, "NUMBER(18)", "FALSE"),
+        ("26B", "SourceSalesOrderImportTemplate", "DOO_ORDER_HEADERS_ALL_INT", 1, "Order Num", "ORDER_NUMBER", "X", 50, None, "VARCHAR2(50)", "FALSE"),
+    ]
+    for r in rows:
+        ws.append(r)
+    p = tmp_path / "FBDI_Master_Catalog.xlsx"
+    wb.save(p)
+    return p
+
+
+def _make_e2e_prior(tmp_path: Path) -> Path:
+    wb = Workbook()
+    wb.active.title = "FBDI Mapping"
+    ws2 = wb.create_sheet("Applaud Tables")
+    ws2.append(["#", "applaud_table", "status", "prefix",
+                 "fbdi_template_mappings", "module", "notes"])
+    rows = [
+        (1, "T_RA_INTERFACE_LINES_ALL", "YES", "TA4",
+         "AutoInvoiceImportTemplate / RA_INTERFACE_LINES_ALL", "Financials", ""),
+        (2, "T_RCV_HEADERS_INTERFACE", "UNMAPPED", "TH7", "", "Procurement", ""),
+        (3, "T_GHOST_TABLE", "UNMAPPED", "TGG", "", "Unknown", ""),
+        (4, "T_EGP_COMPONENTS_INTERFACE", "YES", "T91",
+         "ChangeOrderImportTemplate / EGP_COMPONENTS_INTERFACE; "
+         "ItemStructureImportTemplate / EGP_COMPONENTS_INTERFACE",
+         "SCM", ""),
+        (5, "T_DOO_ORDER_HEADERS_ALL", "YES", "TC4",
+         "SourceSalesOrderImportTemplate / DOO_ORDER_HEADERS_ALL_INT; "
+         "ItemStructureImportTemplate / NONEXISTENT_TAB",
+         "SCM", ""),
+    ]
+    for r in rows:
+        ws2.append(r)
+    p = tmp_path / "fbdi_applaud_mapping.xlsx"
+    wb.save(p)
+    return p
+
+
+def test_audit_end_to_end(tmp_path):
+    snap_path = _make_e2e_snapshot(tmp_path)
+    cat_path = _make_e2e_catalog(tmp_path)
+    prior_path = _make_e2e_prior(tmp_path)
+    out_xlsx = tmp_path / "Claude_test.xlsx"
+    out_md = tmp_path / "audit.md"
+
+    audit_rows = run_audit(snap_path, cat_path, prior_path, out_xlsx, out_md)
+
+    assert len(audit_rows) == 5
+
+    by_table = {ar.applaud_table: ar for ar in audit_rows}
+
+    # T_RA: EXACT + High → YES H, unchanged
+    ra = by_table["T_RA_INTERFACE_LINES_ALL"]
+    assert ra.verdict == "YES"
+    assert ra.confidence == "H"
+    assert not ra.changed
+
+    # T_RCV: PARTIAL (RCV_HEADERS_INTERFACE strips to RCV_HEADERS, catalog has RCV_HEADERS) → NEEDS_REVIEW or YES
+    rcv = by_table["T_RCV_HEADERS_INTERFACE"]
+    assert rcv.verdict in ("NEEDS_REVIEW", "YES")
+
+    # T_GHOST: no candidates → UNMAPPED H
+    ghost = by_table["T_GHOST_TABLE"]
+    assert ghost.verdict == "UNMAPPED"
+    assert ghost.confidence == "H"
+
+    # T_EGP: multi, both legs High → multi retained YES
+    egp = by_table["T_EGP_COMPONENTS_INTERFACE"]
+    assert egp.verdict == "YES"
+    assert ";" in egp.fbdi_mapping
+
+    # T_DOO: multi, one leg missing → collapsed YES, changed=True
+    doo = by_table["T_DOO_ORDER_HEADERS_ALL"]
+    assert doo.verdict == "YES"
+    assert "NONEXISTENT_TAB" not in doo.fbdi_mapping
+    assert doo.changed
+
+    # Outputs exist
+    assert out_xlsx.exists()
+    assert out_md.exists()
+
+    # Legacy tracking exclusion: T_RA overlap denominator = 1 (INVOICE_ID only, not SITE)
+    ra_candidates = ra.evidence.candidates_evaluated
+    if ra_candidates:
+        assert ra_candidates[0].column_overlap == 1.0

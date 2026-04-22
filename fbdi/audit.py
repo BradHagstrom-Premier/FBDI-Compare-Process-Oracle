@@ -839,3 +839,66 @@ def _md_section(ar: AuditRow) -> list[str]:
         lines.append(f"- **Note:** {note}")
     lines.append("")
     return lines
+
+
+# ---------------------------------------------------------------------------
+# Orchestration
+# ---------------------------------------------------------------------------
+
+def run_audit(
+    snapshot_path: Path = SNAPSHOT_PATH,
+    catalog_path: Path = CATALOG_PATH,
+    prior_mapping_path: Path = PRIOR_MAPPING_PATH,
+    output_xlsx_path: Path = OUTPUT_MAPPING_PATH,
+    output_md_path: Path = OUTPUT_AUDIT_PATH,
+) -> list[AuditRow]:
+    snap = load_snapshot(snapshot_path)
+    try:
+        extracted = datetime.fromisoformat(snap.extracted_at.replace("Z", "+00:00"))
+        age_days = (datetime.now(timezone.utc) - extracted).days
+        if age_days > SNAPSHOT_MAX_AGE_DAYS:
+            warnings.warn(
+                f"Snapshot is {age_days} days old (>{SNAPSHOT_MAX_AGE_DAYS}). "
+                "Re-run Step A if the MDB has changed.",
+                stacklevel=2,
+            )
+    except Exception:
+        pass
+
+    catalog = load_catalog(catalog_path)
+    prior_mapping = load_prior_mapping(prior_mapping_path)
+
+    print(f"Snapshot: {len(snap.tables)} tables, {len(snap.missing_set())} missing")
+    print(f"Catalog: {len(catalog)} (file, tab) pairs")
+    print(f"Prior mapping: {len(prior_mapping)} Applaud tables")
+
+    candidate_index = build_candidate_index(snap, catalog)
+
+    table_by_name = snap.table_by_name()
+    missing_set = snap.missing_set()
+    audit_rows: list[AuditRow] = []
+
+    for table_name, prior_row in prior_mapping.items():
+        snap_table = table_by_name.get(table_name)
+        if table_name in missing_set:
+            snap_table = None
+        candidates = candidate_index.get(table_name, [])
+        row = adjudicate_table(table_name, snap_table, candidates, prior_row)
+        audit_rows.append(row)
+
+    verdicts: dict[str, int] = {}
+    for ar in audit_rows:
+        verdicts[ar.verdict] = verdicts.get(ar.verdict, 0) + 1
+    changed_count = sum(1 for ar in audit_rows if ar.changed)
+    print(f"\nResults: {verdicts}")
+    print(f"Changed from prior: {changed_count}")
+    print(f"Needs deep rationale: {sum(1 for ar in audit_rows if ar.needs_deep_rationale)}")
+
+    write_output_xlsx(audit_rows, catalog, output_xlsx_path)
+    write_audit_md(audit_rows, {"extracted_at": snap.extracted_at}, output_md_path)
+
+    return audit_rows
+
+
+if __name__ == "__main__":
+    run_audit()
