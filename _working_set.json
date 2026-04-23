@@ -1,0 +1,734 @@
+[
+  {
+    "name": "T_ADDITIONALTRANSFERORDERCOST",
+    "prior_prefix": "TL2"
+  },
+  {
+    "name": "T_AWARDS",
+    "prior_prefix": "TE1"
+  },
+  {
+    "name": "T_AWARD_BUDGET_PERIODS",
+    "prior_prefix": "TF2"
+  },
+  {
+    "name": "T_AWARD_CERTIFICATIONS",
+    "prior_prefix": "TE7"
+  },
+  {
+    "name": "T_AWARD_FED_DOM_ASSIST_PRG",
+    "prior_prefix": "TE9"
+  },
+  {
+    "name": "T_AWARD_FUNDING",
+    "prior_prefix": "TF5"
+  },
+  {
+    "name": "T_AWARD_FUNDING_ALLOCATIONS",
+    "prior_prefix": "TF6"
+  },
+  {
+    "name": "T_AWARD_FUNDING_SOURCE",
+    "prior_prefix": "TE2"
+  },
+  {
+    "name": "T_AWARD_KEYWORDS",
+    "prior_prefix": "TE5"
+  },
+  {
+    "name": "T_AWARD_ORGANIZATION_CREDITS",
+    "prior_prefix": "TF3"
+  },
+  {
+    "name": "T_AWARD_PERSONNEL",
+    "prior_prefix": "TF4"
+  },
+  {
+    "name": "T_AWARD_PRJ_TASK_BURDEN_SCHED",
+    "prior_prefix": "TF7"
+  },
+  {
+    "name": "T_AWARD_PROJECTS",
+    "prior_prefix": "TE3"
+  },
+  {
+    "name": "T_AWARD_PROJECT_FUNDING_SOURCE",
+    "prior_prefix": "TE4"
+  },
+  {
+    "name": "T_AWARD_REFERENCES",
+    "prior_prefix": "TE6"
+  },
+  {
+    "name": "T_AWARD_TERMS_AND_CONDITIONS",
+    "prior_prefix": "TE8"
+  },
+  {
+    "name": "T_BANKS",
+    "prior_prefix": "T31"
+  },
+  {
+    "name": "T_BPA_PO_GA_ORG_ASSIGN_INTERFA",
+    "prior_prefix": "T76"
+  },
+  {
+    "name": "T_CONTACTS",
+    "prior_prefix": "T25"
+  },
+  {
+    "name": "T_CSE_ASSETS_INT",
+    "prior_prefix": "T61"
+  },
+  {
+    "name": "T_CSE_INT_BATCHES_B",
+    "prior_prefix": "T60"
+  },
+  {
+    "name": "T_CST_INTR_STD_COST_DETAIL",
+    "prior_prefix": "T83"
+  },
+  {
+    "name": "T_CST_INTR_STD_COST_HEADERS",
+    "prior_prefix": "T84"
+  },
+  {
+    "name": "T_CST_I_INCOMING_TXN_COSTS",
+    "prior_prefix": "TG4"
+  },
+  {
+    "name": "T_CUSTOMERS",
+    "prior_prefix": "T24"
+  },
+  {
+    "name": "T_DOO_ORDER_ADDRESSES_INT",
+    "prior_prefix": "TB9"
+  },
+  {
+    "name": "T_DOO_ORDER_CHARGES_INT",
+    "prior_prefix": "TC2"
+  },
+  {
+    "name": "T_DOO_ORDER_CHARGE_COMPS",
+    "prior_prefix": "TC1"
+  },
+  {
+    "name": "T_DOO_ORDER_HDRS_ALL_EFF_B",
+    "prior_prefix": "TC3"
+  },
+  {
+    "name": "T_DOO_ORDER_HEADERS_ALL",
+    "prior_prefix": "TC4"
+  },
+  {
+    "name": "T_DOO_ORDER_LINES_ALL",
+    "prior_prefix": "TC5"
+  },
+  {
+    "name": "T_EGO_CHANGES_INT",
+    "prior_prefix": "T82"
+  },
+  {
+    "name": "T_EGO_CHANGE_ATTACHMENTS_INT",
+    "prior_prefix": "T80"
+  },
+  {
+    "name": "T_EGO_CHANGE_LINES_INT",
+    "prior_prefix": "T81"
+  },
+  {
+    "name": "T_EGO_ITEM_INTF_EFF_B",
+    "prior_prefix": "T86"
+  },
+  {
+    "name": "T_EGP_COMPONENTS_INTERFACE",
+    "prior_prefix": "T91"
+  },
+  {
+    "name": "T_EGP_ITEM_ATTACHMENTS_INTF",
+    "prior_prefix": "T40"
+  },
+  {
+    "name": "T_EGP_ITEM_CATEGORIES_INT",
+    "prior_prefix": "T87"
+  },
+  {
+    "name": "T_EGP_ITEM_RELATIONSHIPS_INTF",
+    "prior_prefix": "T88"
+  },
+  {
+    "name": "T_EGP_ITEM_REVISION_INT",
+    "prior_prefix": "T89"
+  },
+  {
+    "name": "T_EGP_REF_DESGS_INTERFACE",
+    "prior_prefix": "T93"
+  },
+  {
+    "name": "T_EGP_STRUCTURES_INTERFACE",
+    "prior_prefix": "T94"
+  },
+  {
+    "name": "T_EGP_SUB_COMPS_INTERFACE",
+    "prior_prefix": "T92"
+  },
+  {
+    "name": "T_EGP_SYSTEM_ITEMS_INTERFACE",
+    "prior_prefix": "T90"
+  },
+  {
+    "name": "T_EGP_TRADING_PARTNER_ITEMS",
+    "prior_prefix": "T85"
+  },
+  {
+    "name": "T_FA_ADJUSTMENTS",
+    "prior_prefix": "T68"
+  },
+  {
+    "name": "T_FA_MASSADD_DISTRIBUTIONS",
+    "prior_prefix": "T66"
+  },
+  {
+    "name": "T_FA_MASS_ADDITIONS",
+    "prior_prefix": "T65"
+  },
+  {
+    "name": "T_FA_MC_MASS_RATES",
+    "prior_prefix": "T67"
+  },
+  {
+    "name": "T_FA_RETIREMENTS_T",
+    "prior_prefix": "TE4"
+  },
+  {
+    "name": "T_GL_BUDGETS_INTERFACE",
+    "prior_prefix": "TF1"
+  },
+  {
+    "name": "T_GL_INTERFACE",
+    "prior_prefix": "T01"
+  },
+  {
+    "name": "T_GL_SEGMENT_VALUES_INT",
+    "prior_prefix": "T02"
+  },
+  {
+    "name": "T_GMS_PERSONNEL_INT",
+    "prior_prefix": "TF8"
+  },
+  {
+    "name": "T_GMS_SPONSORS_INT",
+    "prior_prefix": "TG5"
+  },
+  {
+    "name": "T_HZ_IMP_ACCOUNTRELS_T",
+    "prior_prefix": "T27"
+  },
+  {
+    "name": "T_HZ_IMP_ACCOUNTS_T",
+    "prior_prefix": "T51"
+  },
+  {
+    "name": "T_HZ_IMP_ACCTCONTACTS_T",
+    "prior_prefix": "T70"
+  },
+  {
+    "name": "T_HZ_IMP_ACCTSITES_T",
+    "prior_prefix": "T30"
+  },
+  {
+    "name": "T_HZ_IMP_ACCTSITEUSES_T",
+    "prior_prefix": "T43"
+  },
+  {
+    "name": "T_HZ_IMP_CONTACTPTS_T",
+    "prior_prefix": "T71"
+  },
+  {
+    "name": "T_HZ_IMP_CONTACTROLES",
+    "prior_prefix": "T72"
+  },
+  {
+    "name": "T_HZ_IMP_CONTACTS_T",
+    "prior_prefix": "T73"
+  },
+  {
+    "name": "T_HZ_IMP_LOCATIONS_T",
+    "prior_prefix": "T44"
+  },
+  {
+    "name": "T_HZ_IMP_PARTIES_T",
+    "prior_prefix": "T50"
+  },
+  {
+    "name": "T_HZ_IMP_PARTYSITEUSES_T",
+    "prior_prefix": "T42"
+  },
+  {
+    "name": "T_HZ_IMP_PARTY_SITES_T",
+    "prior_prefix": "T52"
+  },
+  {
+    "name": "T_HZ_IMP_RELSHIPS_T",
+    "prior_prefix": "T74"
+  },
+  {
+    "name": "T_HZ_IMP_ROLERESP",
+    "prior_prefix": "TC7"
+  },
+  {
+    "name": "T_IBY_TEMP_EXT_BANK_ACCT",
+    "prior_prefix": "T15"
+  },
+  {
+    "name": "T_IBY_TEMP_EXT_PAYEES",
+    "prior_prefix": "T14"
+  },
+  {
+    "name": "T_IBY_TEMP_PMT_INSTR_USES",
+    "prior_prefix": "T16"
+  },
+  {
+    "name": "T_INV_LPN_INTERFACE",
+    "prior_prefix": "TK4"
+  },
+  {
+    "name": "T_INV_SERIAL_NUMBERS_INTERFACE",
+    "prior_prefix": "TK7"
+  },
+  {
+    "name": "T_INV_TRANSACTIONS_INTERFACE",
+    "prior_prefix": "T47"
+  },
+  {
+    "name": "T_INV_TRANSACTION_LOTS_INT",
+    "prior_prefix": "T48"
+  },
+  {
+    "name": "T_INV_TRANSACT_LOTS_INTERFACE",
+    "prior_prefix": "TK6"
+  },
+  {
+    "name": "T_MSC_ST_ASSIGNMENT_SETS",
+    "prior_prefix": "T04"
+  },
+  {
+    "name": "T_MSC_ST_MEASURE_DATA",
+    "prior_prefix": "T05"
+  },
+  {
+    "name": "T_MSC_ST_MEASURE_DATA_BOOKINGS",
+    "prior_prefix": "T06"
+  },
+  {
+    "name": "T_MSC_ST_SOURCING_RULES",
+    "prior_prefix": "T03"
+  },
+  {
+    "name": "T_OPERATION_ITEMS",
+    "prior_prefix": "T95"
+  },
+  {
+    "name": "T_OPERATION_RESOURCES",
+    "prior_prefix": "T96"
+  },
+  {
+    "name": "T_PJB_BILLING_EVENTS_INT",
+    "prior_prefix": "T38"
+  },
+  {
+    "name": "T_PJC_TXN_XFACE_STAGE_ALL",
+    "prior_prefix": "T39"
+  },
+  {
+    "name": "T_PJF_PROJ_ELEMENTS_XFACE",
+    "prior_prefix": "T53"
+  },
+  {
+    "name": "T_PJO_BUDGETS_XFACE",
+    "prior_prefix": "T54"
+  },
+  {
+    "name": "T_POZ_SITE_ASSIGNMENTS_INT",
+    "prior_prefix": "T10"
+  },
+  {
+    "name": "T_POZ_SUPPLIERS_INT",
+    "prior_prefix": "T07"
+  },
+  {
+    "name": "T_POZ_SUP_ADDRESSES_INT",
+    "prior_prefix": "T08"
+  },
+  {
+    "name": "T_POZ_SUP_BUS_CLASS_INT",
+    "prior_prefix": "T13"
+  },
+  {
+    "name": "T_POZ_SUP_CONTACTS_INT",
+    "prior_prefix": "T11"
+  },
+  {
+    "name": "T_POZ_SUP_CONTACT_ADDRESS_INT",
+    "prior_prefix": "T12"
+  },
+  {
+    "name": "T_PO_DISTRIBUTIONS_INTERFACE",
+    "prior_prefix": "T75"
+  },
+  {
+    "name": "T_PO_HEADERS_INTERFACE",
+    "prior_prefix": "T77"
+  },
+  {
+    "name": "T_PO_LINES_INTERFACE",
+    "prior_prefix": "T79"
+  },
+  {
+    "name": "T_PO_LINE_LOCATIONS_INTERFACE",
+    "prior_prefix": "T78"
+  },
+  {
+    "name": "T_PROJECTS",
+    "prior_prefix": "T58"
+  },
+  {
+    "name": "T_PROJECT_CLASSIFICATIONS",
+    "prior_prefix": "T56"
+  },
+  {
+    "name": "T_PROJECT_TEAM_MEMBERS",
+    "prior_prefix": "T57"
+  },
+  {
+    "name": "T_PROJ_ENT_RES_INTERFACE",
+    "prior_prefix": "TH9"
+  },
+  {
+    "name": "T_PROJ_RES_REQ_INTERFACE",
+    "prior_prefix": "TI1"
+  },
+  {
+    "name": "T_QP_MATRIX_DIMENSIONS_INT",
+    "prior_prefix": "T22"
+  },
+  {
+    "name": "T_QP_MATRIX_RULES_INT",
+    "prior_prefix": "T23"
+  },
+  {
+    "name": "T_QP_PL_COMP_ITEMS_INT",
+    "prior_prefix": "T17"
+  },
+  {
+    "name": "T_QP_PRICE_LISTS_INT",
+    "prior_prefix": "T18"
+  },
+  {
+    "name": "T_QP_PRICE_LIST_CHARGES_INT",
+    "prior_prefix": "T21"
+  },
+  {
+    "name": "T_QP_PRICE_LIST_ITEMS_INT",
+    "prior_prefix": "T20"
+  },
+  {
+    "name": "T_QP_PRICE_LIST_SETS_INT",
+    "prior_prefix": "T19"
+  },
+  {
+    "name": "T_RA_CUSTOMER_PROFILES_INT_ALL",
+    "prior_prefix": "T26"
+  },
+  {
+    "name": "T_RA_INTERFACE_DISTRIBUTIONS",
+    "prior_prefix": "TA3"
+  },
+  {
+    "name": "T_RA_INTERFACE_LINES_ALL",
+    "prior_prefix": "TA4"
+  },
+  {
+    "name": "T_RCV_HEADERS_INTERFACE",
+    "prior_prefix": "TH7"
+  },
+  {
+    "name": "T_RCV_TRANSACTIONS_INTERFACE",
+    "prior_prefix": "TH8"
+  },
+  {
+    "name": "T_REFERENCE_ACCOUNTS",
+    "prior_prefix": "T29"
+  },
+  {
+    "name": "T_SAFETYSTOCKLEVEL",
+    "prior_prefix": "TK9"
+  },
+  {
+    "name": "T_SCP_EXTERNALFORECAST",
+    "prior_prefix": "TK2"
+  },
+  {
+    "name": "T_SCP_SALESORDER",
+    "prior_prefix": "TK1"
+  },
+  {
+    "name": "T_SCP_UOM_CONVERSION",
+    "prior_prefix": "TM4"
+  },
+  {
+    "name": "T_SO_ATTACHMENTS",
+    "prior_prefix": "T41"
+  },
+  {
+    "name": "T_TRADING_PARTNERS_IMPORT",
+    "prior_prefix": "T28"
+  },
+  {
+    "name": "T_TRANSFERORDERLINES",
+    "prior_prefix": "TL1"
+  },
+  {
+    "name": "T_WIE_INT_BATCHES_VL",
+    "prior_prefix": "TD5"
+  },
+  {
+    "name": "T_WIS_WD_DETAILS_INT-ARES",
+    "prior_prefix": ""
+  },
+  {
+    "name": "T_WIS_WD_DETAILS_INT-ATO-CMP",
+    "prior_prefix": "TD9"
+  },
+  {
+    "name": "T_WIS_WD_DETAILS_INT-OPS",
+    "prior_prefix": "TD7"
+  },
+  {
+    "name": "T_WIS_WD_DETAILS_INT-RSC",
+    "prior_prefix": ""
+  },
+  {
+    "name": "T_WIS_WD_DETAILS_INT-STNDCMP",
+    "prior_prefix": "TD8"
+  },
+  {
+    "name": "T_WIS_WORK_DEFINITIONS_INT",
+    "prior_prefix": "TD6"
+  },
+  {
+    "name": "T_WORK_DEFINITION_AND_OPS",
+    "prior_prefix": "T97"
+  },
+  {
+    "name": "T_WO_ASSEMBLY_COMPONENT",
+    "prior_prefix": "TM1"
+  },
+  {
+    "name": "T_WO_BATCHES",
+    "prior_prefix": "TI5"
+  },
+  {
+    "name": "T_WO_HEADER",
+    "prior_prefix": "TI6"
+  },
+  {
+    "name": "T_WO_MATERIAL_LOT_NUMBERS",
+    "prior_prefix": "TM3"
+  },
+  {
+    "name": "T_WO_MATL_SERIAL_NUMBER",
+    "prior_prefix": "TM2"
+  },
+  {
+    "name": "T_WO_OPERATIONS",
+    "prior_prefix": "TI7"
+  },
+  {
+    "name": "T_WO_OPERATION_MATERIALS",
+    "prior_prefix": "TJ1"
+  },
+  {
+    "name": "T_WO_OPERATION_RESOURCES",
+    "prior_prefix": "TI9"
+  },
+  {
+    "name": "T_WO_OPN_RES_INSTANCES",
+    "prior_prefix": "TJ0"
+  },
+  {
+    "name": "T_WO_PRODUCT_LOT_NUMBERS",
+    "prior_prefix": "TJ2"
+  },
+  {
+    "name": "T_WO_SERIAL_NUMBERS",
+    "prior_prefix": "TJ3"
+  },
+  {
+    "name": "T_WSH_FREIGHT_COSTS_INTERFACE",
+    "prior_prefix": "TK8"
+  },
+  {
+    "name": "T_WSH_NEW_DEL_INTERFACE",
+    "prior_prefix": "TK3"
+  },
+  {
+    "name": "T_WSH_SHIPMENT_LINE_INTERFACE",
+    "prior_prefix": "TK5"
+  },
+  {
+    "name": "T_WSH_TRANSIT_TIMES",
+    "prior_prefix": "T46"
+  },
+  {
+    "name": "T_AP_INVOICE_ATTACHMENTS",
+    "prior_prefix": "T98"
+  },
+  {
+    "name": "T_AP_INVOICE_INT",
+    "prior_prefix": "TA1"
+  },
+  {
+    "name": "T_AP_INVOICE_LINES",
+    "prior_prefix": "T99"
+  },
+  {
+    "name": "T_AR_RECEIPTS",
+    "prior_prefix": "TA2"
+  },
+  {
+    "name": "T_ASSIGNMENT",
+    "prior_prefix": "TA5"
+  },
+  {
+    "name": "T_ASSIGNMENTSUPERVISOR",
+    "prior_prefix": "TA6"
+  },
+  {
+    "name": "T_ASSIGNMENTWORKMEASURE",
+    "prior_prefix": "TA7"
+  },
+  {
+    "name": "T_BANKS_BRANCHES",
+    "prior_prefix": "T32"
+  },
+  {
+    "name": "T_BPA_PO_HEADERS_INTERFACE",
+    "prior_prefix": "T62"
+  },
+  {
+    "name": "T_BPA_PO_LINES_INTERFACE",
+    "prior_prefix": "T64"
+  },
+  {
+    "name": "T_BPA_PO_LINE_LOCATIONS",
+    "prior_prefix": "T63"
+  },
+  {
+    "name": "T_CONTRACT_HDR_FLEX_P",
+    "prior_prefix": "TI8"
+  },
+  {
+    "name": "T_CONTRACT_HDR_P",
+    "prior_prefix": "T36"
+  },
+  {
+    "name": "T_CONTRACT_LINES_P",
+    "prior_prefix": "T37"
+  },
+  {
+    "name": "T_CONTRACT_PARTY_CONTACT_P",
+    "prior_prefix": "T59"
+  },
+  {
+    "name": "T_CONTRACT_PARTY_P",
+    "prior_prefix": "T55"
+  },
+  {
+    "name": "T_DOO_ORDER_LINES_EFF_B",
+    "prior_prefix": "TC6"
+  },
+  {
+    "name": "T_FA_DISPOSALS",
+    "prior_prefix": "T69"
+  },
+  {
+    "name": "T_INV_INVENTORY_LOCATOR",
+    "prior_prefix": "TD1"
+  },
+  {
+    "name": "T_INV_INVENTORY_SUBINVENTORY",
+    "prior_prefix": "TC8"
+  },
+  {
+    "name": "T_INV_ITEM_LOCATOR",
+    "prior_prefix": "TD3"
+  },
+  {
+    "name": "T_INV_ITEM_SUBINVENTORY",
+    "prior_prefix": "TD4"
+  },
+  {
+    "name": "T_INV_SERIAL_NUMBERS_INT",
+    "prior_prefix": "T49"
+  },
+  {
+    "name": "T_ORA_INV_SUBINVENTORY_LOCATOR",
+    "prior_prefix": "TD2"
+  },
+  {
+    "name": "T_ORA_INV_SUBINV_SOURCE",
+    "prior_prefix": "TC9"
+  },
+  {
+    "name": "T_ORA_WSH_TRANSIT_TIME_VALUES",
+    "prior_prefix": "T45"
+  },
+  {
+    "name": "T_PERSONADDRESS",
+    "prior_prefix": "TA8"
+  },
+  {
+    "name": "T_PERSONEMAIL",
+    "prior_prefix": "TA9"
+  },
+  {
+    "name": "T_PERSONLEGISLATIVEDATA",
+    "prior_prefix": "TB1"
+  },
+  {
+    "name": "T_PERSONNAME",
+    "prior_prefix": "TB2"
+  },
+  {
+    "name": "T_PERSONPHONE",
+    "prior_prefix": "TB4"
+  },
+  {
+    "name": "T_PERSONUSERINFORMATION",
+    "prior_prefix": "TB5"
+  },
+  {
+    "name": "T_POZ_SUPPLIER_SITES_INT",
+    "prior_prefix": "T09"
+  },
+  {
+    "name": "T_POZ_SUP_THIRDPARTY_INT",
+    "prior_prefix": "TE1"
+  },
+  {
+    "name": "T_PRICING_PROFILE",
+    "prior_prefix": "T33"
+  },
+  {
+    "name": "T_WORKER",
+    "prior_prefix": "TB6"
+  },
+  {
+    "name": "T_WORKRELATIONSHIP",
+    "prior_prefix": "TB7"
+  },
+  {
+    "name": "T_WORKTERMS",
+    "prior_prefix": "TB8"
+  }
+]

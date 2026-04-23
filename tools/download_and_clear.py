@@ -48,6 +48,18 @@ MODULE_URL_TEMPLATES = [
     "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/{ver}/oefsc/index.html",
 ]
 
+# Files that cannot be auto-downloaded from Oracle docs pages.
+# They are distributed only through Oracle Fusion's Functional Setup Manager UI.
+# After running this script, place them manually in baselines/<VER>/originals/.
+#
+# RapidImplementationForCashManagement.xlsm:
+#   Setup and Maintenance → click the hamburger menu (top-right) → Search
+#   → search "Create Banks, Branches, and Accounts in Spreadsheet"
+#   → click the task — it downloads the template directly
+MANUAL_FILES = [
+    "RapidImplementationForCashManagement.xlsm",
+]
+
 
 def create_folder(path, clear=True):
     """Create a folder. If clear=True, wipe contents first."""
@@ -418,6 +430,14 @@ def main():
     else:
         print(f"\nClearing templates (Python, timeout={args.timeout}s per file)...")
         cleared_count, failed = clear_files_python(originals_path, blanks_path, timeout=args.timeout)
+
+    # Warn about files that must be placed manually (not auto-downloadable)
+    missing_manual = [f for f in MANUAL_FILES if f not in os.listdir(originals_path)]
+    if missing_manual:
+        print(f"\n  *** MANUAL FILES REQUIRED — place these in {originals_path}: ***")
+        for name in missing_manual:
+            print(f"      {name}")
+        print("  See MANUAL_FILES comment in this script for download instructions.")
 
     print(f"\n=== Done: {version} ===")
 
