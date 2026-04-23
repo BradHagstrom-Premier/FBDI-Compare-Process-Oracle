@@ -141,13 +141,26 @@ def download_files(driver, download_path, version):
 
         for section in section_items:
             try:
-                # Expand collapsible sections
+                # Expand collapsible sections. Oracle JET toggles the parent
+                # <li>'s aria-expanded from "false" to "true" when the click
+                # handler fires; wait on that signal instead of a fixed sleep
+                # so slow-rendering sections don't get their children dropped.
+                # Skip the click if the section is already expanded (matters
+                # when section_items includes nested <li>s from a prior
+                # expansion — clicking would toggle them closed and silently
+                # drop their children).
                 try:
                     expand_icon = section.find_element(
                         By.CSS_SELECTOR, ".oj-clickable-icon-nocontext"
                     )
-                    driver.execute_script("arguments[0].click();", expand_icon)
-                    time.sleep(1)
+                    if section.get_attribute("aria-expanded") != "true":
+                        driver.execute_script("arguments[0].click();", expand_icon)
+                        try:
+                            WebDriverWait(driver, 3).until(
+                                lambda d: section.get_attribute("aria-expanded") == "true"
+                            )
+                        except TimeoutException:
+                            pass  # section may not use aria-expanded; proceed with what's there
                 except Exception:
                     pass
 
