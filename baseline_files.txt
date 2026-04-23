@@ -1,10 +1,10 @@
 FBDI Baseline File Inventory
 Generated: 2026-04-23
+Revised:   2026-04-23
 ============================
 
-Both releases contain 212 files each.
+26A has 212 files. 26B has 213 files.
 Note: 26B has ItemImportReferenceOrgTemplate.xlsm (new in 26B).
-      26A has ProjectBudgetsImportTemplate.xlsm (absent in 26B).
 
 ============================
 26A ORIGINALS (212 files)
@@ -223,7 +223,7 @@ XlaMappingsImportTemplate.xlsm
 ZX_TER_IMPORT.xlsm
 
 ============================
-26B ORIGINALS (212 files)
+26B ORIGINALS (213 files)
 ============================
 AccountCombinationsImportTemplate.xlsm
 AttachmentsImportTemplate.xlsm
@@ -321,6 +321,7 @@ ProductionReportImportTemplate.xlsm
 ProductProposalImportTemplate.xlsm
 ProjectAssetLinesProcessingImportTemplate.xlsm
 ProjectAssetProcessingImportTemplate.xlsm
+ProjectBudgetsImportTemplate.xlsm
 ProjectEnterpriseExpenseResourcesImportTemplate.xlsm
 ProjectEnterpriseResourcesImportTemplate.xlsm
 ProjectForecastsImportTemplate.xlsm
@@ -441,5 +442,4 @@ ZX_TER_IMPORT.xlsm
 ============================
 DIFFERENCES
 ============================
-Only in 26A: ProjectBudgetsImportTemplate.xlsm
 Only in 26B: ItemImportReferenceOrgTemplate.xlsm

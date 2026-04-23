@@ -21,3 +21,4 @@ handoff_*.md
 graphify-out/
 .claude/settings.local.json
 *.mdb
+Archive/

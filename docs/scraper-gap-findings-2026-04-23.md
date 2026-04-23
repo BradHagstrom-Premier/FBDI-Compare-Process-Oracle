@@ -65,11 +65,13 @@ Why this hasn't bitten Brad on Windows: Chrome timing on Windows vs Mac differs.
 
 ---
 
-## One false positive (minor)
+## One inventory correction (minor)
 
-`ProjectBudgetsImportTemplate.xlsm` appears in our 26B download but is **not** on Brad's 26B machine (per the `baseline_files.txt` header note, it's 26A-only and was deprecated in 26B). Oracle's 26B docs still renders a link resolving to the deprecated template file.
+`ProjectBudgetsImportTemplate.xlsm` appears in our 26B download. The original `baseline_files.txt` listed it as 26A-only (per Oracle's deprecation note), but Oracle's 26B docs page still serves the file, and the scraper correctly pulls it down. A sha256 check on 2026-04-23 confirmed the 26A and 26B copies are bit-identical.
 
-Not a blocker — the compare engine will show it as "present in both releases" instead of "removed in 26B", which is slightly misleading but not catastrophic. The fix is probably in the scraper: detect 404/redirect and drop.
+Originally flagged as a "false positive" in this doc; that framing was wrong. The file is a legitimate 26B download — Oracle's served set is ground truth, not the deprecation note. **Fix: update `baseline_files.txt` to include `ProjectBudgetsImportTemplate.xlsm` in the 26B section** (done 2026-04-23; 26B count is now 213). The compare engine will show "no changes" for the file in 26A→26B, which is the correct representation ("Oracle didn't revise this deprecated template across the release").
+
+This correction also reshapes the skill's extras handling (see "Update — 2026-04-23" below): extras against `baseline_files.txt` are almost always stale-inventory signal, not bad downloads — the skill should default to updating the inventory rather than quarantining.
 
 ---
 
@@ -101,3 +103,34 @@ Fix `tools/download_and_clear.py` to reliably expand all navigationDrawer sectio
 - `baseline_files.txt` — committed by Brad (authoritative inventory from Windows).
 - `docs/superpowers/specs/2026-04-23-fbdi-compare-release-skill-design.md` — current design spec.
 - `/tmp/missing_26a.txt`, `/tmp/missing_26b.txt`, `/tmp/extra_26b.txt` — diff outputs (ephemeral).
+
+---
+
+## Update — 2026-04-23 (Windows verification, post-fix)
+
+After `b1150c4` (`fix(scraper): DOM-signal wait for section expand`) landed, re-verified on Brad's Windows machine with empty baselines folders:
+
+|                   | 26A            | 26B (first run)                                       | 26B (retry)  |
+|---                |---             |---                                                    |---           |
+| Files downloaded  | 211            | 107                                                   | 211          |
+| + manual drop     | 212            | 108                                                   | 212          |
+| Diff vs baseline  | clean (0/0)    | **-105 missing (all SCM/Mfg), +1 extra (ProjectBudgets)** | 0 missing, +1 extra (ProjectBudgets) |
+
+Same code, same machine, two consecutive runs, different outcomes. **This overturns the doc's earlier "deterministic per-machine-per-release" hypothesis.** The scraper gap is transient — the entire `supply-chain-and-manufacturing/26b` module silently returned zero files on run 1 (no timeout, no error, `Navigating to...` immediately followed by `Completed:` with no downloads in between), then harvested all 104 files normally on run 2.
+
+### What this changes
+
+- **The scraper fix from `b1150c4` is sufficient, not a blocker for the skill.** It reduces failure rate significantly — the prior Mac baseline was 138/212 on 26B, a 73-file deficit — but doesn't eliminate transient module-silent-failures. A verify-then-retry wrapper at the skill level closes the remaining gap.
+- **Deterministic-per-machine was wrong.** The doc originally argued "retry on the same scraper doesn't help — the bug is deterministic on a given machine." Today's data shows a naive retry actually works on this class of failure. A retry is cheap and the verification step tells us whether it was needed.
+- **ProjectBudgets is a legitimate 26B download, not a false positive.** On the first run of this verification Brad flagged the mischaracterization: Oracle serves this file from the 26B docs page; the scraper correctly pulls it down; it belongs in the 26B baseline. The original `baseline_files.txt` inventory was wrong (it listed the file as 26A-only). `baseline_files.txt` was updated 2026-04-23 to include `ProjectBudgetsImportTemplate.xlsm` in the 26B section (26B now 213 files); the "Only in 26A" difference line was removed. See the "One inventory correction" section above.
+
+### Revised recommendation
+
+Supersedes §"Recommended next action" above:
+
+1. **Keep `b1150c4` as-is.** It's necessary but not sufficient on its own.
+2. **In the `fbdi-compare-release` skill, add a post-download verification step** that diffs downloaded filenames against the per-release section of `baseline_files.txt` using `LC_ALL=C sort | comm -23`. If missing count > 0 (excluding known manual files like `RapidImplementationForCashManagement.xlsm`), retry the scraper once. If still short, group missing files by Oracle module URL and surface the gap to the user — most likely a genuine Oracle docs restructure that needs scraper-code attention.
+3. **Extras handling:** anything downloaded that's not in `baseline_files.txt` is almost always stale-inventory signal (Oracle is trusted — what the scraper downloads is legitimate). The skill's default is to offer to update `baseline_files.txt` with the new filenames. Quarantine to `baselines/<ver>/_extras/` remains an option for the rare case the scraper pulled something genuinely unexpected. Details in the spec's §5 #6.
+4. ~~Open question: how should the skill behave on the first run of a brand-new release?~~ **Resolved in the spec's §5 #6 "First-run sanity check" (2026-04-23 design-approval pass):** the skill proposes a bootstrap inventory from whatever the scraper downloaded, warns the user if the filename count deviates >15% from the prior release (guards against silent scraper failures on the very first run of a new release), and writes the confirmed inventory to `baseline_files.txt`.
+
+These land in the `fbdi-compare-release` spec Stage 3 revision.
