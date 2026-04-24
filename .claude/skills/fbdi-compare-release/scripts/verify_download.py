@@ -32,14 +32,15 @@ MODULE_PREFIXES = {
     ],
     "financials": [
         "Payables", "Receivables", "FixedAsset", "Cash", "General", "Journal",
-        "Account", "ChartOf", "Daily", "AutoInvoice", "Cross", "Intercompany",
+        "Account", "Chartof", "Daily", "AutoInvoice", "Cross", "Intercompany",
         "Gl", "Netting", "Tax", "Budget", "Attachment", "Xla", "ZX_",
         "Configurator", "Create", "IbyLegacy", "FiscalDocument",
         "ImportStandaloneFiscal", "InboundFiscal", "UploadCredit", "UploadCustomers",
+        "BillingData", "RapidImplementation",
     ],
     "procurement": [
         "PO", "Requisition", "Supplier", "ChangeOrder", "Poi", "PONN",
-        "Sch", "ImportDocumentActions",
+        "Sch", "ImportDocumentActions", "ProductProposal",
     ],
     "supply-chain-and-manufacturing": [
         "Scp", "Work", "Cse", "Maintenance", "Mnt", "Inventory", "Item",

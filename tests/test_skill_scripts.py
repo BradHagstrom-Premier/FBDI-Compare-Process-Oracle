@@ -231,6 +231,29 @@ def test_group_missing_by_module_longest_prefix_wins():
     assert "ImportAwards.xlsm" in groups["project-management"]
 
 
+def test_group_missing_by_module_covers_real_inventory():
+    """Regression guard: every non-manual file in the committed baseline_files.txt
+    must classify to a known module (not 'other'). If a future release adds a
+    file with an unrecognized prefix, this test fails and MODULE_PREFIXES needs
+    updating."""
+    inv_path = Path(__file__).resolve().parent.parent / "baseline_files.txt"
+    if not inv_path.is_file():
+        import pytest
+        pytest.skip("baseline_files.txt not present (e.g., CI without committed inventory)")
+    inventory = verify_download.parse_inventory(inv_path.read_text(encoding="utf-8"))
+    all_files = set()
+    for files in inventory.values():
+        all_files.update(files)
+    # Filter out known manual-only files
+    candidates = sorted(all_files - set(verify_download.MANUAL_FILES))
+    groups = verify_download.group_missing_by_module(candidates)
+    other = groups.get("other", [])
+    assert other == [], (
+        f"{len(other)} file(s) fell into 'other' — add matching prefixes to "
+        f"MODULE_PREFIXES in verify_download.py:\n  " + "\n  ".join(other)
+    )
+
+
 def test_compute_first_run_delta_within_threshold():
     inventory = {"26A": ["a.xlsm"] * 212, "26B": ["a.xlsm"] * 213}
     result = verify_download.compute_first_run_delta(
