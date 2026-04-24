@@ -88,7 +88,7 @@ def test_check_env_produces_structured_json(tmp_path):
 
 
 def test_check_env_json_output_parseable(tmp_path):
-    exit_code, payload = _run_check_env(tmp_path)
+    _, payload = _run_check_env(tmp_path)
     assert isinstance(payload, dict)
     assert isinstance(payload["checks"], list)
 

@@ -80,6 +80,7 @@ def run_diagnose(release: str, repo_root: Path) -> dict:
     )
     if proc.returncode != 0 or not diagnostic_path.is_file():
         return {
+            "skipped": False,
             "no_header_count": None,
             "file_error_count": None,
             "regression": False,
@@ -100,6 +101,7 @@ def run_diagnose(release: str, repo_root: Path) -> dict:
                 file_error += 1
 
     return {
+        "skipped": False,
         "no_header_count": no_header,
         "file_error_count": file_error,
         "regression": no_header > 0,
@@ -125,8 +127,14 @@ def main(argv=None) -> int:
 
     release = args.release.upper()
 
-    diag = {"skipped": True}
-    if not args.skip_diagnose:
+    if args.skip_diagnose:
+        diag = {
+            "skipped": True,
+            "no_header_count": None,
+            "file_error_count": None,
+            "regression": False,
+        }
+    else:
         diag = run_diagnose(release, args.repo_root)
 
     cat = check_catalog_issues(args.catalog, release)

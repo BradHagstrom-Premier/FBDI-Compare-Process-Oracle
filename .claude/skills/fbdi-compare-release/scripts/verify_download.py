@@ -157,7 +157,7 @@ def parse_inventory(text: str) -> dict[str, list[str]]:
         elif current_release is not None and line and not line.lower().endswith(".xlsm"):
             # A non-blank non-.xlsm line inside a section could be a new
             # free-text block (e.g. "DIFFERENCES"). End the current section.
-            if line.upper() == "DIFFERENCES" or re.search(r"[A-Za-z]", line) and ":" in line:
+            if line.upper() == "DIFFERENCES" or (re.search(r"[A-Za-z]", line) and ":" in line):
                 current_release = None
         i += 1
     # Sort each section for deterministic diffs
