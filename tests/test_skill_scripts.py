@@ -401,3 +401,83 @@ def test_format_section_singular_for_one_file():
     text = verify_download._format_section("26C", ["Only.xlsm"])
     assert "26C ORIGINALS (1 file)" in text
     assert "1 files)" not in text
+
+
+from openpyxl import Workbook
+from scripts import summarize_report  # noqa: E402
+
+
+def _make_comparison_report(path, rows):
+    """rows = list of (fbdi_file, fbdi_tab, col_letter, col_num, old, new, diff)."""
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["FBDI File", "FBDI Tab", "Column Letter", "Column Number",
+               "Old FBDI Field Name", "New FBDI Field Name", "Difference?"])
+    for row in rows:
+        ws.append(list(row))
+    wb.save(path)
+    wb.close()
+
+
+def test_summarize_counts_changes(tmp_path):
+    path = tmp_path / "cmp.xlsx"
+    _make_comparison_report(path, [
+        ("FileA", "Tab1", "A", 1, "old1", "new1", "YES"),
+        ("FileA", "Tab1", "B", 2, "old2", "new2", "YES"),
+        ("FileB", "Tab1", "A", 1, "old3", "new3", "YES"),
+    ])
+    result = summarize_report.summarize(path)
+    assert result["total_changes"] == 3
+    assert result["files_with_changes"] == 2
+
+
+def test_summarize_top_files_ordered(tmp_path):
+    path = tmp_path / "cmp.xlsx"
+    rows = (
+        [("FileB", "T", "A", 1, "o", "n", "YES")] * 10
+        + [("FileA", "T", "A", 1, "o", "n", "YES")] * 5
+        + [("FileC", "T", "A", 1, "o", "n", "YES")] * 3
+    )
+    _make_comparison_report(path, rows)
+    result = summarize_report.summarize(path)
+    assert [t["file"] for t in result["top_files"]][:3] == ["FileB", "FileA", "FileC"]
+    assert result["top_files"][0]["changes"] == 10
+
+
+def test_summarize_top_files_capped_at_5(tmp_path):
+    path = tmp_path / "cmp.xlsx"
+    rows = [(f"File{i}", "T", "A", 1, "o", "n", "YES") for i in range(10)]
+    _make_comparison_report(path, rows)
+    result = summarize_report.summarize(path)
+    assert len(result["top_files"]) <= 5
+
+
+def test_summarize_empty_report(tmp_path):
+    path = tmp_path / "cmp.xlsx"
+    _make_comparison_report(path, [])
+    result = summarize_report.summarize(path)
+    assert result["total_changes"] == 0
+    assert result["files_with_changes"] == 0
+    assert result["top_files"] == []
+
+
+def test_summarize_cli_passthrough_timeouts(tmp_path):
+    path = tmp_path / "cmp.xlsx"
+    _make_comparison_report(path, [])
+    exit_code = summarize_report.main([
+        "--report", str(path),
+        "--catalog", "dummy.xlsx",
+        "--timeouts", "Foo.xlsm,Bar.xlsm",
+    ])
+    assert exit_code == 0
+
+
+def test_summarize_against_ground_truth():
+    """Spec §8 eval #2 reference: 26A→26B run produced 706 changes in 19 files."""
+    report = Path("Comparison_Report_26A_26B.xlsx")
+    if not report.is_file():
+        import pytest
+        pytest.skip("ground-truth report not present")
+    result = summarize_report.summarize(report)
+    assert result["total_changes"] == 706
+    assert result["files_with_changes"] == 19
