@@ -25,6 +25,100 @@ FIRST_RUN_DELTA_THRESHOLD = 0.15  # 15%, per spec §5 #6
 _SECTION_RE = re.compile(r"^(\d{2}[A-D])\s+ORIGINALS\s*\(\d+\s+files?\)\s*$", re.IGNORECASE)
 
 
+MODULE_PREFIXES = {
+    "project-management": [
+        "Import", "Project", "Resource", "Idea", "Lease", "Revenue",
+        "FinancialProject", "ExpenseLease",
+    ],
+    "financials": [
+        "Payables", "Receivables", "FixedAsset", "Cash", "General", "Journal",
+        "Account", "ChartOf", "Daily", "AutoInvoice", "Cross", "Intercompany",
+        "Gl", "Netting", "Tax", "Budget", "Attachment", "Xla", "ZX_",
+        "Configurator", "Create", "IbyLegacy", "FiscalDocument",
+        "ImportStandaloneFiscal", "InboundFiscal", "UploadCredit", "UploadCustomers",
+    ],
+    "procurement": [
+        "PO", "Requisition", "Supplier", "ChangeOrder", "Poi", "PONN",
+        "Sch", "ImportDocumentActions",
+    ],
+    "supply-chain-and-manufacturing": [
+        "Scp", "Work", "Cse", "Maintenance", "Mnt", "Inventory", "Item",
+        "Order", "Egp", "Sus", "Vcs", "Ship", "Source", "Production",
+        "Perform", "Process", "CycleCount", "Dos", "InterfacedPick",
+        "Receiving", "Requirement", "StandardCost", "CostLists",
+        "DiscountList", "PriceList", "CustomerImport",
+    ],
+}
+
+
+def _module_for_filename(name: str) -> str:
+    """Match filename to Oracle module using the longest prefix across all
+    modules. Longest-first ordering matters because several modules share a
+    common short prefix (e.g. project-management's "Import" would otherwise
+    swallow financials-specific "ImportStandaloneFiscal*" files).
+    """
+    candidates: list[tuple[int, str, str]] = [
+        (len(prefix), module, prefix)
+        for module, prefixes in MODULE_PREFIXES.items()
+        for prefix in prefixes
+        if name.startswith(prefix)
+    ]
+    if not candidates:
+        return "other"
+    # Longest prefix wins; tie-break by module order is unimportant
+    # since same-length collisions across modules don't occur in this set.
+    candidates.sort(key=lambda t: -t[0])
+    return candidates[0][1]
+
+
+def group_missing_by_module(missing: list[str]) -> dict[str, list[str]]:
+    """Group missing filenames by best-guess Oracle docs module.
+
+    Heuristic prefix-based match. Returns {module: sorted_names}.
+    Empty input returns {}.
+    """
+    if not missing:
+        return {}
+    groups: dict[str, list[str]] = {}
+    for name in missing:
+        module = _module_for_filename(name)
+        groups.setdefault(module, []).append(name)
+    return {k: sorted(v) for k, v in groups.items()}
+
+
+def most_recent_release(inventory: dict[str, list[str]]) -> str | None:
+    """Return the ASCII-max release key from the inventory, or None."""
+    if not inventory:
+        return None
+    return max(inventory.keys())
+
+
+def compute_first_run_delta(
+    downloaded_count: int,
+    inventory: dict[str, list[str]],
+) -> dict:
+    """For the first-run bootstrap case, compare download count to the most
+    recent prior release. Returns {prior_release, prior_count, delta_pct,
+    over_threshold}. delta_pct is relative ((new-prior)/prior); always
+    non-negative (we care about absolute deviation)."""
+    prior = most_recent_release(inventory)
+    if prior is None or not inventory[prior]:
+        return {
+            "prior_release": None,
+            "prior_count": 0,
+            "delta_pct": 0.0,
+            "over_threshold": False,
+        }
+    prior_count = len(inventory[prior])
+    delta = abs(downloaded_count - prior_count) / prior_count
+    return {
+        "prior_release": prior,
+        "prior_count": prior_count,
+        "delta_pct": delta,
+        "over_threshold": delta > FIRST_RUN_DELTA_THRESHOLD,
+    }
+
+
 def parse_inventory(text: str) -> dict[str, list[str]]:
     """Parse baseline_files.txt into {release: [filenames...]}.
 
@@ -121,11 +215,13 @@ def main(argv=None) -> int:
 
     # First-run: no section for this release
     if release not in inventory:
+        delta = compute_first_run_delta(len(downloaded), inventory)
         payload = {
             "release": release,
             "first_run": True,
             "downloaded_count": len(downloaded),
             "downloaded": downloaded,
+            **delta,
         }
         print(json.dumps(payload, indent=2))
         return 3
@@ -138,6 +234,7 @@ def main(argv=None) -> int:
         "expected_count": len(inventory[release]),
         "missing": diff["missing"],
         "extras": diff["extras"],
+        "missing_by_module": group_missing_by_module(diff["missing"]),
     }
     print(json.dumps(payload, indent=2))
 

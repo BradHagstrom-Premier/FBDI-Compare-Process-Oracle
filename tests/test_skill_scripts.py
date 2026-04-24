@@ -196,3 +196,74 @@ def test_diff_is_locale_agnostic():
     )
     assert result["missing"] == []
     assert result["extras"] == []
+
+
+def test_group_missing_by_module_basic():
+    groups = verify_download.group_missing_by_module([
+        "POBlanketPurchaseAgreementImportTemplate.xlsm",
+        "SupplierImportTemplate.xlsm",
+        "FixedAssetMassAdditionsImportTemplate.xlsm",
+        "ScpItemCostImportTemplate.xlsm",
+        "ImportAwards.xlsm",
+        "WeirdUnknownFileXYZ.xlsm",
+    ])
+    assert "POBlanketPurchaseAgreementImportTemplate.xlsm" in groups["procurement"]
+    assert "SupplierImportTemplate.xlsm" in groups["procurement"]
+    assert "FixedAssetMassAdditionsImportTemplate.xlsm" in groups["financials"]
+    assert "ScpItemCostImportTemplate.xlsm" in groups["supply-chain-and-manufacturing"]
+    assert "ImportAwards.xlsm" in groups["project-management"]
+    assert "WeirdUnknownFileXYZ.xlsm" in groups["other"]
+
+
+def test_group_missing_by_module_empty():
+    assert verify_download.group_missing_by_module([]) == {}
+
+
+def test_group_missing_by_module_longest_prefix_wins():
+    """Regression guard: project-management's 'Import' prefix must not
+    swallow financials-specific 'ImportStandaloneFiscal*' filenames. The
+    longer prefix should win across module boundaries."""
+    groups = verify_download.group_missing_by_module([
+        "ImportStandaloneFiscalDocumentTemplate.xlsm",
+        "ImportAwards.xlsm",
+    ])
+    assert "ImportStandaloneFiscalDocumentTemplate.xlsm" in groups["financials"]
+    assert "ImportAwards.xlsm" in groups["project-management"]
+
+
+def test_compute_first_run_delta_within_threshold():
+    inventory = {"26A": ["a.xlsm"] * 212, "26B": ["a.xlsm"] * 213}
+    result = verify_download.compute_first_run_delta(
+        downloaded_count=215,
+        inventory=inventory,
+    )
+    assert result["prior_release"] == "26B"
+    assert result["prior_count"] == 213
+    assert abs(result["delta_pct"] - (2 / 213)) < 1e-6
+    assert result["over_threshold"] is False
+
+
+def test_compute_first_run_delta_over_threshold():
+    inventory = {"26B": ["a.xlsm"] * 213}
+    result = verify_download.compute_first_run_delta(
+        downloaded_count=107,  # -49.8% — matches the 2026-04-23 module-silent-failure case
+        inventory=inventory,
+    )
+    assert result["prior_release"] == "26B"
+    assert result["over_threshold"] is True
+
+
+def test_compute_first_run_delta_no_prior():
+    # Empty inventory = no prior to compare against — non-fatal
+    result = verify_download.compute_first_run_delta(downloaded_count=100, inventory={})
+    assert result["prior_release"] is None
+    assert result["over_threshold"] is False
+
+
+def test_most_recent_release_sorts_ascii():
+    inventory = {"25D": [], "26A": [], "26B": []}
+    assert verify_download.most_recent_release(inventory) == "26B"
+
+
+def test_most_recent_release_empty():
+    assert verify_download.most_recent_release({}) is None
