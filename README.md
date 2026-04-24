@@ -1,85 +1,107 @@
 # Oracle FBDI Pulldown
 
-## What This Repo Does
-
-This repo automates the comparison of Oracle FBDI (File-Based Data Import) template files (`.xlsm`) between release versions. The core asset is a Python comparison engine (`fbdi/` package) that detects template headers dynamically, diffs field-level changes between two releases, and outputs a structured Excel report. The legacy Selenium-based downloader and VBA macros that preceded the Python engine are archived in `reference/`.
-
----
-
-## Repo Structure
-
-```
-oracle-fbdi-pulldown/
-├── fbdi/           # Python package — comparison engine and CLI
-├── tests/          # Unit tests (33 passing)
-├── baselines/      # GITIGNORED — release template folders populated by downloader
-├── reference/      # Version-controlled archive of legacy files — read-only
-├── .gitignore
-├── CLAUDE.md       # Persistent context for Claude Code sessions
-├── NEXT_STEPS.md   # Ranked recommendations for next development work
-└── README.md
-```
+Automates comparison of Oracle FBDI (File-Based Data Import) template files (`.xlsm`) across Oracle Cloud quarterly releases. Produces two outputs: a field-level diff report (`Comparison_Report_<OLD>_<NEW>.xlsx`) and a per-release snapshot catalog (`FBDI_Master_Catalog.xlsx`).
 
 ---
 
 ## Setup
 
-Requires Python 3.10+. No package installation needed — all dependencies are standard library plus `openpyxl`.
+**Required:**
+- Python 3.14+
+- Google Chrome (Selenium dependency for the downloader)
+- Windows (the supported platform; Mac/Linux may work but are untested)
 
 ```bash
-pip install openpyxl
-```
-
-For running tests:
-
-```bash
-pip install pytest
-```
-
-The legacy downloader (`reference/test.py`) also requires Chrome and Selenium:
-
-```bash
-pip install selenium webdriver-manager
+pip install -r requirements.txt
 ```
 
 ---
 
-## Usage
+## Running a quarterly refresh
+
+### Option A — through Claude Code (recommended)
+
+The repo ships with the `fbdi-compare-release` skill at `.claude/skills/fbdi-compare-release/`. In a Claude Code session, say something like:
+
+> Compare 26A to 26B
+
+Claude invokes the skill and walks you through an 8-stage orchestrated pipeline (environment preflight → version resolve → download → smart-clear → compare → catalog → summary → post-run verification), with six human-in-the-loop checkpoints for edge cases. Expected wall time ≈ 35–50 minutes (downloads dominate). See `.claude/skills/fbdi-compare-release/SKILL.md` for the full workflow.
+
+### Option B — CLI directly
+
+For Python-first workflows:
 
 ```bash
-python -m fbdi compare --old 25d --new 26a
+# Download + smart-clear templates for a new release (~15–20 min)
+python tools/download_and_clear.py 26B
+
+# Compare two releases → Comparison_Report_26A_26B.xlsx
+python -m fbdi compare --old 26A --new 26B
+
+# Update the per-release snapshot catalog
+python -m fbdi catalog --release 26B
+
+# Diagnose header-detection outcomes per tab
+python -m fbdi diagnose --old baselines/26A/originals --new baselines/26B/originals
 ```
 
-This compares all FBDI templates found in `baselines/25d/` against `baselines/26a/`, detecting headers dynamically and producing a `Comparison_Report_25D_26A.xlsx` at repo root.
+Run `python -m fbdi --help` or `python -m fbdi <cmd> --help` for flag details.
 
-```bash
-python -m fbdi --help
-python -m fbdi compare --help
+---
+
+## Known hazards
+
+- **`RapidImplementationForCashManagement.xlsm` is not auto-downloadable.** It's an Oracle Rapid Implementation (FSM) template, not hosted on Oracle docs pages. Fetch it manually from Oracle Fusion (Setup and Maintenance → hamburger menu → Search → "Create Banks, Branches, and Accounts in Spreadsheet") and drop it into `baselines/<VER>/originals/` before comparing. The skill's HITL #2 walks you through this.
+
+See `CLAUDE.md` for the full list of hazards and the resolved-issues log.
+
+---
+
+## Repo structure
+
+```
+FBDI-Compare-Process-Oracle/
+├── fbdi/                      # Python comparison/catalog/clear engine
+├── tools/                     # Selenium downloader (download_and_clear.py)
+├── tests/                     # 241 unit tests (pytest)
+├── .claude/skills/            # Project-level Claude Code skills
+│   └── fbdi-compare-release/  # Orchestrator for quarterly refreshes
+├── docs/                      # Design specs and implementation plans
+├── baselines/                 # GITIGNORED — downloaded xlsm files per release
+├── reference/                 # Read-only archive of legacy VBA + scripts
+├── baseline_files.txt         # Inventory of expected downloads per release
+├── FBDI_Master_Catalog.xlsx   # Per-release snapshot catalog (git-tracked)
+├── requirements.txt
+├── CLAUDE.md                  # Persistent Claude Code context
+└── README.md
 ```
 
 ---
 
-## Baseline Management
+## Testing
 
-`baselines/` holds release-named subdirectories (`25d/`, `26a/`, etc.) containing the downloaded `.xlsm` template files. This folder is gitignored — files are large binaries that should not be committed. Populate it by running the downloader (`reference/test.py`) or manually placing template files in the appropriate release folder.
+```bash
+python -m pytest tests/              # full suite (241 tests)
+python -m pytest tests/test_clear.py -v
+```
 
 ---
 
-## Reference Files
+## Reference files
 
-`reference/` is a read-only archive of legacy artifacts that preceded the Python engine. These files are version-controlled for historical context but are not part of the active pipeline:
+`reference/` is a read-only archive of the pre-Python pipeline.
 
 | File | Description |
 |---|---|
-| `fbdi_compare.xlsm` | Legacy VBA macro workbook that compared FBDI templates |
-| `Clear_FBDIs - 20210412.xlsm` | Legacy VBA macro that cleared/reset template files |
-| `Oracle_26A_Comparison_Report.docx` | Sample VBA comparison output for release 26A |
+| `fbdi_compare.xlsm` | Legacy VBA macro that compared FBDI templates |
+| `Clear_FBDIs - 20210412.xlsm` | Legacy VBA macro that cleared template files |
+| `Oracle_26A_Comparison_Report.docx` | Sample VBA comparison output for 26A |
 | `test.py` | Dan's original Selenium downloader |
 
 ---
 
 ## Status
 
-- **Phase 1 — Complete:** Python comparison engine (`fbdi/` package), CLI (`python -m fbdi compare`), 33 unit tests, dynamic header detection, 7-column Excel output
-- **Phase 2 — In Progress:** Applaud compliance report automation (`report.py`) — reformatting comparison output for the Applaud change-tracking format
-- **Phase 3 — Planned:** Full integrated pipeline (`python -m fbdi run`) — download, compare, and report in a single command
+- **Shipped:** comparison engine, CLI (`fbdi compare` / `catalog` / `diagnose`), smart clearing, `download_and_clear` Selenium driver, FBDI master catalog, Applaud mapping audit, `fbdi-compare-release` Claude Code skill, 241-test suite.
+- **In progress:** `fbdi_applaud_mapping.xlsx` manual review.
+- **Planned:** `report.py` — compliance change-tracking report generation (blocked on mapping finalization); `python -m fbdi run` chained pipeline.
