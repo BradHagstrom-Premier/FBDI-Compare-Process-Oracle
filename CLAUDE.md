@@ -31,7 +31,7 @@ python -m pytest tests/            # full suite
 python -m pytest tests/test_clear.py -v
 ```
 
-**Requirements:** Python 3.14+, `openpyxl`, `selenium`, `webdriver-manager`, `requests`, `pytest`. No `requirements.txt` — dependencies are installed ad-hoc.
+**Requirements:** Python 3.14+. Install deps via `pip install -r requirements.txt` (openpyxl, selenium, webdriver-manager, requests, pytest).
 
 ---
 
@@ -50,7 +50,8 @@ python -m pytest tests/test_clear.py -v
   - `cli.py` / `__main__.py` — CLI entry point. `_resolve_dir()` makes `--old 26A` resolve to `baselines/26A/originals/`.
   - `config.py`, `utils.py` — shared configuration and helpers.
 - **`tools/download_and_clear.py`** — standalone Selenium downloader + smart clearing entry point. Imports `fbdi.clear` but lives outside the `fbdi/` package so Selenium/webdriver dependencies stay out of the comparison engine.
-- **`tests/`** — 139 unit tests, all passing (`python -m pytest tests/`)
+- **`.claude/skills/fbdi-compare-release/`** — orchestrator skill that chains the full download → clear → compare → catalog pipeline with human-in-the-loop checkpoints. Triggers on phrases like "Compare 26A to 26B" or "Oracle released 26C". Bundles Python helpers (`check_env.py`, `verify_download.py`, `summarize_report.py`, `verify_run.py`) under `scripts/` and reference docs under `references/`. See the skill's `SKILL.md` for the 8-stage workflow.
+- **`tests/`** — 241 unit tests, all passing (`python -m pytest tests/`)
 - **Outputs:**
   - `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column diff for VBA validation (unchanged)
   - `FBDI_Master_Catalog.xlsx` — per-release snapshots + Issues + Drift tabs
@@ -60,7 +61,7 @@ python -m pytest tests/test_clear.py -v
 
 ## Current Frontier
 
-- **FBDI → Applaud mapping** — `fbdi_applaud_mapping.xlsx` (built by `fbdi/build_mapping.py`) is partially populated. Brad is filling in TBD rows manually. See `Applaud Mapping Review To Do 04022026.md`.
+- **FBDI → Applaud mapping** — `fbdi_applaud_mapping.xlsx` (built by `fbdi/build_mapping.py`) is partially populated. Brad is filling in TBD rows manually.
 - **`report.py`** (not built) — Will reformat comparison output into the compliance change-tracking format used for client deliverables. Blocked on mapping completion.
 - **`python -m fbdi run`** (not built) — Would chain download → compare → report in a single command.
 
@@ -82,7 +83,7 @@ python -m pytest tests/test_clear.py -v
 
 - **`RapidImplementationForCashManagement.xlsm` is not auto-downloadable** — this is an Oracle Rapid Implementation (FSM) template, not a standard FBDI template. It is not hosted on Oracle docs pages so the Selenium downloader never finds it. Must be obtained manually from Oracle Fusion: Setup and Maintenance → hamburger menu (top-right) → Search → search "Create Banks, Branches, and Accounts in Spreadsheet" → click the task to download. Place in `baselines/<VER>/originals/` before running compare. The `download_and_clear.py` script will warn if it's missing after a download run. Once placed, the compare engine picks it up automatically.
 - **Phantom columns (`max_column=16384`)** — some xlsm files report 16384 columns due to corrupt metadata. The engine caps column scanning at 500.
-- **Corrupt XML in some xlsm files** — handled gracefully; engine catches `zipfile.BadZipFile` and logs the file as unreadable. 26B has ~11 such files (diagnose reports FILE_ERROR).
+- **Corrupt XML in some xlsm files** — handled gracefully; engine catches `zipfile.BadZipFile` and logs the file as unreadable. Stage 8 `verify_run` flags a regression if the per-release FILE_ERROR count jumps vs. the prior release.
 - **`Comparison_Report_25D_26A.xlsx` (VBA output)** — has a corrupt stylesheet. Cannot be loaded with standard `openpyxl.load_workbook`. Use `read_only=True` or `data_only=True` with exception handling if you need to read it.
 - **Diagnose and build_mapping are still bounded by `MAX_FILE_SIZE_BYTES` (5MB)** — they load workbooks in full (non-read_only) mode for memory reasons. Comparison is unbounded and streams via `iter_rows`.
 
@@ -111,7 +112,7 @@ python -m pytest tests/test_clear.py -v
 
 ## Testing
 
-- `python -m pytest tests/` — run full suite (139 tests)
+- `python -m pytest tests/` — run full suite (241 tests)
 - `python -m pytest tests/test_clear.py -v` — run one module
 - `tests/validate_against_vba.py` and `tests/vba_fieldrow_map.json` — ad-hoc validation against the legacy VBA macro's expected header rows (not pytest, kept for spot-checks against regressions)
 
