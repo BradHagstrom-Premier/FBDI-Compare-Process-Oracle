@@ -290,3 +290,68 @@ def test_most_recent_release_sorts_ascii():
 
 def test_most_recent_release_empty():
     assert verify_download.most_recent_release({}) is None
+
+
+def test_commit_inventory_replaces_existing_section():
+    inventory_text = INVENTORY_FIXTURE
+    new_26b = ["A.xlsm", "B.xlsm"]  # shrunk from 4 to 2
+    result = verify_download.commit_inventory(
+        inventory_text, release="26B", filenames=new_26b,
+    )
+    parsed = verify_download.parse_inventory(result)
+    assert parsed["26B"] == ["A.xlsm", "B.xlsm"]
+    assert parsed["26A"] == [
+        "AccountCombinationsImportTemplate.xlsm",
+        "BudgetImportTemplate.xlsm",
+        "RapidImplementationForCashManagement.xlsm",
+    ]
+    assert "26B ORIGINALS (2 files)" in result
+
+
+def test_commit_inventory_appends_new_section():
+    inventory_text = INVENTORY_FIXTURE
+    filenames_26c = ["NewFileA.xlsm", "NewFileB.xlsm", "NewFileC.xlsm"]
+    result = verify_download.commit_inventory(
+        inventory_text, release="26C", filenames=filenames_26c,
+    )
+    parsed = verify_download.parse_inventory(result)
+    assert parsed["26C"] == sorted(filenames_26c)
+    assert "26C ORIGINALS (3 files)" in result
+    # 26B section must still be present and unchanged
+    assert parsed["26B"] == sorted([
+        "AccountCombinationsImportTemplate.xlsm",
+        "BudgetImportTemplate.xlsm",
+        "ItemImportReferenceOrgTemplate.xlsm",
+        "RapidImplementationForCashManagement.xlsm",
+    ])
+
+
+def test_commit_inventory_sorts_filenames_ascii():
+    result = verify_download.commit_inventory(
+        INVENTORY_FIXTURE, release="26C",
+        filenames=["Zebra.xlsm", "AAA.xlsm", "Middle.xlsm"],
+    )
+    idx_aaa = result.index("AAA.xlsm")
+    idx_middle = result.index("Middle.xlsm")
+    idx_zebra = result.index("Zebra.xlsm")
+    assert idx_aaa < idx_middle < idx_zebra
+
+
+def test_commit_inventory_cli_writes_file_in_place(tmp_path):
+    inv_path = tmp_path / "baseline_files.txt"
+    inv_path.write_text(INVENTORY_FIXTURE, encoding="utf-8")
+
+    originals = tmp_path / "baselines" / "26C" / "originals"
+    originals.mkdir(parents=True)
+    for name in ("A.xlsm", "B.xlsm"):
+        (originals / name).touch()
+
+    exit_code = verify_download.main([
+        "--release", "26C",
+        "--inventory", str(inv_path),
+        "--originals", str(originals),
+        "--commit-inventory",
+    ])
+    assert exit_code == 0
+    parsed = verify_download.parse_inventory(inv_path.read_text(encoding="utf-8"))
+    assert parsed["26C"] == ["A.xlsm", "B.xlsm"]

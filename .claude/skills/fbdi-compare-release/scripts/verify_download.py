@@ -195,6 +195,84 @@ def list_downloaded(originals_dir: Path) -> list[str]:
     )
 
 
+def _format_section(release: str, filenames: list[str]) -> str:
+    sorted_names = sorted(filenames)
+    banner = "=" * 28
+    lines = [
+        banner,
+        f"{release} ORIGINALS ({len(sorted_names)} files)",
+        banner,
+        *sorted_names,
+        "",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _strip_differences_block(text: str) -> str:
+    """Remove any existing DIFFERENCES block (we'll regenerate it)."""
+    return re.sub(
+        r"={20,}\s*\nDIFFERENCES\s*\n={20,}\s*\n(?:.*\n?)*\Z",
+        "",
+        text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    ).rstrip() + "\n"
+
+
+def _render_differences(inventory: dict[str, list[str]]) -> str:
+    """Regenerate the DIFFERENCES footer from the current inventory.
+
+    For each pair of adjacent releases (by ASCII sort), emit
+    'Only in <NEW>: <comma-list>'. Simple and mirrors the existing file.
+    """
+    releases = sorted(inventory.keys())
+    if len(releases) < 2:
+        return ""
+    banner = "=" * 28
+    lines = [banner, "DIFFERENCES", banner]
+    for i in range(1, len(releases)):
+        prev, cur = releases[i - 1], releases[i]
+        only_in_cur = sorted(set(inventory[cur]) - set(inventory[prev]))
+        only_in_prev = sorted(set(inventory[prev]) - set(inventory[cur]))
+        if only_in_cur:
+            lines.append(f"Only in {cur}: {', '.join(only_in_cur)}")
+        if only_in_prev:
+            lines.append(f"Only in {prev}: {', '.join(only_in_prev)}")
+    return "\n".join(lines) + "\n"
+
+
+def commit_inventory(
+    inventory_text: str, release: str, filenames: list[str],
+) -> str:
+    """Return a new inventory text with release's section inserted or replaced,
+    and the DIFFERENCES footer regenerated."""
+    release = release.upper()
+    inventory = parse_inventory(inventory_text)
+    inventory[release] = sorted(filenames)
+
+    # Strip old DIFFERENCES
+    text = _strip_differences_block(inventory_text)
+
+    # Replace existing section for `release` if present
+    section_pattern = re.compile(
+        r"={20,}\s*\n" + re.escape(release) + r"\s+ORIGINALS\s*\([^)]*\)\s*\n={20,}\s*\n"
+        r"(?:[^\n]*\n)*?"
+        r"(?=(?:={20,}\s*\n(?:\d{2}[A-D]\s+ORIGINALS|DIFFERENCES))|\Z)",
+        re.IGNORECASE,
+    )
+    new_section = _format_section(release, inventory[release])
+    if section_pattern.search(text):
+        text = section_pattern.sub(new_section, text, count=1)
+    else:
+        # Append after last ORIGINALS section (or at end if none)
+        text = text.rstrip() + "\n\n" + new_section
+
+    # Re-append DIFFERENCES footer
+    diffs = _render_differences(inventory)
+    if diffs:
+        text = text.rstrip() + "\n\n" + diffs
+    return text
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Stage 3 download verification")
     parser.add_argument("--release", required=True, help="Release label, e.g. 26B")
@@ -206,6 +284,10 @@ def main(argv=None) -> int:
         "--originals", type=Path, default=None,
         help="Path to baselines/<release>/originals/ (default: derived from --release)",
     )
+    parser.add_argument(
+        "--commit-inventory", action="store_true",
+        help="Rewrite inventory to match the downloaded files for --release",
+    )
     args = parser.parse_args(argv)
 
     release = args.release.upper()
@@ -213,6 +295,19 @@ def main(argv=None) -> int:
     downloaded = list_downloaded(originals)
     inventory_text = args.inventory.read_text(encoding="utf-8") if args.inventory.is_file() else ""
     inventory = parse_inventory(inventory_text)
+
+    # Short-circuit: --commit-inventory rewrites baseline_files.txt and exits 0.
+    if args.commit_inventory:
+        new_text = commit_inventory(inventory_text, release, downloaded)
+        args.inventory.write_text(new_text, encoding="utf-8")
+        payload = {
+            "release": release,
+            "committed": True,
+            "count": len(downloaded),
+            "inventory_path": str(args.inventory),
+        }
+        print(json.dumps(payload, indent=2))
+        return 0
 
     # First-run: no section for this release
     if release not in inventory:
