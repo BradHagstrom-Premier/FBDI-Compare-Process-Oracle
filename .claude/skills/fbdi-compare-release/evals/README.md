@@ -41,3 +41,20 @@ pass/fail scoring.
 
 If triggering misfires, move to Layer 3 (description optimization — see
 Task 12).
+
+## Follow-ups
+
+### Layer 3 description optimization (post-merge)
+
+After the skill has seen real use for ~2 weeks, run `skill-creator`'s
+Layer 3 description-optimization loop on ~20 should-trigger +
+should-not-trigger queries to tune the `description` frontmatter:
+
+```bash
+python ~/.claude/plugins/cache/claude-plugins-official/skill-creator/unknown/skills/skill-creator/scripts/run_loop.py \
+  --skill .claude/skills/fbdi-compare-release \
+  --positive-prompts ... \
+  --negative-prompts ...
+```
+
+Trigger: observed false positives or false negatives in the wild.

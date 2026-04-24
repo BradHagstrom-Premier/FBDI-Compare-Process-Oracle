@@ -64,8 +64,6 @@ python -m pytest tests/test_clear.py -v
 - **`report.py`** (not built) — Will reformat comparison output into the compliance change-tracking format used for client deliverables. Blocked on mapping completion.
 - **`python -m fbdi run`** (not built) — Would chain download → compare → report in a single command.
 
-See `NEXT_STEPS.md` for the prioritized backlog and historical phase-by-phase resolutions.
-
 ---
 
 ## Key Architectural Decisions (Closed — Do Not Re-litigate)
@@ -129,8 +127,6 @@ Two patterns have been used in this repo — both are still valid:
 
 - **Old:** `handoff_*.md` files (written in Claude Chat, executed by Claude Code) — now gitignored, kept in conversation or local scratch.
 - **Current:** `docs/superpowers/specs/*.md` (design) and `docs/superpowers/plans/*.md` (implementation plans) — produced via the `superpowers:brainstorming` and `superpowers:writing-plans` skills and committed to the repo so the history is auditable.
-
-`NEXT_STEPS.md` at the project root is the prioritized backlog / resolution log — read it for historical context on what was fixed when and why.
 
 ---
 
