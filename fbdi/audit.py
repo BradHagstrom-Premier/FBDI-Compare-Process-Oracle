@@ -23,7 +23,7 @@ from openpyxl.utils import get_column_letter
 
 
 REPO_ROOT = Path(__file__).parent.parent
-SNAPSHOT_PATH = REPO_ROOT / "applaud_snapshot.json"
+SNAPSHOT_PATH = REPO_ROOT / "baselines" / "applaud" / "applaud_snapshot.json"
 CATALOG_PATH = REPO_ROOT / "FBDI_Master_Catalog.xlsx"
 PRIOR_MAPPING_PATH = REPO_ROOT / "fbdi_applaud_mapping.xlsx"
 OUTPUT_MAPPING_PATH = REPO_ROOT / "Claude_fbdi_applaud_mapping.xlsx"
@@ -864,7 +864,7 @@ def write_audit_md(
         "# FBDI ↔ Applaud Mapping Audit — 26B",
         "",
         f"**Generated:** {datetime.now(timezone.utc).isoformat()}",
-        f"**Snapshot:** applaud_snapshot.json @ {snapshot_meta.get('extracted_at', 'unknown')}",
+        f"**Snapshot:** baselines/applaud/applaud_snapshot.json @ {snapshot_meta.get('extracted_at', 'unknown')}",
         "**Catalog:** FBDI_Master_Catalog.xlsx 26B tab",
         "**Prior mapping:** fbdi_applaud_mapping.xlsx",
         "",
