@@ -1,6 +1,6 @@
 ---
 name: fbdi-compare-release
-description: "Use when Oracle ships a quarterly FBDI release and the user wants the full download → clear → compare → catalog pipeline run end-to-end. Triggers on phrases like 'Oracle released 26C', 'compare 26A to 26B', 'run the quarterly FBDI update', 'update the FBDI Master Catalog for 26B', 'new FBDI release dropped', 'FBDI refresh for Q1'. Does NOT trigger on unrelated questions like 'what's the current Python version' or 'run the test suite'."
+description: "Use when Oracle ships a quarterly FBDI release and the user wants the full download → clear → compare → catalog pipeline run end-to-end. Triggers on phrases like 'Oracle released 26C', 'compare 26A to 26B', 'run the quarterly FBDI update', 'update the FBDI Master Catalog for 26B', 'new FBDI release dropped', 'FBDI refresh for Q1'. Does NOT trigger on near-miss phrases like 'compare these two spreadsheets' or 'run the test suite'."
 ---
 
 # FBDI Compare-Release Orchestrator
@@ -22,6 +22,11 @@ and human-in-the-loop prompts.
       dominate. If you plan to step away, disable Windows sleep/lock for
       the duration — the Selenium process runs foreground and will
       suspend with the OS."
+
+> **HITL numbering note:** `HITL #1`–`#6` below are stable IDs from the
+> design spec, not sequential execution order — e.g., #3 appears before
+> #1 in the flow because versions are resolved before baseline presence
+> is checked.
 
 ## Stage 1 — Environment preflight
 
@@ -53,7 +58,8 @@ Otherwise, auto-detect:
 - List `baselines/*/` folders, filter to those matching `^\d{2}[A-D]$`,
   sort ASCII-descending. The most recent is the prospective `OLD`.
 - Infer `NEW` as "the release the user just mentioned" from their prompt,
-  or the next quarter after `OLD` if they didn't say.
+  or the next quarter after `OLD` if they didn't say. Convention: after
+  26D comes 27A; otherwise bump the letter (26A → 26B, etc.).
 
 **HITL #3 — version-mismatch sanity:** If the auto-detected `OLD` doesn't
 match what the user said (e.g., user said 26C but newest baseline is 25D,
@@ -162,9 +168,14 @@ decision.
 On "proceed", run `verify_download.py --release <ver> --commit-inventory`
 to write the new section, then re-verify (should exit 0).
 
-**HITL #2 — `RapidImplementationForCashManagement.xlsm` missing:** At any
-point after download if the file isn't in `baselines/<ver>/originals/`,
-ask:
+**Step 3c — FSM-file check:** After Step 3b returns exit 0 for `<NEW>`,
+confirm `RapidImplementationForCashManagement.xlsm` exists in
+`baselines/<NEW>/originals/`. It is not auto-downloadable (see
+`references/troubleshooting.md`), so verify explicitly. If missing, go
+to HITL #2.
+
+**HITL #2 — `RapidImplementationForCashManagement.xlsm` missing:** When
+Step 3c flags the file as absent, ask:
 
 > "`RapidImplementationForCashManagement.xlsm` isn't auto-downloadable.
 > Options:
@@ -237,6 +248,9 @@ python .claude/skills/fbdi-compare-release/scripts/summarize_report.py \
   --catalog FBDI_Master_Catalog.xlsx \
   --timeouts "<Stage 4 timeout filenames, comma-separated>"
 ```
+
+If Stage 4 captured no timeouts, omit the `--timeouts` flag entirely
+rather than passing an empty string.
 
 Render the JSON as a human-readable summary to the terminal:
 
