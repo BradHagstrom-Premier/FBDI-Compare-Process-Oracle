@@ -481,3 +481,66 @@ def test_summarize_against_ground_truth():
     result = summarize_report.summarize(report)
     assert result["total_changes"] == 706
     assert result["files_with_changes"] == 19
+
+
+from scripts import verify_run  # noqa: E402
+
+
+def _make_catalog_with_issues(path, issues_by_release):
+    """issues_by_release: {release: [(file, tab, issue_type, detail), ...]}"""
+    wb = Workbook()
+    # Remove default + add per-release tabs (any content, we only read Issues)
+    wb.remove(wb.active)
+    for release in issues_by_release:
+        wb.create_sheet(release)
+    issues_ws = wb.create_sheet("Issues")
+    issues_ws.append(["release", "file", "tab", "issue_type", "detail"])
+    for release, rows in issues_by_release.items():
+        for row in rows:
+            issues_ws.append([release, *row])
+    wb.create_sheet("Drift")
+    wb.save(path)
+    wb.close()
+
+
+def test_verify_run_catalog_check_no_regression(tmp_path):
+    catalog = tmp_path / "cat.xlsx"
+    _make_catalog_with_issues(catalog, {
+        "26A": [("F", "T", "TYPE_PARSE_WARNING", "x")] * 4,
+        "26B": [("F", "T", "TYPE_PARSE_WARNING", "x")] * 5,
+    })
+    result = verify_run.check_catalog_issues(catalog, release="26B")
+    assert result["release_issue_count"] == 5
+    assert result["prior_issue_count"] == 4
+    assert result["regression"] is False
+
+
+def test_verify_run_catalog_check_regression_2x(tmp_path):
+    catalog = tmp_path / "cat.xlsx"
+    _make_catalog_with_issues(catalog, {
+        "26A": [("F", "T", "TYPE_PARSE_WARNING", "x")] * 4,
+        "26B": [("F", "T", "TYPE_PARSE_WARNING", "x")] * 10,
+    })
+    result = verify_run.check_catalog_issues(catalog, release="26B")
+    assert result["regression"] is True
+
+
+def test_verify_run_catalog_check_regression_absolute(tmp_path):
+    catalog = tmp_path / "cat.xlsx"
+    _make_catalog_with_issues(catalog, {
+        "26A": [("F", "T", "TYPE_PARSE_WARNING", "x")] * 100,
+        "26B": [("F", "T", "TYPE_PARSE_WARNING", "x")] * 160,
+    })
+    result = verify_run.check_catalog_issues(catalog, release="26B")
+    # delta = 60, >50 → regression even though <2x
+    assert result["regression"] is True
+
+
+def test_verify_run_catalog_check_no_prior(tmp_path):
+    catalog = tmp_path / "cat.xlsx"
+    _make_catalog_with_issues(catalog, {
+        "26B": [("F", "T", "TYPE_PARSE_WARNING", "x")] * 5,
+    })
+    result = verify_run.check_catalog_issues(catalog, release="26B")
+    assert result["prior_release"] is None
+    assert result["regression"] is False
