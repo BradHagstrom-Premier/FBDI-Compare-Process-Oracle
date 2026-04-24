@@ -108,6 +108,56 @@ def test_load_catalog_missing_release(tmp_path):
         load_catalog(path, release="25D")
 
 
+def _make_thin_catalog_xlsx(tmp_path: Path) -> Path:
+    """Catalog with a thin tab — rows have column_label but no column_technical."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "26B"
+    ws.append(["release", "file_name", "tab_name", "position",
+                "column_label", "column_technical",
+                "data_type", "length", "scale", "data_type_raw", "required"])
+    # Thin tab — only labels populated
+    ws.append(["26B", "AutoInvoiceImportTemplate", "RA_INTERFACE_LINES_ALL",
+                1, "Business Unit Identifier", None, "N", 15, None, "NUMBER(15)", "TRUE"])
+    ws.append(["26B", "AutoInvoiceImportTemplate", "RA_INTERFACE_LINES_ALL",
+                2, "*Business Unit Name", None, "X", 50, None, "VARCHAR2(50)", "FALSE"])
+    ws.append(["26B", "AutoInvoiceImportTemplate", "RA_INTERFACE_LINES_ALL",
+                3, "Payment Terms", None, "X", 80, None, "VARCHAR2(80)", "FALSE"])
+    path = tmp_path / "FBDI_Master_Catalog.xlsx"
+    wb.save(path)
+    return path
+
+
+def test_load_catalog_thin_tab_label_fallback(tmp_path):
+    """When column_technical is missing, normalized column_label is indexed."""
+    path = _make_thin_catalog_xlsx(tmp_path)
+    index = load_catalog(path, release="26B")
+    key = ("AutoInvoiceImportTemplate", "RA_INTERFACE_LINES_ALL")
+    assert key in index
+    # Labels should be normalized to UPPER_SNAKE_CASE, with * stripped
+    assert "BUSINESS_UNIT_IDENTIFIER" in index[key]
+    assert "BUSINESS_UNIT_NAME" in index[key]
+    assert "PAYMENT_TERMS" in index[key]
+
+
+def test_load_catalog_prefers_technical_over_label(tmp_path):
+    """When both column_technical and column_label are present, technical wins."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "26B"
+    ws.append(["release", "file_name", "tab_name", "position",
+                "column_label", "column_technical",
+                "data_type", "length", "scale", "data_type_raw", "required"])
+    ws.append(["26B", "F", "T", 1, "Invoice Identifier", "INVOICE_ID",
+               "N", 15, None, "NUMBER(15)", "TRUE"])
+    path = tmp_path / "FBDI_Master_Catalog.xlsx"
+    wb.save(path)
+    index = load_catalog(path, release="26B")
+    assert index[("F", "T")] == {"INVOICE_ID"}
+    # The normalized label should NOT pollute the index when tech is present
+    assert "INVOICE_IDENTIFIER" not in index[("F", "T")]
+
+
 def _make_prior_mapping_xlsx(tmp_path: Path) -> Path:
     wb = Workbook()
     ws1 = wb.active
@@ -184,6 +234,38 @@ def test_name_alignment_none():
 
 def test_name_alignment_case_insensitive():
     assert compute_name_alignment("T_RA_INTERFACE_LINES_ALL", "ra_interface_lines_all") == "EXACT"
+
+def test_name_alignment_human_readable_tab_exact():
+    # Some Oracle templates (e.g. ImportAwards) use space-separated tab names.
+    # These should align with the corresponding Applaud table after
+    # normalizing spaces/underscores.
+    assert compute_name_alignment("T_AWARD_BUDGET_PERIODS", "Award Budget Periods") == "EXACT"
+
+def test_name_alignment_human_readable_partial():
+    assert compute_name_alignment("T_RA_INTERFACE_LINES_ALL", "RA Interface Lines") == "PARTIAL"
+
+def test_name_alignment_loose_oracle_T_suffix():
+    # Oracle temp-table convention: Applaud has trailing _T, FBDI doesn't.
+    assert compute_name_alignment("T_HZ_IMP_ACCOUNTRELS_T", "HZ_IMP_ACCOUNTRELS") == "PARTIAL"
+
+def test_name_alignment_loose_embedded_separator_diff():
+    # PARTY_SITES (underscored) vs PARTYSITES (glued) — same word, different punctuation.
+    assert compute_name_alignment("T_HZ_IMP_PARTY_SITES_T", "HZ_IMP_PARTYSITES_T") == "PARTIAL"
+
+def test_name_alignment_loose_singular_plural():
+    # Applaud singular GL_BUDGETS vs FBDI singular GL_BUDGET.
+    assert compute_name_alignment("T_GL_BUDGETS_INTERFACE", "GL_BUDGET_INTERFACE") == "PARTIAL"
+
+def test_name_alignment_loose_glued_vs_spaced():
+    # Glued Applaud name vs spaced FBDI label.
+    assert compute_name_alignment("T_ADDITIONALTRANSFERORDERCOST",
+                                    "Additional Transfer Order Costs") == "PARTIAL"
+
+def test_name_alignment_loose_does_not_over_match():
+    # Legitimately different acronyms must stay NONE.
+    assert compute_name_alignment("T_PROJ_RES_REQ_INTERFACE", "PJR_RES_REQ_INTERFACE") == "NONE"
+    # Different words in the middle: SUP vs SUPPLIER.
+    assert compute_name_alignment("T_POZ_SUP_ADDRESSES_INT", "POZ_SUPPLIER_ADDRESSES_INT") == "NONE"
 
 # --- key_coverage ---
 
@@ -325,14 +407,22 @@ def test_pass1_sorted_strongest_first():
 from fbdi.audit import parse_prior_mapping, evaluate_confidence, Candidate
 
 
-def _cand(name_align: str, key_cov: float, col_ovlp: float) -> Candidate:
+def _cand(name_align: str, key_cov: float, col_ovlp: float,
+           key_fields_matched: list[str] | None = None) -> Candidate:
+    # When key_coverage == 1.0 and caller didn't specify which keys matched,
+    # default to two matched keys so evaluate_confidence's discriminative
+    # guard (>=2 keys required for key-alone promotion to M) treats the
+    # candidate as strong. Callers exercising the single-key edge case
+    # should pass an explicit list.
+    if key_fields_matched is None:
+        key_fields_matched = ["K1", "K2"] if key_cov == 1.0 else []
     return Candidate(
         fbdi_file="F", fbdi_tab="T",
         name_alignment=name_align,
         key_coverage=key_cov,
         column_overlap=col_ovlp,
         prefix_conformance=True,
-        applaud_key_fields_matched=[],
+        applaud_key_fields_matched=key_fields_matched,
         applaud_fields_matched=[],
         applaud_fields_missing=[],
     )
@@ -389,6 +479,37 @@ def test_evaluate_confidence_partial_low_overlap_still_medium():
     # PARTIAL name match alone → M regardless of overlap
     c = _cand("PARTIAL", 0.0, 0.05)
     assert evaluate_confidence(c) == "M"
+
+def test_evaluate_confidence_exact_weak_signals_is_medium():
+    # EXACT name with weak key/overlap signals (e.g. thin tab) must be
+    # at least M, never L. Prevents the signal inversion where EXACT+weak
+    # scored lower than PARTIAL+weak.
+    c = _cand("EXACT", 0.0, 0.05)
+    assert evaluate_confidence(c) == "M"
+
+def test_evaluate_confidence_exact_zero_signals_is_medium():
+    c = _cand("EXACT", 0.0, 0.0)
+    assert evaluate_confidence(c) == "M"
+
+def test_evaluate_confidence_full_key_coverage_is_medium_even_with_none_name():
+    # 100% key coverage is strong semantic evidence even when the Applaud
+    # table name doesn't align with the FBDI tab name (e.g. T_BANKS_BRANCHES
+    # → "Bank Account" where all 4 keys match perfectly).
+    c = _cand("NONE", 1.0, 0.95)
+    assert evaluate_confidence(c) == "M"
+
+def test_evaluate_confidence_high_overlap_alone_is_low():
+    # High overlap without any other signal must stay L — Oracle's generic
+    # DFF columns (ATTRIBUTE1..20, ATTRIBUTE_DATE*) create spurious high
+    # overlap across unrelated tabs.
+    c = _cand("NONE", 0.0, 0.9)
+    assert evaluate_confidence(c) == "L"
+
+def test_evaluate_confidence_single_key_full_coverage_is_low():
+    # A single key at 100% is not discriminative — generic column names
+    # like SEQUENCE_NUMBER appear in many interface tabs.
+    c = _cand("NONE", 1.0, 0.06, key_fields_matched=["SEQUENCE_NUMBER"])
+    assert evaluate_confidence(c) == "L"
 
 
 from fbdi.audit import (

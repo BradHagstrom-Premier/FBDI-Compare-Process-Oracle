@@ -32,6 +32,21 @@ CATALOG_RELEASE = "26B"
 SNAPSHOT_MAX_AGE_DAYS = 30
 
 _STRIP_SUFFIXES = ("_ALL", "_INT", "_INTERFACE")
+
+_LABEL_NORMALIZE_RE = re.compile(r"[^A-Z0-9]+")
+
+
+def _label_to_technical(label: str) -> str:
+    """Normalize an FBDI column label to a technical-ish UPPER_SNAKE_CASE token.
+
+    Used as a fallback when the catalog row has no column_technical (thin tabs
+    where Oracle's source template exposes only human-readable labels). Strips
+    the required marker, any non-alphanumerics, and collapses to underscores.
+    """
+    if not label:
+        return ""
+    s = label.strip().lstrip("*").strip().upper()
+    return _LABEL_NORMALIZE_RE.sub("_", s).strip("_")
 _log = logging.getLogger(__name__)
 
 
@@ -200,6 +215,7 @@ def load_catalog(
             file_col = headers.index("file_name")
             tab_col = headers.index("tab_name")
             tech_col = headers.index("column_technical")
+            label_col = headers.index("column_label")
         except ValueError as exc:
             raise ValueError(f"Catalog missing expected header: {exc}. Got: {headers}")
         index: CatalogIndex = {}
@@ -207,11 +223,19 @@ def load_catalog(
             fname = str(row[file_col]).strip() if row[file_col] else ""
             tab = str(row[tab_col]).strip() if row[tab_col] else ""
             tech = str(row[tech_col]).strip() if row[tech_col] else ""
+            label = str(row[label_col]).strip() if row[label_col] else ""
             if fname and tab:
                 key = (fname, tab)
                 index.setdefault(key, set())
                 if tech:
                     index[key].add(tech.upper())
+                elif label:
+                    # Thin-tab fallback: Oracle source has no technical name,
+                    # only a human-readable label. Normalize the label so it
+                    # can participate in column-overlap / key-coverage signals.
+                    normalized = _label_to_technical(label)
+                    if normalized:
+                        index[key].add(normalized)
         return index
     finally:
         wb.close()
@@ -311,23 +335,52 @@ def derive_bare_name(field_name: str, prefix: str) -> tuple[str, bool]:
 # ---------------------------------------------------------------------------
 
 def compute_name_alignment(applaud_table: str, fbdi_tab: str) -> str:
-    """Compare Applaud table name (strip T_) against FBDI tab name."""
-    stripped = applaud_table.upper().removeprefix("T_")
-    tab_upper = fbdi_tab.upper()
+    """Compare Applaud table name (strip ``T_``) against FBDI tab name.
+
+    Oracle ships two tab-naming conventions: technical (``RA_INTERFACE_LINES_ALL``)
+    and human-readable (``Award Budget Periods``). Both get normalized to
+    UPPER_SNAKE_CASE before comparison so name alignment works either way.
+
+    Matching is tiered:
+      * EXACT — names are identical after strip-T_ and label normalization.
+      * PARTIAL — names match after stripping common suffixes (_ALL / _INT /
+        _INTERFACE) from either side.
+      * PARTIAL (loose) — names match after additionally stripping ``_T``
+        (Oracle temp-table convention), collapsing all separators, and
+        normalizing trailing-S plurals. Guards against spurious hits by
+        requiring the collapsed form to be ≥ 4 characters.
+      * NONE — no match.
+    """
+    stripped = _label_to_technical(applaud_table.removeprefix("T_").removeprefix("t_"))
+    tab_upper = _label_to_technical(fbdi_tab)
 
     if stripped == tab_upper:
         return "EXACT"
 
-    # Try stripping suffixes from both sides
     def _base(s: str) -> str:
         for suffix in _STRIP_SUFFIXES:
             if s.endswith(suffix):
                 return s[: -len(suffix)]
         return s
 
-    if _base(stripped) == _base(tab_upper):
+    s_base = _base(stripped)
+    t_base = _base(tab_upper)
+    if s_base == t_base:
         return "PARTIAL"
-    if _base(stripped) == tab_upper or stripped == _base(tab_upper):
+    if s_base == tab_upper or stripped == t_base:
+        return "PARTIAL"
+
+    # Loose PARTIAL: separators collapsed + singular/plural + _T suffix
+    def _loose(s: str) -> str:
+        s = s.removesuffix("_T")
+        s = s.replace("_", "")
+        if s.endswith("S"):
+            s = s[:-1]
+        return s
+
+    ls = _loose(s_base)
+    lt = _loose(t_base)
+    if ls == lt and len(ls) >= 4:
         return "PARTIAL"
 
     return "NONE"
@@ -449,14 +502,41 @@ def parse_prior_mapping(mapping_text: str) -> list[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 
 def evaluate_confidence(candidate: Candidate) -> str:
-    """Return H, M, or L per spec §6.2. Evaluated in order; first match wins."""
-    if (
-        candidate.name_alignment == "EXACT"
-        and (candidate.key_coverage == 1.0 or candidate.column_overlap >= 0.7)
+    """Return H, M, or L. First matching rule wins.
+
+    Signals are name alignment, key coverage, and column overlap. The rubric
+    evolved from the original spec (§6.2) in two ways to avoid counter-
+    intuitive verdicts against real 26B data:
+
+    1. EXACT name alignment alone → at least M. The original rubric had
+       EXACT + weak data fall to L while PARTIAL → M regardless. That
+       inverted signal strength and flagged canonical mappings (e.g.
+       ``T_RA_INTERFACE_LINES_ALL`` → ``RA_INTERFACE_LINES_ALL``) as
+       NEEDS_REVIEW on thin tabs (label-only, no technical columns).
+    2. 100% key coverage alone → at least M. Keys are the most
+       semantically-loaded columns (e.g. ``BANK_NAME``, ``ACCOUNT_NUMBER``),
+       so full key match is strong evidence of a real mapping even when
+       names diverge (e.g. ``T_BANKS_BRANCHES`` → ``Bank Account``).
+
+    High column overlap *alone* is intentionally NOT promoted because
+    Oracle's generic DFF columns (``ATTRIBUTE1``–``20``, ``ATTRIBUTE_DATE*``)
+    inflate overlap across unrelated tabs.
+    """
+    if candidate.name_alignment == "EXACT" and (
+        candidate.key_coverage == 1.0 or candidate.column_overlap >= 0.7
     ):
         return "H"
-    if candidate.name_alignment == "PARTIAL" or (
-        0 < candidate.key_coverage < 1.0 and candidate.column_overlap >= 0.4
+    # 100% key coverage promotes to M only when 2+ keys matched — single
+    # generic keys (SEQUENCE_NUMBER, ACCOUNT_NUMBER) aren't discriminative
+    # enough and would match many unrelated interface tabs.
+    full_key_match_discriminative = (
+        candidate.key_coverage == 1.0
+        and len(candidate.applaud_key_fields_matched) >= 2
+    )
+    if (
+        candidate.name_alignment in ("EXACT", "PARTIAL")
+        or full_key_match_discriminative
+        or (0 < candidate.key_coverage < 1.0 and candidate.column_overlap >= 0.4)
     ):
         return "M"
     return "L"
