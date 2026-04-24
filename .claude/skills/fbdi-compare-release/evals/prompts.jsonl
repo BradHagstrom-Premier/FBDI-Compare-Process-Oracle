@@ -1,0 +1,8 @@
+{"id": 1, "prompt": "Oracle released 26C, run the quarterly FBDI update", "expected_trigger": true, "notes": "auto-detect path; should offer to download 26C"}
+{"id": 2, "prompt": "Compare 26A to 26B", "expected_trigger": true, "notes": "explicit --old/--new; ground-truth reference run"}
+{"id": 3, "prompt": "Update the FBDI Master Catalog for 26B", "expected_trigger": true, "notes": "catalog-centric phrasing"}
+{"id": 4, "prompt": "What's the current production Python version?", "expected_trigger": false, "notes": "mentions Python, unrelated to FBDI"}
+{"id": 5, "prompt": "Run the test suite", "expected_trigger": false, "notes": "unrelated"}
+{"id": 6, "prompt": "Open the catalog xlsx", "expected_trigger": false, "notes": "reading, not refreshing"}
+{"id": 7, "prompt": "New FBDI release dropped", "expected_trigger": true, "notes": "paraphrase"}
+{"id": 8, "prompt": "FBDI refresh for Q1", "expected_trigger": true, "notes": "quarter-coded paraphrase"}
