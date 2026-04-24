@@ -91,3 +91,108 @@ def test_check_env_json_output_parseable(tmp_path):
     exit_code, payload = _run_check_env(tmp_path)
     assert isinstance(payload, dict)
     assert isinstance(payload["checks"], list)
+
+
+from scripts import verify_download  # noqa: E402
+
+
+INVENTORY_FIXTURE = """\
+FBDI Baseline File Inventory
+Generated: 2026-04-23
+============================
+
+26A has 3 files. 26B has 4 files.
+
+============================
+26A ORIGINALS (3 files)
+============================
+AccountCombinationsImportTemplate.xlsm
+BudgetImportTemplate.xlsm
+RapidImplementationForCashManagement.xlsm
+
+============================
+26B ORIGINALS (4 files)
+============================
+AccountCombinationsImportTemplate.xlsm
+BudgetImportTemplate.xlsm
+ItemImportReferenceOrgTemplate.xlsm
+RapidImplementationForCashManagement.xlsm
+
+============================
+DIFFERENCES
+============================
+Only in 26B: ItemImportReferenceOrgTemplate.xlsm
+"""
+
+
+def test_parse_inventory_extracts_both_sections():
+    inventory = verify_download.parse_inventory(INVENTORY_FIXTURE)
+    assert set(inventory.keys()) == {"26A", "26B"}
+    assert inventory["26A"] == [
+        "AccountCombinationsImportTemplate.xlsm",
+        "BudgetImportTemplate.xlsm",
+        "RapidImplementationForCashManagement.xlsm",
+    ]
+    assert len(inventory["26B"]) == 4
+
+
+def test_parse_inventory_ignores_differences_footer():
+    inventory = verify_download.parse_inventory(INVENTORY_FIXTURE)
+    # The "DIFFERENCES" block is after the last ORIGINALS header;
+    # its content must NOT leak into 26B.
+    assert "Only in 26B: ItemImportReferenceOrgTemplate.xlsm" not in inventory["26B"]
+
+
+def test_parse_inventory_empty_text():
+    assert verify_download.parse_inventory("") == {}
+
+
+def test_diff_clean_case():
+    inventory = {"26A": ["A.xlsm", "B.xlsm"]}
+    result = verify_download.diff_against_inventory(
+        release="26A",
+        downloaded_names=["A.xlsm", "B.xlsm"],
+        inventory=inventory,
+        manual_files=[],
+    )
+    assert result["missing"] == []
+    assert result["extras"] == []
+
+
+def test_diff_detects_missing_and_extras():
+    inventory = {"26A": ["A.xlsm", "B.xlsm", "C.xlsm"]}
+    result = verify_download.diff_against_inventory(
+        release="26A",
+        downloaded_names=["A.xlsm", "B.xlsm", "D.xlsm"],
+        inventory=inventory,
+        manual_files=[],
+    )
+    assert result["missing"] == ["C.xlsm"]
+    assert result["extras"] == ["D.xlsm"]
+
+
+def test_diff_excludes_manual_files_from_missing():
+    inventory = {"26A": ["A.xlsm", "RapidImplementationForCashManagement.xlsm"]}
+    result = verify_download.diff_against_inventory(
+        release="26A",
+        downloaded_names=["A.xlsm"],
+        inventory=inventory,
+        manual_files=["RapidImplementationForCashManagement.xlsm"],
+    )
+    assert result["missing"] == []  # manual file excluded
+
+
+def test_diff_is_locale_agnostic():
+    """Guard against non-`LC_ALL=C` environments where Mac default sort
+    misorders mixed-case filenames. Set operations are locale-independent —
+    we verify the diff is identical regardless of filename case ordering."""
+    inventory = {"26A": ["AccountCombinationsImportTemplate.xlsm", "zxCustomTemplate.xlsm"]}
+    # Downloaded in a different case-order
+    result = verify_download.diff_against_inventory(
+        release="26A",
+        downloaded_names=["zxCustomTemplate.xlsm", "AccountCombinationsImportTemplate.xlsm"],
+        inventory=inventory,
+        manual_files=[],
+    )
+    assert result["missing"] == []
+    assert result["extras"] == []
