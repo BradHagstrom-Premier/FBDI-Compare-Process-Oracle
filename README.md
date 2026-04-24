@@ -2,6 +2,9 @@
 
 Automates comparison of Oracle FBDI (File-Based Data Import) template files (`.xlsm`) across Oracle Cloud quarterly releases. Produces two outputs: a field-level diff report (`Comparison_Report_<OLD>_<NEW>.xlsx`) and a per-release snapshot catalog (`FBDI_Master_Catalog.xlsx`).
 
+> **Running it:** see [`docs/operator-guide.md`](docs/operator-guide.md).
+> **Developing on it:** see [`docs/developer-guide.md`](docs/developer-guide.md).
+
 ---
 
 ## Setup
@@ -66,8 +69,12 @@ FBDI-Compare-Process-Oracle/
 ├── tests/                     # 241 unit tests (pytest)
 ├── .claude/skills/            # Project-level Claude Code skills
 │   └── fbdi-compare-release/  # Orchestrator for quarterly refreshes
-├── docs/                      # Design specs and implementation plans
-├── baselines/                 # GITIGNORED — downloaded xlsm files per release
+├── docs/
+│   ├── operator-guide.md      # End-to-end pipeline walkthrough
+│   ├── developer-guide.md     # Codebase tour and extension guide
+│   ├── archive/               # Historical narrative docs (audits, gap findings)
+│   └── superpowers/           # Design specs and implementation plans
+├── baselines/                 # GITIGNORED — downloaded xlsm per release + applaud_snapshot.json
 ├── reference/                 # Read-only archive of legacy VBA + scripts
 ├── baseline_files.txt         # Inventory of expected downloads per release
 ├── FBDI_Master_Catalog.xlsx   # Per-release snapshot catalog (git-tracked)
@@ -104,4 +111,4 @@ python -m pytest tests/test_clear.py -v
 
 - **Shipped:** comparison engine, CLI (`fbdi compare` / `catalog` / `diagnose`), smart clearing, `download_and_clear` Selenium driver, FBDI master catalog, Applaud mapping audit, `fbdi-compare-release` Claude Code skill, 241-test suite.
 - **In progress:** `fbdi_applaud_mapping.xlsx` manual review.
-- **Planned:** `report.py` — compliance change-tracking report generation (blocked on mapping finalization); `python -m fbdi run` chained pipeline.
+- **Planned:** `report.py` (compliance change-tracking report generation, blocked on mapping finalization); `python -m fbdi run` (chained pipeline).
