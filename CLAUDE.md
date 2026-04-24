@@ -2,6 +2,8 @@
 
 This file gives Claude Code persistent context for this project. Read it at the start of every session.
 
+**For human readers:** [`docs/operator-guide.md`](docs/operator-guide.md) walks through running the quarterly refresh; [`docs/developer-guide.md`](docs/developer-guide.md) orients developers to the codebase.
+
 ---
 
 ## Project Purpose
@@ -47,11 +49,12 @@ python -m pytest tests/test_clear.py -v
   - `_subprocess_util.py` — shared `run_worker(target, args, timeout)` helper used by `catalog.py` and `compare.py`. Drains the result queue *before* joining the child process — required to avoid a pipe-buffer deadlock on Windows when payloads exceed ~64 KB.
   - `catalog_normalize.py` — normalizes FBDI labels (strips non-alphanumeric/underscore/whitespace) for Applaud MDB compatibility.
   - `build_mapping.py` — builds the `fbdi_applaud_mapping.xlsx` workbook that maps FBDI tabs/fields to Applaud target tables for downstream integrations.
+  - `audit.py` — FBDI ↔ Applaud mapping audit engine. Reads `baselines/applaud/applaud_snapshot.json` (gitignored), `FBDI_Master_Catalog.xlsx`, and the working `fbdi_applaud_mapping.xlsx`. Two-pass signal scoring + adjudication; emits `Claude_fbdi_applaud_mapping.xlsx` and a markdown audit report.
   - `cli.py` / `__main__.py` — CLI entry point. `_resolve_dir()` makes `--old 26A` resolve to `baselines/26A/originals/`.
   - `config.py`, `utils.py` — shared configuration and helpers.
 - **`tools/download_and_clear.py`** — standalone Selenium downloader + smart clearing entry point. Imports `fbdi.clear` but lives outside the `fbdi/` package so Selenium/webdriver dependencies stay out of the comparison engine.
 - **`.claude/skills/fbdi-compare-release/`** — orchestrator skill that chains the full download → clear → compare → catalog pipeline with human-in-the-loop checkpoints. Triggers on phrases like "Compare 26A to 26B" or "Oracle released 26C". Bundles Python helpers (`check_env.py`, `verify_download.py`, `summarize_report.py`, `verify_run.py`) under `scripts/` and reference docs under `references/`. See the skill's `SKILL.md` for the 8-stage workflow.
-- **`tests/`** — 241 unit tests, all passing (`python -m pytest tests/`)
+- **`tests/`** — 255 unit tests, all passing (`python -m pytest tests/`)
 - **Outputs:**
   - `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column diff for VBA validation (unchanged)
   - `FBDI_Master_Catalog.xlsx` — per-release snapshots + Issues + Drift tabs
@@ -99,7 +102,12 @@ python -m pytest tests/test_clear.py -v
 
 ## Reference Files
 
-`reference/` is a read-only archive. Do not modify these files. They exist for historical context only.
+Two read-only archives, distinct purposes:
+
+- **`reference/`** — pre-Python pipeline artifacts (legacy VBA macros, Dan's original Selenium downloader). Do not modify.
+- **`docs/archive/`** — historical narrative docs (audit notes, scraper gap findings) preserved via `git mv` so blame history survives. Do not modify.
+
+`reference/` contents:
 
 | File | What It Is |
 |---|---|
@@ -112,7 +120,7 @@ python -m pytest tests/test_clear.py -v
 
 ## Testing
 
-- `python -m pytest tests/` — run full suite (241 tests)
+- `python -m pytest tests/` — run full suite (255 tests)
 - `python -m pytest tests/test_clear.py -v` — run one module
 - `tests/validate_against_vba.py` and `tests/vba_fieldrow_map.json` — ad-hoc validation against the legacy VBA macro's expected header rows (not pytest, kept for spot-checks against regressions)
 
@@ -128,6 +136,8 @@ Two patterns have been used in this repo — both are still valid:
 
 - **Old:** `handoff_*.md` files (written in Claude Chat, executed by Claude Code) — now gitignored, kept in conversation or local scratch.
 - **Current:** `docs/superpowers/specs/*.md` (design) and `docs/superpowers/plans/*.md` (implementation plans) — produced via the `superpowers:brainstorming` and `superpowers:writing-plans` skills and committed to the repo so the history is auditable.
+
+Completed-project narrative docs (audit notes, one-off findings) live in `docs/archive/`. The two user-facing guides live at `docs/operator-guide.md` and `docs/developer-guide.md`.
 
 ---
 
