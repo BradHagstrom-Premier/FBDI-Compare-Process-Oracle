@@ -355,3 +355,49 @@ def test_commit_inventory_cli_writes_file_in_place(tmp_path):
     assert exit_code == 0
     parsed = verify_download.parse_inventory(inv_path.read_text(encoding="utf-8"))
     assert parsed["26C"] == ["A.xlsm", "B.xlsm"]
+
+
+def test_commit_inventory_roundtrips_real_baseline_files_txt():
+    """Regression guard: committing each release's own filenames back into
+    the real baseline_files.txt must produce an identical-parse result
+    (set of releases → same sorted file lists). Any formatting drift that
+    breaks the writer's compatibility with the real inventory file format
+    will fail this test."""
+    inv_path = Path(__file__).resolve().parent.parent / "baseline_files.txt"
+    if not inv_path.is_file():
+        import pytest
+        pytest.skip("baseline_files.txt not present")
+    original = inv_path.read_text(encoding="utf-8")
+    parsed_before = verify_download.parse_inventory(original)
+    # Commit 26B's own files back — should be idempotent on parse semantics.
+    rewritten = verify_download.commit_inventory(
+        original, release="26B", filenames=parsed_before["26B"],
+    )
+    parsed_after = verify_download.parse_inventory(rewritten)
+    assert parsed_after == parsed_before
+
+
+def test_commit_inventory_handles_missing_trailing_newline():
+    """Guard against input that doesn't end in \\n. The section-match regex
+    requires lines to be newline-terminated; the function must normalize."""
+    # Drop the trailing newline from the fixture
+    text = INVENTORY_FIXTURE.rstrip("\n")
+    assert not text.endswith("\n")
+    result = verify_download.commit_inventory(
+        text, release="26B", filenames=["A.xlsm", "B.xlsm"],
+    )
+    parsed = verify_download.parse_inventory(result)
+    assert parsed["26B"] == ["A.xlsm", "B.xlsm"]
+    # 26A must not have been mangled
+    assert parsed["26A"] == [
+        "AccountCombinationsImportTemplate.xlsm",
+        "BudgetImportTemplate.xlsm",
+        "RapidImplementationForCashManagement.xlsm",
+    ]
+
+
+def test_format_section_singular_for_one_file():
+    """A release with exactly 1 file emits 'file', not 'files'."""
+    text = verify_download._format_section("26C", ["Only.xlsm"])
+    assert "26C ORIGINALS (1 file)" in text
+    assert "1 files)" not in text

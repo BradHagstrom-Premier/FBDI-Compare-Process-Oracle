@@ -200,7 +200,7 @@ def _format_section(release: str, filenames: list[str]) -> str:
     banner = "=" * 28
     lines = [
         banner,
-        f"{release} ORIGINALS ({len(sorted_names)} files)",
+        f"{release} ORIGINALS ({len(sorted_names)} {'file' if len(sorted_names) == 1 else 'files'})",
         banner,
         *sorted_names,
         "",
@@ -247,6 +247,8 @@ def commit_inventory(
     and the DIFFERENCES footer regenerated."""
     release = release.upper()
     inventory = parse_inventory(inventory_text)
+    if inventory_text and not inventory_text.endswith("\n"):
+        inventory_text = inventory_text + "\n"
     inventory[release] = sorted(filenames)
 
     # Strip old DIFFERENCES
