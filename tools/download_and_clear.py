@@ -12,6 +12,7 @@ Usage:
 
 import argparse
 import glob
+import json
 import multiprocessing
 import os
 import shutil
@@ -95,7 +96,6 @@ def write_module_map(file_modules: dict, version: str, baselines_root: str) -> s
     RapidImplementationForCashManagement.xlsm (manually placed by user, so
     not seen during scrape). Returns the absolute path written.
     """
-    import json
     file_modules = dict(file_modules)
     file_modules.setdefault("RapidImplementationForCashManagement.xlsm", "Financials")
     out_path = os.path.join(baselines_root, version.lower(), "file_modules.json")
@@ -476,7 +476,7 @@ def main():
             driver.quit()
 
         # Write the per-release module map. Only happens on a successful download
-        # pass — --clear-only and --skip-clear paths don't reach this line.
+        # pass — the --clear-only path skips this whole block.
         modules_path = write_module_map(
             file_modules, version, os.path.join(repo_root, "baselines"),
         )
