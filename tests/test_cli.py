@@ -73,3 +73,41 @@ class TestCatalogCLI:
             "--timeout", "30",
         ])
         assert master.exists()
+
+
+def test_populate_module_subcommand_invocation(tmp_path, monkeypatch, capsys):
+    """`python -m fbdi populate-module` invokes populate_module_column with the
+    right args and prints the summary."""
+    import fbdi.cli as cli_mod
+    from openpyxl import Workbook
+
+    # Build minimal artifacts in tmp_path
+    (tmp_path / "baselines" / "26a").mkdir(parents=True)
+    (tmp_path / "baselines" / "26b").mkdir(parents=True)
+    (tmp_path / "baselines" / "26a" / "file_modules.json").write_text(
+        '{"AutoInvoiceImportTemplate.xlsm": "Financials"}'
+    )
+    (tmp_path / "baselines" / "26b" / "file_modules.json").write_text(
+        '{"AutoInvoiceImportTemplate.xlsm": "Financials"}'
+    )
+
+    mapping_path = tmp_path / "mapping.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "FBDI Mapping"
+    headers = ["FBDI Template", "FBDI Tab", "Applaud Table", "Prefix",
+               "Status", "Module", "In Base System?"]
+    for c_idx, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=c_idx, value=h)
+    ws.cell(row=2, column=1, value="AutoInvoiceImportTemplate")
+    ws.cell(row=2, column=2, value="RA_TAB")
+    wb.save(mapping_path)
+    wb.close()
+
+    monkeypatch.chdir(tmp_path)
+    cli_mod.main(["populate-module", "--new", "26b", "--old", "26a",
+                  "--mapping", str(mapping_path)])
+
+    out = capsys.readouterr().out
+    assert "populated" in out.lower()
+    assert "1" in out  # one row populated

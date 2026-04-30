@@ -106,6 +106,24 @@ def main(argv: list[str] | None = None) -> None:
         help="Set logging to DEBUG",
     )
 
+    populate_parser = subparsers.add_parser(
+        "populate-module",
+        help="Populate the Module column in FBDI_to_ApplaudTables_Mapping.xlsx",
+    )
+    populate_parser.add_argument(
+        "--new", required=True, type=str,
+        help="Newer release label (e.g. 26B) — reads baselines/<new>/file_modules.json",
+    )
+    populate_parser.add_argument(
+        "--old", required=True, type=str,
+        help="Older release label (e.g. 26A) — reads baselines/<old>/file_modules.json as fallback",
+    )
+    populate_parser.add_argument(
+        "--mapping", type=Path,
+        default=Path("FBDI_to_ApplaudTables_Mapping.xlsx"),
+        help="Path to the mapping spreadsheet (default: ./FBDI_to_ApplaudTables_Mapping.xlsx)",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -118,6 +136,8 @@ def main(argv: list[str] | None = None) -> None:
         _run_diagnose(args)
     elif args.command == "catalog":
         _run_catalog(args)
+    elif args.command == "populate-module":
+        _run_populate_module(args)
 
 
 def _run_compare(args: argparse.Namespace) -> None:
@@ -288,3 +308,47 @@ def _run_catalog(args: argparse.Namespace) -> None:
     print(f"  Release tabs: {', '.join(release_tabs)}")
     print(f"  Issues: {issue_count}")
     print(f"  Drift rows: {drift_count}")
+
+
+def _run_populate_module(args: argparse.Namespace) -> None:
+    """Surgically populate the Module column in the mapping spreadsheet."""
+    import json
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(name)s: %(message)s",
+    )
+
+    from fbdi.populate_module import populate_module_column
+
+    new_path = Path("baselines") / args.new.lower() / "file_modules.json"
+    old_path = Path("baselines") / args.old.lower() / "file_modules.json"
+
+    if not new_path.is_file():
+        print(f"Error: {new_path} not found. Run downloader for {args.new} first.")
+        sys.exit(2)
+    if not old_path.is_file():
+        print(f"Error: {old_path} not found. Run downloader for {args.old} first.")
+        sys.exit(2)
+
+    if not args.mapping.is_file():
+        print(f"Notice: mapping file {args.mapping} not present — skipping populate-module.")
+        return  # not an error; mapping may not be checked out
+
+    with open(new_path, "r", encoding="utf-8") as f:
+        new_modules = json.load(f)
+    with open(old_path, "r", encoding="utf-8") as f:
+        old_modules = json.load(f)
+
+    try:
+        result = populate_module_column(args.mapping, new_modules, old_modules)
+    except PermissionError:
+        print(f"Error: {args.mapping} is open in Excel — close it and re-run.")
+        sys.exit(3)
+
+    print(json.dumps({
+        "mapping": str(args.mapping),
+        "new_release": args.new.upper(),
+        "old_release": args.old.upper(),
+        **result,
+    }, indent=2))
