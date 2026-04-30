@@ -178,11 +178,10 @@ Edge case: if `module_from_base_url()` raises `ValueError` (Oracle changed a URL
 - Skill completes all 8 stages + Stage 6.5 without unhandled errors.
 - `baselines/26A/file_modules.json` and `baselines/26B/file_modules.json` exist with ≥210 entries each.
 - `FBDI_to_ApplaudTables_Mapping.xlsx` Module column ≥95% populated (denominator: rows where col A is non-blank — currently 639); column A and other manually-edited columns unchanged from pre-run.
-- `verify_rerun.py` output shows: NO_HEADER == 0, Issues ≤ 9, catalog row count within ±5% of pre-run.
-- Spot-check: at least one tab Brad noticed misdetecting before the `detect_header.py` fix now detects correctly in the new catalog.
+- `verify_rerun.py` macro signals all green: NO_HEADER == 0, Issues ≤ 9, catalog row count within ±5% of the existing (post-fix) catalog. The row-count check doubles as a download-consistency sanity check — Oracle hasn't changed 26A or 26B between yesterday's catalog regeneration and now, so a near-identical row count confirms the fresh download produced consistent data.
 
 ## Open questions / risks
 
-- **Brad's specific list of "previously-misdetected tabs"** is not enumerated in this spec. Validation step 12 ("spot-check previously-misdetected tabs") relies on Brad's memory or a quick diff between the existing catalog and the new one. If we want a more rigorous check, we could enumerate them now — but soft validation (Q4 option c) is the agreed bar.
+- **The `detect_header.py` fix is not re-validated by this rerun.** It was already validated implicitly by the catalog regeneration on 2026-04-29 (the current `FBDI_Master_Catalog.xlsx` at HEAD reflects the post-fix logic). Diffing the rerun's catalog against HEAD's catalog tests download consistency, not fix correctness. If we ever need to re-prove the fix, that requires regenerating a pre-fix catalog from an earlier commit — out of scope here.
 - **Wall clock for the rerun is ~2-3 hours.** If something fails partway through Stage 3 downloads, partial baselines remain. The skill is designed to resume from the next stage on re-invocation.
 - **Oracle URL stability.** If Oracle restructures `MODULE_URL_TEMPLATES` between now and next quarter, `module_from_base_url()` will surface "Unknown" entries. Acceptable for this rerun; future-proofing is out of scope.
