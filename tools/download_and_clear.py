@@ -61,6 +61,33 @@ MANUAL_FILES = [
 ]
 
 
+# Maps URL slug → canonical module name. Keep keys aligned with
+# MODULE_URL_TEMPLATES; values match the existing taxonomy used in
+# fbdi/build_mapping.py KNOWN_MAPPINGS (`&` not "and" for SCM).
+URL_TO_MODULE = {
+    "project-management": "Project Management",
+    "financials": "Financials",
+    "procurement": "Procurement",
+    "supply-chain-and-manufacturing": "Supply Chain & Manufacturing",
+}
+
+
+def module_from_base_url(url: str) -> str:
+    """Extract the Oracle module name from a base URL.
+
+    Example: 'https://docs.oracle.com/en/cloud/saas/financials/26b/oefbf/index.html'
+             → 'Financials'
+
+    Raises ValueError for URLs that don't match any known module slug.
+    The `/saas/<slug>/` guard avoids false positives where the slug
+    happens to appear elsewhere in the URL (e.g., as a query param).
+    """
+    for slug, module in URL_TO_MODULE.items():
+        if f"/saas/{slug}/" in url:
+            return module
+    raise ValueError(f"Unknown Oracle module URL: {url}")
+
+
 def create_folder(path, clear=True):
     """Create a folder. If clear=True, wipe contents first."""
     if os.path.exists(path):
