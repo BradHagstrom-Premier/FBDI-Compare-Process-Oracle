@@ -192,6 +192,22 @@ def download_files(driver, download_path, version):
                 print(f"  SKIP: Could not load navigation for {base_url}")
                 continue
 
+        # The JET <oj-tree-view> inside #navigationDrawer populates async after
+        # the drawer container appears in DOM. Without this wait, find_elements
+        # races the tree-view init, returns an empty list, and the entire URL
+        # is silently skipped (financials/26b reproduced this consistently;
+        # financials/26a did when assets weren't cached). Wait for at least one
+        # treeitem before iterating.
+        try:
+            WebDriverWait(driver, 60).until(
+                lambda d: len(d.find_elements(
+                    By.CSS_SELECTOR, "#navigationDrawer [role='treeitem']"
+                )) > 0
+            )
+        except TimeoutException:
+            print(f"  SKIP: tree-view treeitems never populated for {base_url}")
+            continue
+
         section_items = driver.find_elements(By.CSS_SELECTOR, "#navigationDrawer li")
 
         for section in section_items:
