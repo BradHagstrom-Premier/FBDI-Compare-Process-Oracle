@@ -108,6 +108,30 @@ def test_populate_module_subcommand_invocation(tmp_path, monkeypatch, capsys):
     cli_mod.main(["populate-module", "--new", "26b", "--old", "26a",
                   "--mapping", str(mapping_path)])
 
+    # Verify the workbook actually got the Module value written
+    from openpyxl import load_workbook
+    wb = load_workbook(mapping_path, read_only=True)
+    ws = wb["FBDI Mapping"]
+    row2 = list(ws.iter_rows(min_row=2, max_row=2, values_only=True))[0]
+    wb.close()
+    assert row2[5] == "Financials"  # column F
+
+    # Verify the JSON summary on stdout includes the populated count
     out = capsys.readouterr().out
-    assert "populated" in out.lower()
-    assert "1" in out  # one row populated
+    assert '"populated": 1' in out
+    assert '"new_release": "26B"' in out
+
+
+def test_populate_module_missing_json_exits_2(tmp_path, monkeypatch):
+    """Missing file_modules.json for either release exits 2."""
+    import fbdi.cli as cli_mod
+
+    # Only create the OLD baseline — NEW's file_modules.json is missing
+    (tmp_path / "baselines" / "26a").mkdir(parents=True)
+    (tmp_path / "baselines" / "26a" / "file_modules.json").write_text("{}")
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as excinfo:
+        cli_mod.main(["populate-module", "--new", "26b", "--old", "26a",
+                      "--mapping", "ignored.xlsx"])
+    assert excinfo.value.code == 2

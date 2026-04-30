@@ -311,7 +311,15 @@ def _run_catalog(args: argparse.Namespace) -> None:
 
 
 def _run_populate_module(args: argparse.Namespace) -> None:
-    """Surgically populate the Module column in the mapping spreadsheet."""
+    """Surgically populate the Module column in the mapping spreadsheet.
+
+    Exit codes:
+      0 — success (JSON summary printed) or mapping file absent (logged).
+      2 — required file_modules.json missing for --new or --old release.
+          Note: argparse also uses 2 for usage errors. Stage 6.5 of the
+          fbdi-compare-release skill treats both as "halt and surface to user".
+      3 — mapping spreadsheet is open in Excel (PermissionError).
+    """
     import json
 
     logging.basicConfig(
@@ -332,8 +340,14 @@ def _run_populate_module(args: argparse.Namespace) -> None:
         sys.exit(2)
 
     if not args.mapping.is_file():
-        print(f"Notice: mapping file {args.mapping} not present — skipping populate-module.")
-        return  # not an error; mapping may not be checked out
+        print(json.dumps({
+            "mapping": str(args.mapping),
+            "new_release": args.new.upper(),
+            "old_release": args.old.upper(),
+            "status": "skipped",
+            "reason": "mapping file not present",
+        }, indent=2))
+        return  # exit 0; the orchestrator skill pre-checks for this case
 
     with open(new_path, "r", encoding="utf-8") as f:
         new_modules = json.load(f)
