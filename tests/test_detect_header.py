@@ -137,6 +137,70 @@ class TestDetectHeaderRow:
         ws = _make_ws_with_headers(4, ["FIELD_A", "FIELD_B"])
         assert detect_header_row(ws) == 4
 
+    def test_legend_row_does_not_beat_wider_header(self):
+        """A narrow legend annotation row must lose to a wider mixed-case header row.
+
+        Oracle Upload-style templates (e.g. UploadCustomersTemplate) have a
+        2-cell legend row ('* Required', '** Conditionally required') before the
+        real header row.  The legend row used to win Tier 2 because its
+        per-row fill_ratio was 2/2 = 1.0, identical to the 12-cell header.
+        After the fix, fill_ratio is normalised to the sheet-wide column span,
+        so the legend row scores 2/12 ≈ 0.17 while the header row scores 1.0.
+        """
+        wb = Workbook()
+        ws = wb.active
+        # Row 3: legend key (2 cells — columns 1 and 2 only)
+        ws.cell(row=3, column=1, value="* Required")
+        ws.cell(row=3, column=2, value="** Conditionally required")
+        # Row 5: actual mixed-case header row spanning 12 columns
+        mixed_headers = [
+            "*Source System", "*Account Number", "Site Number", "*Person Number",
+            "*First Name", "Middle Name", "*Last Name", "Primary Contact Indicator",
+            "Department", "Job Title", "Responsibility Type", "Primary Responsibility Indicator",
+        ]
+        for col, h in enumerate(mixed_headers, start=1):
+            ws.cell(row=5, column=col, value=h)
+        assert detect_header_row(ws) == 5
+
+    def test_sparse_data_row_does_not_beat_wide_mixed_header(self):
+        """Regression: FA_ADJUSTMENTS_T — sparse data row must not win over real header.
+
+        Row 4 (header): 22 columns, 10 UPPER_SNAKE + 12 human-readable labels
+          → snake=0.45, fill=1.0  — Tier-1 threshold miss, falls to Tier-2
+        Row 5 (data):   3 non-empty cells, 2 UPPER_SNAKE + 1 mixed
+          → snake=0.67, fill=3/22=0.14 — OLD: Tier-1 winner (only candidate)
+                                         NEW: excluded (fill < TIER1_MIN_FILL)
+
+        Before the fix, row 5 was the only Tier-1 candidate and won, producing a
+        catalog with sample data values (BMRX / OPS CORP / RECLASS) as column names.
+        After the fix, row 5 is excluded from Tier-1 by the fill floor; row 4 wins
+        Tier-2 on fill=1.0 and header_like=1.0.
+        """
+        wb = Workbook()
+        ws = wb.active
+        # Row 2: title (1 cell, not a candidate)
+        ws.cell(row=2, column=1, value="Mass Financial Trans")
+        # Row 3: legend (1 cell, not a candidate)
+        ws.cell(row=3, column=1, value="* Required")
+        # Row 4: real header — mixed human-readable labels and ATTRIBUTE* fields.
+        # 12 human-readable (non-UPPER_SNAKE) + 10 UPPER_SNAKE = 10/22 ≈ 0.45 snake,
+        # fill = 22/22 = 1.0
+        human_labels = [
+            "*Batch Name", "*Asset Book", "*Asset Number", "*Transaction Type",
+            "Transaction Name", "Amortize", "Cost", "Date Placed",
+            "Prorate Convention", "Depreciate", "Salvage Value", "Method",
+        ]
+        attr_fields = [f"ATTRIBUTE{i}" for i in range(1, 11)]
+        for col, val in enumerate(human_labels + attr_fields, start=1):
+            ws.cell(row=4, column=col, value=val)
+        # Row 5: sparse data row — 3 non-empty, 2 are UPPER_SNAKE → snake=0.67,
+        # fill = 3/22 = 0.136 < TIER1_MIN_FILL=0.15
+        ws.cell(row=5, column=1, value="BMRX")       # UPPER_SNAKE
+        ws.cell(row=5, column=2, value="OPS CORP")   # has space, not UPPER_SNAKE
+        ws.cell(row=5, column=3, value="RECLASS")    # UPPER_SNAKE
+
+        assert detect_header_row(ws) == 4
+
     def test_phantom_wide_columns_do_not_suppress_detection(self):
         """Headers should be detected even when max_column is phantom-wide."""
         wb = Workbook()

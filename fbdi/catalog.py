@@ -115,9 +115,16 @@ def _read_row_values(ws: Worksheet, row_idx: int) -> list[str | None]:
 
 
 def _is_tier1_header(values: list[str | None]) -> bool:
-    """True if the row is dominated by UPPER_SNAKE_CASE technical names."""
+    """True if the row is dominated by UPPER_SNAKE_CASE technical names.
+
+    Oracle Tier-1 (technical-names) rows never have asterisk-prefixed cells.
+    Asterisks are a label-row convention marking required fields.  If any
+    cell starts with '*', the row is a label/thin-tab row, not tier-1.
+    """
     non_empty = [v for v in values if v]
     if not non_empty:
+        return False
+    if any(isinstance(v, str) and v.strip().startswith("*") for v in non_empty):
         return False
     snake = sum(
         1 for v in non_empty
@@ -235,8 +242,18 @@ def _extract_rich(
             return str(v) if v is not None else ""
         return ""
 
-    # Iterate data columns (col B onward) in the header row
-    for sheet_col in range(2, len(header_values) + 1):
+    # Most Oracle FBDI rich tabs have a row-label sentinel in col A of the
+    # technical-names row (e.g. "Column name of the Table"), so data columns
+    # start at col B.  A few tabs (e.g. CST_I_INCOMING_TXN_COSTS) have no
+    # sentinel and begin data at col A.  Detect by checking whether col A
+    # itself is UPPER_SNAKE_CASE.
+    col_a = header_values[0] if header_values else None
+    col_a_is_data = bool(
+        col_a and UPPER_SNAKE_PATTERN.match(str(col_a).strip())
+    )
+    start_col = 1 if col_a_is_data else 2
+
+    for sheet_col in range(start_col, len(header_values) + 1):
         tech_raw = header_values[sheet_col - 1]
         if not tech_raw:
             continue
@@ -259,7 +276,7 @@ def _extract_rich(
             release=release,
             file_name=file_stem,
             tab_name=ws.title,
-            position=sheet_col - 1,  # renumber data columns starting from 1
+            position=sheet_col - start_col + 1,  # 1-based data-column index
             column_label=normalize_label(label_raw),
             column_technical=technical,
             data_type=parsed.data_type,

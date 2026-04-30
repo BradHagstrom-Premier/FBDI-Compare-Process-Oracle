@@ -231,6 +231,76 @@ class TestExtractTabRowsRich:
         # Asterisk stripped by normalize_label; required comes from R4 row anyway
         assert rows[0].column_label == "Required Label"
 
+    def test_rich_tab_data_starts_at_col_a(self, tmp_path):
+        """Rich tab where col A of the Tier-1 row is a technical name, not a sentinel.
+
+        Standard Oracle structure puts "Column name of the Table X" in col A.
+        When col A is itself UPPER_SNAKE_CASE (no sentinel), _extract_rich must
+        include it as data column 1.
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "NO_SENTINEL_TAB"
+        # Row 1-3: non-UPPER_SNAKE_CASE text so detection doesn't false-fire.
+        ws.cell(row=1, column=1, value="Some Import")
+        ws.cell(row=2, column=1, value="Version 26B")
+        ws.cell(row=3, column=1, value="Fill in required fields")
+        # Row 4: tier-1 header with no sentinel — data starts at col A
+        ws.cell(row=4, column=1, value="FIELD_ALPHA")
+        ws.cell(row=4, column=2, value="FIELD_BETA")
+        ws.cell(row=4, column=3, value="FIELD_GAMMA")
+
+        rows, issues = extract_tab_rows(
+            ws, file_stem="SomeTemplate", release="26B"
+        )
+
+        assert issues == []
+        assert len(rows) == 3
+        assert rows[0].position == 1
+        assert rows[0].column_technical == "FIELD_ALPHA"
+        assert rows[1].position == 2
+        assert rows[1].column_technical == "FIELD_BETA"
+        assert rows[2].position == 3
+        assert rows[2].column_technical == "FIELD_GAMMA"
+
+
+class TestExtractTabRowsThinAsteriskColA:
+    def test_asterisk_col_a_routes_to_thin_not_rich(self, tmp_path):
+        """Regression: CST_I_INCOMING_TXN_COSTS-style tabs.
+
+        Row 4 is '*TRANSACTION_COST_IDENTIFIER | COST_COMPONENT_CODE | COST'.
+        _is_tier1_header previously returned True (2/3 UPPER_SNAKE) and routed
+        to _extract_rich, which skipped col A — TRANSACTION_COST_IDENTIFIER was
+        lost and the remaining columns were numbered 1, 2 instead of 2, 3.
+
+        Fix: _is_tier1_header returns False when any cell has an asterisk prefix,
+        routing to _extract_thin which includes all columns.
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "CST_I_INCOMING_TXN_COSTS"
+        ws.cell(row=2, column=1, value="Costs")
+        ws.cell(row=3, column=1, value="* Required")
+        ws.cell(row=4, column=1, value="*TRANSACTION_COST_IDENTIFIER")
+        ws.cell(row=4, column=2, value="COST_COMPONENT_CODE")
+        ws.cell(row=4, column=3, value="COST")
+
+        rows, issues = extract_tab_rows(
+            ws, file_stem="InventoryTransactionImportTemplate", release="26B"
+        )
+
+        assert issues == []
+        assert len(rows) == 3
+        # Thin-tab path: column_label populated, column_technical empty
+        assert rows[0].position == 1
+        assert rows[0].column_label == "TRANSACTION_COST_IDENTIFIER"  # asterisk stripped
+        assert rows[0].column_technical == ""
+        assert rows[0].required is True
+        assert rows[1].position == 2
+        assert rows[1].column_label == "COST_COMPONENT_CODE"
+        assert rows[2].position == 3
+        assert rows[2].column_label == "COST"
+
 
 from fbdi.catalog import _compute_drift
 

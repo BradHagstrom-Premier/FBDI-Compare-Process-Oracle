@@ -32,6 +32,11 @@ HEADER_LIKE_MAX_LEN = 50
 # Tier 1 threshold: fraction of non-empty cells that must be UPPER_SNAKE_CASE
 TIER1_PATTERN_THRESHOLD = 0.5
 
+# Tier 1 fill floor: Tier-1 candidates must cover at least this fraction of the
+# sheet's column span.  Data rows are sparse (fill ~0.05) even when their few
+# non-empty cells happen to be UPPER_SNAKE_CASE; real header rows fill the sheet.
+TIER1_MIN_FILL = 0.15
+
 # Tier 2 threshold: minimum combined score for header-like rows
 TIER2_SCORE_THRESHOLD = 0.35
 
@@ -103,11 +108,22 @@ def _scan_rows(ws: Worksheet, max_scan: int) -> list[dict]:
             "non_empty": n,
             "upper_snake_ratio": len(upper_snake) / n,
             "header_like_ratio": len(header_like) / n,
-            # Use actual populated column extent, not ws.max_column (which can be phantom-wide)
-            "fill_ratio": n / actual_max_col if actual_max_col > 0 else 0.0,
+            # fill_ratio is recomputed below using the sheet-wide max column span.
+            # Storing actual_max_col here temporarily; per-row extent is wrong for
+            # narrow rows (e.g. a 2-cell legend row in cols 1-2 gets 2/2=1.0 the
+            # same as a 45-col header row, which causes the legend row to win).
+            "_actual_max_col": actual_max_col,
             "str_ratio": ns / n,
             "brevity_ratio": len(short_strs) / ns if ns > 0 else 0.0,
         })
+
+    # fill_ratio must reflect what fraction of the *template's* column span each
+    # row covers, not each row's own span.  Use the sheet-wide maximum so that a
+    # 2-cell legend row in a 45-column template scores ~0.04, not 1.0.
+    sheet_max_col = max((r["_actual_max_col"] for r in row_data), default=1)
+    for r in row_data:
+        r["fill_ratio"] = r["non_empty"] / sheet_max_col if sheet_max_col > 0 else 0.0
+        del r["_actual_max_col"]
 
     return row_data
 
@@ -130,9 +146,16 @@ def detect_header_row(ws: Worksheet, max_scan: int = 20) -> int | None:
         logger.warning("No candidate rows found in '%s'", ws.title)
         return None
 
-    # Tier 1: Look for UPPER_SNAKE_CASE dominated row
+    # Tier 1: Look for UPPER_SNAKE_CASE dominated row.
+    # Require fill_ratio >= TIER1_MIN_FILL to exclude sparse data rows that
+    # happen to have >= 50% UPPER_SNAKE values across their few non-empty cells
+    # (e.g. a data row with BMRX / RECLASS / POST / ACK out of 12 cells in a
+    # 260-column sheet scores snake=0.50, fill=0.05 and would otherwise beat
+    # the real 260-column mixed header at snake=0.49).
     tier1_candidates = [
-        r for r in rows if r["upper_snake_ratio"] >= TIER1_PATTERN_THRESHOLD
+        r for r in rows
+        if r["upper_snake_ratio"] >= TIER1_PATTERN_THRESHOLD
+        and r["fill_ratio"] >= TIER1_MIN_FILL
     ]
     if tier1_candidates:
         # Among tier1 candidates, prefer highest upper_snake_ratio * fill_ratio
@@ -146,9 +169,13 @@ def detect_header_row(ws: Worksheet, max_scan: int = 20) -> int | None:
         )
         return best["row"]
 
-    # Tier 2: Score on general header-like characteristics
+    # Tier 2: Score on general header-like characteristics.
+    # Tiebreak by non_empty count: a real header row spans many columns, while
+    # narrow annotation rows (e.g. "* Required") may score identically but have
+    # far fewer cells.
     best_row = None
     best_score = 0.0
+    best_non_empty = 0
     for r in rows:
         score = (
             0.40 * r["header_like_ratio"]
@@ -161,8 +188,9 @@ def detect_header_row(ws: Worksheet, max_scan: int = 20) -> int | None:
             r["row"], score, r["header_like_ratio"], r["fill_ratio"],
             r["str_ratio"], r["brevity_ratio"],
         )
-        if score > best_score:
+        if (score, r["non_empty"]) > (best_score, best_non_empty):
             best_score = score
+            best_non_empty = r["non_empty"]
             best_row = r["row"]
 
     if best_row is not None and best_score > TIER2_SCORE_THRESHOLD:
