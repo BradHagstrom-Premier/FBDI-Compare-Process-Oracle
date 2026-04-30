@@ -41,13 +41,14 @@ def _count_compare_changes(report_path: Path) -> int:
         return max((ws.max_row or 1) - 1, 0)
 
 
-def _module_pct(mapping_path: Path) -> tuple[float, int, int]:
+def _module_pct(mapping_path: Path) -> tuple[float | None, int, int]:
     """Compute Module column population %: rows with col A non-blank
     are the denominator; rows with col F non-blank are the numerator.
-    Returns (pct, populated, total)."""
+    Returns (pct, populated, total). Returns (None, 0, 0) if the
+    'FBDI Mapping' sheet is missing — distinct from a 0% sheet that exists."""
     with closing(load_workbook(mapping_path, read_only=True, data_only=True)) as wb:
         if "FBDI Mapping" not in wb.sheetnames:
-            return 0.0, 0, 0
+            return None, 0, 0
         ws = wb["FBDI Mapping"]
         total = 0
         populated = 0
@@ -65,7 +66,7 @@ def _module_pct(mapping_path: Path) -> tuple[float, int, int]:
 def run_checks(
     new_catalog: Path,
     baseline_catalog: Path,
-    compare_report: Path,
+    compare_report: Path | None,
     mapping: Path,
     release: str,
     expected_compare_changes: int = DEFAULT_EXPECTED_COMPARE_CHANGES,
@@ -86,8 +87,10 @@ def run_checks(
                     f"{baseline_rows} ({delta_pct:+.1f}%, threshold ±{CATALOG_DELTA_PCT_THRESHOLD}%)"
                 )
 
-    # Compare changes delta
-    changes = _count_compare_changes(compare_report) if compare_report.is_file() else None
+    # Compare changes delta — guard against None (no report supplied or found)
+    changes = None
+    if compare_report is not None and compare_report.is_file():
+        changes = _count_compare_changes(compare_report)
     if changes is not None:
         delta = abs(changes - expected_compare_changes)
         if delta > COMPARE_CHANGES_DELTA_THRESHOLD:
@@ -98,7 +101,11 @@ def run_checks(
 
     # Module pct populated
     module_pct, populated, total = _module_pct(mapping) if mapping.is_file() else (None, 0, 0)
-    if module_pct is not None and module_pct < MODULE_PCT_THRESHOLD:
+    if mapping.is_file() and module_pct is None:
+        regressions.append(
+            f"Module column check: 'FBDI Mapping' sheet not found in {mapping}"
+        )
+    elif module_pct is not None and module_pct < MODULE_PCT_THRESHOLD:
         regressions.append(
             f"Module column populated: {module_pct:.1f}% ({populated}/{total}) "
             f"vs threshold ≥{MODULE_PCT_THRESHOLD}%"
@@ -131,7 +138,18 @@ def main(argv=None) -> int:
                         default=DEFAULT_EXPECTED_COMPARE_CHANGES)
     args = parser.parse_args(argv)
 
-    report_path = args.compare_report or Path(f"Comparison_Report_*_{args.release}.xlsx")
+    if args.compare_report:
+        report_path = args.compare_report
+    else:
+        # No flag supplied: try to find a report matching the conventional
+        # Comparison_Report_<OLD>_<NEW>.xlsx naming. Pick the most recently
+        # modified match if multiple exist.
+        candidates = sorted(
+            Path.cwd().glob(f"Comparison_Report_*_{args.release}.xlsx"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        report_path = candidates[0] if candidates else None
 
     result = run_checks(
         new_catalog=args.new_catalog,

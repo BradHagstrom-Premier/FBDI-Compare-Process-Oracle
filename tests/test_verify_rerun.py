@@ -150,3 +150,28 @@ class TestVerifyRerun:
         # check was skipped instead.
         assert result["catalog_delta_pct"] is None
         assert "regressions" in result
+
+    def test_mapping_sheet_missing_distinct_regression(self, tmp_path):
+        """If the mapping file is present but lacks 'FBDI Mapping' sheet,
+        produce a clear 'sheet not found' regression — not a 0/0 message."""
+        mod = _load_module()
+        _make_catalog(tmp_path / "post.xlsx", {"26B": 12000})
+        _make_catalog(tmp_path / "pre.xlsx",  {"26B": 12000})
+        _make_compare_report(tmp_path / "report.xlsx", 706)
+
+        # Build a mapping file with the WRONG sheet name
+        from openpyxl import Workbook
+        wb = Workbook()
+        wb.active.title = "Wrong Sheet"
+        wb.save(tmp_path / "mapping.xlsx")
+        wb.close()
+
+        result = mod.run_checks(
+            new_catalog=tmp_path / "post.xlsx",
+            baseline_catalog=tmp_path / "pre.xlsx",
+            compare_report=tmp_path / "report.xlsx",
+            mapping=tmp_path / "mapping.xlsx",
+            release="26B",
+        )
+        assert any("sheet not found" in r.lower() for r in result["regressions"])
+        assert result["module_pct_populated"] is None
