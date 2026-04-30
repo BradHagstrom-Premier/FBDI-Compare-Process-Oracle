@@ -88,6 +88,23 @@ def module_from_base_url(url: str) -> str:
     raise ValueError(f"Unknown Oracle module URL: {url}")
 
 
+def write_module_map(file_modules: dict, version: str, baselines_root: str) -> str:
+    """Write {filename: module} to baselines/<ver>/file_modules.json.
+
+    Adds the hardcoded entry for the FSM-distributed file
+    RapidImplementationForCashManagement.xlsm (manually placed by user, so
+    not seen during scrape). Returns the absolute path written.
+    """
+    import json
+    file_modules = dict(file_modules)
+    file_modules.setdefault("RapidImplementationForCashManagement.xlsm", "Financials")
+    out_path = os.path.join(baselines_root, version.lower(), "file_modules.json")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(file_modules, f, indent=2, sort_keys=True)
+    return out_path
+
+
 def create_folder(path, clear=True):
     """Create a folder. If clear=True, wipe contents first."""
     if os.path.exists(path):
@@ -138,12 +155,23 @@ def download_with_retry(session, url, timeout=(5, 15), retries=5, backoff_factor
 
 
 def download_files(driver, download_path, version):
-    """Scrape Oracle docs for the given version and download all .xlsm files."""
+    """Scrape Oracle docs for the given version and download all .xlsm files.
+
+    Returns: dict mapping filename -> module string (for module map).
+    """
     base_urls = [t.format(ver=version) for t in MODULE_URL_TEMPLATES]
     session = requests.Session()
     seen_filenames = set(os.listdir(download_path))  # skip already-downloaded files
+    file_modules: dict[str, str] = {}
 
     for base_url in base_urls:
+        # Resolve module once per base_url; default to "Unknown" if Oracle
+        # restructures URL patterns so we keep going rather than crash mid-run.
+        try:
+            module = module_from_base_url(base_url)
+        except ValueError as e:
+            print(f"  WARNING: {e} — module will be 'Unknown' for files from this URL")
+            module = "Unknown"
         print(f"\nNavigating to {base_url}")
         driver.get(base_url)
 
@@ -235,6 +263,7 @@ def download_files(driver, download_path, version):
                                             ):
                                                 f.write(chunk)
                                         time.sleep(1)
+                                        file_modules[local_filename] = module
                                     except requests.exceptions.RequestException as e:
                                         print(
                                             f"  Failed to download {download_url}: {e}"
@@ -247,6 +276,8 @@ def download_files(driver, download_path, version):
                 print(f"  Error in section: {e}")
 
         print(f"Completed: {base_url}")
+
+    return file_modules
 
 
 def _clear_single_file(src, dst):
@@ -440,9 +471,16 @@ def main():
         )
 
         try:
-            download_files(driver, originals_path, version_lower)
+            file_modules = download_files(driver, originals_path, version_lower)
         finally:
             driver.quit()
+
+        # Write the per-release module map. Only happens on a successful download
+        # pass — --clear-only and --skip-clear paths don't reach this line.
+        modules_path = write_module_map(
+            file_modules, version, os.path.join(repo_root, "baselines"),
+        )
+        print(f"Wrote module map for {len(file_modules)} files to {modules_path}")
     else:
         os.makedirs(blanks_path, exist_ok=True)
 
