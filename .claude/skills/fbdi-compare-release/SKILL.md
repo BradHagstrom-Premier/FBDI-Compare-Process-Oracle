@@ -321,7 +321,11 @@ Stage 4 timeouts (manual clear required in baselines/<NEW>/blanks/):
 
 If the `stage4_timeouts` list is empty, omit that section.
 
-If Stage 6.5 was skipped (mapping file absent), omit the "Module column update" section.
+The "Module column update" block is rendered from the JSON summary you
+captured in Stage 6.5 (`populated`/`blank`/`overwritten` keys), spliced
+manually into the output between the Catalog line and Stage 4 timeouts —
+`summarize_report.py` does not produce these fields. If Stage 6.5 was
+skipped (mapping file absent), omit the "Module column update" section.
 
 ## Stage 8 — Post-run verification
 
@@ -354,11 +358,15 @@ python .claude/skills/fbdi-compare-release/scripts/verify_rerun.py \
 copying the existing catalog before regeneration. If absent, the
 catalog-delta check is skipped — not a failure.)
 
-If `verify_rerun.py` exits 1, append the regression list to the Stage 7
-summary as warnings (do not fail the skill).
+Expected exit codes:
+- `0` → no regressions; nothing to append to Stage 7.
+- `1` → one or more regressions found; surface as warnings (see consolidated rule below).
 
-Exit code 1 from `verify_run.py` does **not** make the skill fail — the
-report and catalog are already produced. Just surface the warnings.
+Exit code 1 from either `verify_run.py` or `verify_rerun.py` does **not**
+make the skill fail — the report and catalog are already produced. Surface
+the warnings: append `verify_run.py`'s regression list and any
+`verify_rerun.py` regressions to the Stage 7 summary as a final WARNING
+block.
 
 ---
 
@@ -379,7 +387,7 @@ report and catalog are already produced. Just surface the warnings.
 Each stage is idempotent on output-existence terms:
 - Stage 3: re-running **wipes** `originals/` first (destructive). The skill
   warns before retrying.
-- Stages 4-6: re-running is safe; they overwrite their outputs.
+- Stages 4-6.5: re-running is safe; they overwrite their outputs.
 
 If interrupted at Stage 5, re-invoking the skill skips 1-4 (env still
 healthy, downloads still present, blanks still cleared) and resumes from
