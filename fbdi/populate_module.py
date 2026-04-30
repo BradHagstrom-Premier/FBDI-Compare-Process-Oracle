@@ -29,14 +29,6 @@ def _stem(name) -> str:
     return s
 
 
-def _load_modules_json(path: Path) -> dict[str, str]:
-    """Load a file_modules.json. Returns {} if path is missing."""
-    if not path.is_file():
-        return {}
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
 def populate_module_column(
     mapping_path: Path,
     new_modules: dict[str, str],
@@ -50,7 +42,9 @@ def populate_module_column(
     Returns: {'populated': N, 'blank': M, 'overwritten': K}
       - populated: rows that ended with a non-blank Module value
       - blank: rows with non-blank FBDI Template that found no match
-      - overwritten: rows whose pre-existing Module value was changed
+      - overwritten: rows where the Module cell already had a value
+        (whether the new value differs or is the same — useful for
+        detecting re-runs and unexpected drift)
     """
     # Merge: new_modules takes precedence — Python dict merge semantics
     # mean the right-hand operand wins for duplicate keys.
