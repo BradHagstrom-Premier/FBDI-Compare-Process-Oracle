@@ -8,7 +8,6 @@ validations, and freeze-panes are preserved by openpyxl's full-mode load.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from openpyxl import load_workbook
