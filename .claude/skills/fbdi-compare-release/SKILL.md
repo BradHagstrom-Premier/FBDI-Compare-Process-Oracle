@@ -23,7 +23,7 @@ and human-in-the-loop prompts.
       the duration — the Selenium process runs foreground and will
       suspend with the OS."
 
-> **HITL numbering note:** `HITL #1`–`#6` below are stable IDs from the
+> **HITL numbering note:** `HITL #1`–`#7` below are stable IDs from the
 > design spec, not sequential execution order — e.g., #3 appears before
 > #1 in the flow because versions are resolved before baseline presence
 > is checked.
@@ -234,11 +234,56 @@ Single-digit failures are expected and do not trigger this prompt.
 
 ## Stage 6 — Catalog update
 
+First, snapshot the existing catalog so verify_rerun.py can compare deltas:
+
+```
+cp FBDI_Master_Catalog.xlsx FBDI_Master_Catalog.bak.xlsx
+```
+
+If `FBDI_Master_Catalog.xlsx` doesn't exist, skip this line silently.
+
+Then regenerate:
+
 ```
 python -m fbdi catalog --release <NEW>
 ```
 
 Expected wall time: ~3–5 min.
+
+## Stage 6.5 — Populate Module column in mapping spreadsheet
+
+If `FBDI_to_ApplaudTables_Mapping.xlsx` is absent at the repo root, skip
+this stage with the notice "Module column population skipped — mapping
+file not present" and proceed to Stage 7. This is a feature, not a
+failure: the file may not be checked out locally.
+
+**HITL #7 — backup before overwrite:** Ask the user:
+
+> "About to update the Module column in
+> `FBDI_to_ApplaudTables_Mapping.xlsx` based on
+> `baselines/<NEW>/file_modules.json` and
+> `baselines/<OLD>/file_modules.json`. Backup first?
+>   (a) Yes, copy to `FBDI_to_ApplaudTables_Mapping.bak.xlsx` [default]
+>   (b) No, just go (the file is git-tracked, you can revert)"
+
+On (a): `cp FBDI_to_ApplaudTables_Mapping.xlsx FBDI_to_ApplaudTables_Mapping.bak.xlsx`.
+If a backup with that name already exists, append a timestamp:
+`FBDI_to_ApplaudTables_Mapping.bak.<YYYYMMDD-HHMMSS>.xlsx`.
+
+Then run:
+
+```
+python -m fbdi populate-module --new <NEW> --old <OLD>
+```
+
+Expected exit codes:
+- `0` → JSON summary printed (populated/blank/overwritten counts).
+  Capture this for Stage 7's summary.
+- `2` → `file_modules.json` missing for one or both releases. This means
+  Stage 3 didn't complete cleanly for that release. Halt; surface the
+  error to the user.
+- `3` → mapping spreadsheet is open in Excel. Ask the user to close it,
+  then retry once.
 
 ## Stage 7 — Summary
 
@@ -265,11 +310,18 @@ Comparison Report: Comparison_Report_<OLD>_<NEW>.xlsx
 
 Catalog:           FBDI_Master_Catalog.xlsx
 
+Module column update (Stage 6.5):
+  populated: <populated>, blank: <blank>, overwritten: <overwritten>
+  mapping file: FBDI_to_ApplaudTables_Mapping.xlsx
+  backup:       FBDI_to_ApplaudTables_Mapping.bak.xlsx
+
 Stage 4 timeouts (manual clear required in baselines/<NEW>/blanks/):
   - PayablesCollectionDocuments.xlsm
 ```
 
 If the `stage4_timeouts` list is empty, omit that section.
+
+If Stage 6.5 was skipped (mapping file absent), omit the "Module column update" section.
 
 ## Stage 8 — Post-run verification
 
@@ -288,6 +340,22 @@ WARNING: post-run verification flagged potential regressions:
 These do not invalidate the comparison output but are worth a look.
 Load references/troubleshooting.md for context on common causes.
 ```
+
+Then run the macro-signal validator:
+
+```
+python .claude/skills/fbdi-compare-release/scripts/verify_rerun.py \
+  --release <NEW> \
+  --compare-report Comparison_Report_<OLD>_<NEW>.xlsx \
+  --baseline-catalog FBDI_Master_Catalog.bak.xlsx
+```
+
+(`FBDI_Master_Catalog.bak.xlsx` is created at the start of Stage 6 by
+copying the existing catalog before regeneration. If absent, the
+catalog-delta check is skipped — not a failure.)
+
+If `verify_rerun.py` exits 1, append the regression list to the Stage 7
+summary as warnings (do not fail the skill).
 
 Exit code 1 from `verify_run.py` does **not** make the skill fail — the
 report and catalog are already produced. Just surface the warnings.
