@@ -38,21 +38,121 @@ class Change:
     sub_kinds: tuple[str, ...] = ()       # subset of ("type", "length", "required") when metadata changed
 
 
+def _identity_key(f: AlignedField) -> tuple[str, str]:
+    """Stable identity for matching across releases.
+
+    Prefers technical name (canonical, position-independent). Falls back to
+    label when technical is missing (thin tabs). Tag distinguishes the
+    space so a label "ITEM_NAME" never matches a technical "ITEM_NAME".
+    """
+    if f.technical:
+        return ("tech", f.technical)
+    return ("label", f.label or "")
+
+
+def _lcs_match(old: list[AlignedField], new: list[AlignedField]) -> list[tuple[int, int]]:
+    """Longest common subsequence over identity keys. Returns matched index pairs.
+
+    Standard O(m*n) DP. Indices are 0-based positions in the input lists.
+    """
+    m, n = len(old), len(new)
+    if m == 0 or n == 0:
+        return []
+    old_keys = [_identity_key(f) for f in old]
+    new_keys = [_identity_key(f) for f in new]
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    for i in range(m):
+        for j in range(n):
+            if old_keys[i] == new_keys[j]:
+                dp[i + 1][j + 1] = dp[i][j] + 1
+            else:
+                dp[i + 1][j + 1] = max(dp[i][j + 1], dp[i + 1][j])
+    # Backtrack to recover the matched pairs.
+    pairs: list[tuple[int, int]] = []
+    i, j = m, n
+    while i > 0 and j > 0:
+        if old_keys[i - 1] == new_keys[j - 1]:
+            pairs.append((i - 1, j - 1))
+            i -= 1
+            j -= 1
+        elif dp[i - 1][j] >= dp[i][j - 1]:
+            i -= 1
+        else:
+            j -= 1
+    pairs.reverse()
+    return pairs
+
+
+def _classify_pair(old_f: AlignedField, new_f: AlignedField) -> Change | None:
+    """Classify a matched pair across three axes; None if unchanged."""
+    label_changed = (old_f.label or "") != (new_f.label or "")
+    metadata_kinds: list[str] = []
+    if (old_f.data_type or "") != (new_f.data_type or ""):
+        metadata_kinds.append("type")
+    if old_f.length != new_f.length:
+        metadata_kinds.append("length")
+    if old_f.required != new_f.required:
+        metadata_kinds.append("required")
+    metadata_changed = bool(metadata_kinds)
+    position_changed = old_f.position != new_f.position
+
+    axes = []
+    if label_changed:
+        axes.append("label")
+    if metadata_changed:
+        axes.append("metadata")
+    if position_changed:
+        axes.append("position")
+    if not axes:
+        return None
+
+    if len(axes) == 1:
+        change_type = {"label": "RENAMED", "metadata": "MODIFIED", "position": "SHIFTED"}[axes[0]]
+    else:
+        change_type = "MULTI"
+
+    return Change(
+        change_type=change_type,
+        old_position=old_f.position,
+        new_position=new_f.position,
+        old_field=old_f,
+        new_field=new_f,
+        axes=tuple(axes),
+        sub_kinds=tuple(metadata_kinds),
+    )
+
+
 def align_tabs(old: list[AlignedField], new: list[AlignedField]) -> list[Change]:
     """Align two release row lists and return classified changes."""
     if not old and not new:
         return []
-    if not old:
-        return [
-            Change(change_type="ADDED", old_position=None, new_position=f.position,
-                   old_field=None, new_field=f)
-            for f in new
-        ]
-    if not new:
-        return [
-            Change(change_type="REMOVED", old_position=f.position, new_position=None,
-                   old_field=f, new_field=None)
-            for f in old
-        ]
-    # Matched-pair classification not implemented yet.
-    raise NotImplementedError("matched-pair classification — Task 3")
+
+    matched = _lcs_match(old, new)
+    matched_old = {i for i, _ in matched}
+    matched_new = {j for _, j in matched}
+
+    changes: list[Change] = []
+    # REMOVED: old fields with no match
+    for i, f in enumerate(old):
+        if i not in matched_old:
+            changes.append(Change(
+                change_type="REMOVED", old_position=f.position, new_position=None,
+                old_field=f, new_field=None,
+            ))
+    # ADDED: new fields with no match
+    for j, f in enumerate(new):
+        if j not in matched_new:
+            changes.append(Change(
+                change_type="ADDED", old_position=None, new_position=f.position,
+                old_field=None, new_field=f,
+            ))
+    # Classified pair changes
+    for i, j in matched:
+        c = _classify_pair(old[i], new[j])
+        if c is not None:
+            changes.append(c)
+
+    # Stable sort: by new_position (None last), then old_position.
+    changes.sort(key=lambda c: (c.new_position is None, c.new_position or 0,
+                                c.old_position is None, c.old_position or 0))
+    return changes
