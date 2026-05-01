@@ -22,6 +22,11 @@ class TestApplaudTypeFor:
     def test_number_with_precision_only(self):
         assert applaud_type_for(_pt("NUMBER", length=18)) == "numeric 18"
 
+    def test_number_with_precision_and_zero_scale(self):
+        # scale=0 is distinct from scale=None: integer columns declared NUMBER(p,0)
+        # must not fall through to the precision-only branch.
+        assert applaud_type_for(_pt("NUMBER", length=18, scale=0)) == "numeric 18,0"
+
     def test_number_no_precision(self):
         # Plain NUMBER → "numeric" with no defaults invented
         assert applaud_type_for(_pt("NUMBER")) == "numeric"
