@@ -712,6 +712,28 @@ The existing `_compute_drift` in `fbdi/catalog.py` does naive per-position diff 
 **Files:**
 - Modify: `fbdi/catalog.py`
 - Modify: `tests/test_catalog.py`
+- Modify: `tests/test_applaud_type.py` (Step 0 carry-over only)
+
+- [ ] **Step 0: Backfill carry-over test from Batch A code review**
+
+The Batch A reviewer flagged that `applaud_type_for` correctly distinguishes `NUMBER(p, 0)` (Oracle integer columns) from `NUMBER(p)` — `scale is not None` catches scale=0 — but no test pins it. Task 7 is the first place this code path runs end-to-end against real catalog data, so add the test before touching catalog code so a future refactor that drops the `is not None` check fails loudly.
+
+Append to the `TestApplaudTypeFor` class in `tests/test_applaud_type.py`:
+
+```python
+    def test_number_with_precision_and_zero_scale(self):
+        # scale=0 is distinct from scale=None: integer columns declared NUMBER(p,0)
+        # must not fall through to the precision-only branch.
+        assert applaud_type_for(_pt("NUMBER", length=18, scale=0)) == "numeric 18,0"
+```
+
+Run it, confirm it passes (the production code is already correct), then commit on its own:
+
+```bash
+py -m pytest tests/test_applaud_type.py -v
+git add tests/test_applaud_type.py
+git commit -m "test(applaud-type): pin NUMBER(p,0) integer-column behavior"
+```
 
 - [ ] **Step 1: Read the existing _compute_drift and DriftRow to know what's changing**
 
@@ -947,6 +969,32 @@ print('(Expected: SHIFTED >> RENAMED, MULTI sharply lower than before)')
 ```
 
 Expected: `SHIFTED` is now the dominant change type for shift-heavy files; `RENAMED` and `MULTI` counts drop sharply (the old ~460+236 was the misclassification you're fixing).
+
+**Also check for thin-tab blank-label LCS collisions** (carry-over from Batch A code review). `_identity_key` falls back to label when technical is None, but multiple fields with blank labels all hash to the same identity key `("label", "")` and LCS will then match them positionally. In real FBDI data this is rare, but the spike should verify it isn't happening:
+
+```bash
+PYTHONIOENCODING=utf-8 py -c "
+from openpyxl import load_workbook
+wb = load_workbook('FBDI_Master_Catalog.xlsx', read_only=True)
+ws = wb['Drift']
+header = list(next(ws.iter_rows(min_row=1, max_row=1, values_only=True)))
+ct = header.index('change_type')
+lo = next(i for i, h in enumerate(header) if h.startswith('col_label_'))
+ln = next(i for i, h in enumerate(header) if h.startswith('col_label_') and i != lo)
+suspicious = [r for r in ws.iter_rows(min_row=2, values_only=True)
+              if r[ct] in ('SHIFTED', 'MODIFIED', 'RENAMED', 'MULTI')
+              and not r[lo] and not r[ln]]
+print(f'Suspicious blank-label change rows: {len(suspicious)}')
+for r in suspicious[:10]:
+    print(' ', r[0], '|', r[1], '|', r[ct], '|', r[3], '->', r[4])
+"
+```
+
+Expected: 0 or a tiny handful from genuinely-thin tabs that legitimately have one blank field (which is fine — single blanks classify cleanly). A larger count, or multiple blank-label rows clustering inside one (file, tab), means the collision is biting.
+
+If the collision IS biting, the fix is in `fbdi/align.py`: filter empty-identity fields out of `_lcs_match` (so they never enter LCS in the first place) and emit them directly as ADDED/REMOVED in `align_tabs`. Specifically: change `_identity_key` to return `None` when both technical and label are blank, then have `_lcs_match` skip those rows and `align_tabs` route them to its existing unmatched-row handling. Add a regression test pinning the fix before changing the code.
+
+If the count is 0, add a one-line note to `_identity_key`'s docstring stating that fields with both technical=None and label="" share an identity key and are matched positionally — and move on.
 
 - [ ] **Step 9: Commit**
 
