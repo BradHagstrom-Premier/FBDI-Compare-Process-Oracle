@@ -59,7 +59,7 @@ python -m pytest tests/test_clear.py -v
   - `populate_module.py` — surgical column-F updater for `FBDI_to_ApplaudTables_Mapping.xlsx`. Reads `baselines/<ver>/file_modules.json` (NEW wins, OLD fallback). Uses openpyxl full mode so formatting/formulas/freeze-panes are preserved.
   - `align.py` — pure LCS-style alignment algorithm. `align_tabs(old_rows, new_rows) -> list[Change]`. Classifies changes across three axes (label, metadata, position); SHIFTED/RENAMED/MODIFIED/ADDED/REMOVED/MULTI. Shared by `catalog.py` (Drift writer) and `report.py`.
   - `applaud_type.py` — Oracle → Applaud type translator. `applaud_type_for(parsed_type) -> str`. Maps `VARCHAR2(N)` → `char N`, `NUMBER(p,s)` → `numeric p,s`, `DATE`/`TIMESTAMP` → `date`, etc.
-  - `report.py` — compliance report generator. `generate_report(catalog_path, mapping_path, old_release, new_release, out_dir) -> (html_path, pdf_path)`. Filters to MAPPED in-scope tabs; routes pending-base tabs to a separate section; renders HTML + PDF from one Jinja2 template via `weasyprint`.
+  - `report.py` — compliance report generator. `generate_report(catalog_path, mapping_path, old_release, new_release, out_dir) -> (html_path, pdf_path)`. Filters to MAPPED in-scope tabs; routes pending-base tabs to a separate section; renders HTML + PDF from a single Jinja2 template (`fbdi/templates/report.html.j2`) via `weasyprint`.
   - `cli.py` / `__main__.py` — CLI entry point. `_resolve_dir()` makes `--old 26A` resolve to `baselines/26A/originals/`.
   - `config.py`, `utils.py` — shared configuration and helpers.
 - **`tools/download_and_clear.py`** — standalone Selenium downloader + smart clearing entry point. Imports `fbdi.clear` but lives outside the `fbdi/` package so Selenium/webdriver dependencies stay out of the comparison engine.
@@ -98,15 +98,15 @@ python -m pytest tests/test_clear.py -v
 - **`RapidImplementationForCashManagement.xlsm` is not auto-downloadable** — this is an Oracle Rapid Implementation (FSM) template, not a standard FBDI template. It is not hosted on Oracle docs pages so the Selenium downloader never finds it. Must be obtained manually from Oracle Fusion: Setup and Maintenance → hamburger menu (top-right) → Search → search "Create Banks, Branches, and Accounts in Spreadsheet" → click the task to download. Place in `baselines/<VER>/originals/` before running compare. The `download_and_clear.py` script will warn if it's missing after a download run. Once placed, the compare engine picks it up automatically.
 - **Phantom columns (`max_column=16384`)** — some xlsm files report 16384 columns due to corrupt metadata. The engine caps column scanning at 500.
 - **Corrupt XML in some xlsm files** — handled gracefully; engine catches `zipfile.BadZipFile` and logs the file as unreadable. Stage 8 `verify_run` flags a regression if the per-release FILE_ERROR count jumps vs. the prior release.
-- **`Comparison_Report_25D_26A.xlsx` (VBA output)** — has a corrupt stylesheet. Cannot be loaded with standard `openpyxl.load_workbook`. Use `read_only=True` or `data_only=True` with exception handling if you need to read it.
+- **VBA-produced `Comparison_Report_*.xlsx` files** — may ship with a corrupt stylesheet that fails standard `openpyxl.load_workbook`. Use `read_only=True` or `data_only=True` with exception handling if you need to ingest one.
 - **Diagnose and build_mapping are still bounded by `MAX_FILE_SIZE_BYTES` (5MB)** — they load workbooks in full (non-read_only) mode for memory reasons. Comparison is unbounded and streams via `iter_rows`.
 - **JET `<oj-tree-view>` race in `tools/download_and_clear.py`** — Oracle docs put the TOC inside `<oj-tree-view>` under `#navigationDrawer`. The drawer container appears in DOM before the tree-view's `<li role="treeitem">` children populate. Without a wait for at least one treeitem, `find_elements(...#navigationDrawer li)` returns empty and the URL is silently skipped (no error, no SKIP log — page just immediately "Completed" with zero downloads). Fixed in commit 82cd568; keep the wait when refactoring the scraper.
 - **`RapidImplementationForCashManagement.xlsm` fallback when both baselines wiped** — skill HITL #2's default "copy from prior baseline" assumes a prior is present. If a rerun wipes both 26A and 26B at once, fall back to an external archive (e.g., `C:/Users/10193/Definian/<old release>_*_Compare/<old>_FBDI/Manual/RapidImplementationForCashManagement.xlsm`).
 
 ## Resolved Hazards (historical note)
 
-- ~~6 files >5MB are currently skipped~~ — fixed by subprocess isolation + `iter_rows` optimization. Comparison now processes all 210 file pairs with no size limit.
-- ~~~8 tabs with non-standard headers fail detection~~ — fixed in Phase 3. Diagnose reports `NO_HEADER: 0`.
+- ~~6 files >5MB are currently skipped~~ — fixed by subprocess isolation + `iter_rows` optimization. Comparison now processes all file pairs with no size limit.
+- ~~8 tabs with non-standard headers fail detection~~ — fixed in Phase 3. Diagnose reports `NO_HEADER: 0`.
 - ~~Full comparison run is ~75 minutes~~ — much faster now due to `iter_rows` streaming (74s → 0.02s per tab on wide sheets).
 - ~~`ChangeOrderImportTemplate` and `ItemImportTemplate` report bogus TIMEOUT in the catalog~~ — fixed by extracting `_subprocess_util.run_worker` with drain-before-join semantics. Catalog now fully ingests both files (~1,400 rows each per release).
 - ~~463 TYPE_PARSE_WARNING rows in the catalog Issues tab~~ — collapsed to 9 (only the genuinely-broken Oracle strings) after `type_parser.py` was extended to accept temporal format masks (`DATE(YYYY/MM/DD)`, `TimeStamp(hh24:mm:ss)`) and the stray-trailing-period typo.
@@ -134,7 +134,7 @@ Two read-only archives, distinct purposes:
 
 ## Testing
 
-- `python -m pytest tests/` — run full suite (281 tests)
+- `python -m pytest tests/` — run full suite (320 tests)
 - `python -m pytest tests/test_clear.py -v` — run one module
 - `tests/validate_against_vba.py` and `tests/vba_fieldrow_map.json` — ad-hoc validation against the legacy VBA macro's expected header rows (not pytest, kept for spot-checks against regressions)
 
