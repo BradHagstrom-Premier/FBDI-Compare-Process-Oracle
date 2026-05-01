@@ -1,0 +1,294 @@
+"""FBDI Compliance Report generator.
+
+Reads the FBDI Master Catalog (per-release sheets) and the FBDI-to-Applaud
+mapping, runs alignment per (file, tab), filters to the in-scope universe
+(MAPPED only; pending-base routed to a separate section), and emits an
+HTML and PDF report from one Jinja2 template.
+
+This module exposes:
+- build_report_context(...) — pure view-model construction (testable in isolation)
+- generate_report(...)      — top-level: load -> build -> render -> write (TBD)
+
+The view-model dataclasses (ReportContext, FileSection, ChangeRow,
+PendingBaseEntry) are the contract between this module and the template.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass, field
+
+from fbdi.align import AlignedField, Change, align_tabs
+from fbdi.applaud_type import applaud_type_for
+from fbdi.catalog_normalize import normalize_label
+from fbdi.type_parser import parse_data_type
+
+
+APPLAUD_NAME_LIMIT = 30
+
+
+@dataclass
+class ChangeRow:
+    """One row in a per-file change-type table (view-model)."""
+    change_type: str
+    applaud_field_name: str
+    name_length: int
+    name_exceeds_30: bool
+    old_position: int | None
+    new_position: int | None
+    label: str
+    oracle_type_str: str           # e.g. "VARCHAR2(30)" — empty when not applicable
+    applaud_type_str: str          # e.g. "char 30"
+    required: bool | None
+    axes: tuple[str, ...]
+    sub_kinds: tuple[str, ...]
+    # For RENAMED / MODIFIED / MULTI — old vs new values to display side-by-side
+    old_label: str | None = None
+    new_label: str | None = None
+    old_oracle_type_str: str | None = None
+    new_oracle_type_str: str | None = None
+    old_required: bool | None = None
+    new_required: bool | None = None
+
+
+@dataclass
+class FileSection:
+    """One per-file section in the main body."""
+    file: str
+    tab: str
+    applaud_table: str
+    prefix: str
+    module: str
+    in_base_note: str | None       # e.g. the "Multiple mapping is possible..." string when present
+    changes_by_type: dict[str, list[ChangeRow]] = field(default_factory=dict)
+    shift_summary: str | None = None  # e.g. "20 fields shifted from positions 19-39 to 20-40"
+
+
+@dataclass
+class PendingBaseEntry:
+    """One entry in the pending base-system tables list."""
+    file: str
+    tab: str
+    applaud_table: str
+    prefix: str
+    module: str
+    change_count: int
+
+
+@dataclass
+class ReportContext:
+    """Top-level view-model passed to the Jinja2 template."""
+    old_release: str
+    new_release: str
+    generated_date: str
+    module_rollup: dict[str, dict[str, int]]    # module -> {"tabs": N, "added": N, ...}
+    file_sections: list[FileSection]
+    pending_base: list[PendingBaseEntry]
+
+
+# Public: scope filtering and view-model construction ---------------------------
+
+def build_report_context(
+    catalog_old: dict[tuple[str, str], list[AlignedField]],
+    catalog_new: dict[tuple[str, str], list[AlignedField]],
+    mapping: dict[tuple[str, str], dict],
+    old_release: str,
+    new_release: str,
+    generated_date: str | None = None,
+) -> ReportContext:
+    """Build the report context from grouped catalog data + mapping lookup.
+
+    catalog_old / catalog_new keys are (file, tab) tuples. Values are
+    AlignedField rows already in catalog form. mapping keys match the
+    catalog keys; values are dicts with 'applaud_table', 'prefix',
+    'module', 'in_base'.
+
+    Scope rules:
+    - keys absent from mapping are silently excluded (UNMAPPED universe).
+    - mapping rows whose 'in_base' contains "Needs to be created in base
+      system" are routed to the pending_base list rather than file_sections.
+    - keys with no detected changes are dropped (no empty sections).
+    """
+    from datetime import date as _date
+    if generated_date is None:
+        generated_date = _date.today().isoformat()
+
+    file_sections: list[FileSection] = []
+    pending_base: list[PendingBaseEntry] = []
+    all_keys = set(catalog_old.keys()) | set(catalog_new.keys())
+
+    for key in sorted(all_keys):
+        if key not in mapping:
+            continue  # UNMAPPED — silently exclude
+        m = mapping[key]
+        file_name, tab = key
+
+        old_rows = catalog_old.get(key, [])
+        new_rows = catalog_new.get(key, [])
+        changes = align_tabs(old_rows, new_rows)
+        if not changes:
+            continue
+
+        in_base = m.get("in_base") or ""
+        if "Needs to be created in base system" in in_base:
+            pending_base.append(PendingBaseEntry(
+                file=file_name, tab=tab,
+                applaud_table=m.get("applaud_table", ""),
+                prefix=m.get("prefix", ""),
+                module=m.get("module", ""),
+                change_count=len(changes),
+            ))
+            continue
+
+        in_base_note = in_base if in_base else None
+
+        section = FileSection(
+            file=file_name, tab=tab,
+            applaud_table=m.get("applaud_table", ""),
+            prefix=m.get("prefix", ""),
+            module=m.get("module", ""),
+            in_base_note=in_base_note,
+        )
+        section.changes_by_type = _bucket_changes(changes, prefix=m.get("prefix", ""))
+        section.shift_summary = _build_shift_summary(section.changes_by_type.get("SHIFTED", []))
+        file_sections.append(section)
+
+    # Sort by (module, file, tab) for stable ordering
+    file_sections.sort(key=lambda s: (s.module or "", s.file, s.tab))
+    pending_base.sort(key=lambda p: (p.module or "", p.file, p.tab))
+
+    module_rollup = _build_module_rollup(file_sections)
+
+    return ReportContext(
+        old_release=old_release,
+        new_release=new_release,
+        generated_date=generated_date,
+        module_rollup=module_rollup,
+        file_sections=file_sections,
+        pending_base=pending_base,
+    )
+
+
+def _applaud_field_name(prefix: str, technical: str | None, label: str | None) -> str:
+    """Construct the Applaud field name: prefix + technical (or normalized label).
+
+    Technical UPPER_SNAKE_CASE names are used verbatim when present (already
+    canonical). Otherwise the user-facing label is normalized — punctuation
+    stripped, whitespace collapsed — to keep the suffix Applaud-compatible.
+    """
+    if technical:
+        suffix = technical
+    else:
+        suffix = normalize_label(label or "")
+    return f"{prefix}{suffix}"
+
+
+def _oracle_type_str(f: AlignedField | None) -> str:
+    """Reconstruct the Oracle-style type string from a parsed AlignedField."""
+    if f is None or not f.data_type:
+        return ""
+    if f.length is not None and f.scale is not None:
+        return f"{f.data_type}({f.length},{f.scale})"
+    if f.length is not None:
+        return f"{f.data_type}({f.length})"
+    return f.data_type
+
+
+def _applaud_type_str_for(f: AlignedField | None) -> str:
+    """Translate an AlignedField's type into the Applaud-side type string."""
+    raw = _oracle_type_str(f)
+    if not raw:
+        return ""
+    return applaud_type_for(parse_data_type(raw))
+
+
+def _bucket_changes(changes: list[Change], prefix: str) -> dict[str, list[ChangeRow]]:
+    """Group classified changes into per-type buckets of ChangeRow view-models.
+
+    The "primary" field for naming/typing is the new field when present
+    (ADDED, MODIFIED, RENAMED, SHIFTED, MULTI) and the old field for
+    REMOVED. Old/new pairs are also stamped onto the row so the template
+    can render side-by-side comparisons for RENAMED / MODIFIED / MULTI.
+    """
+    buckets: dict[str, list[ChangeRow]] = defaultdict(list)
+    for c in changes:
+        primary = c.new_field if c.new_field is not None else c.old_field
+        # primary is non-None for every classified change (align_tabs guarantee).
+        applaud_name = _applaud_field_name(prefix, primary.technical, primary.label)
+        oracle_type = _oracle_type_str(primary)
+        applaud_type = _applaud_type_str_for(primary)
+
+        row = ChangeRow(
+            change_type=c.change_type,
+            applaud_field_name=applaud_name,
+            name_length=len(applaud_name),
+            name_exceeds_30=len(applaud_name) > APPLAUD_NAME_LIMIT,
+            old_position=c.old_position,
+            new_position=c.new_position,
+            label=primary.label or "",
+            oracle_type_str=oracle_type,
+            applaud_type_str=applaud_type,
+            required=primary.required,
+            axes=c.axes,
+            sub_kinds=c.sub_kinds,
+            old_label=c.old_field.label if c.old_field else None,
+            new_label=c.new_field.label if c.new_field else None,
+            old_oracle_type_str=_oracle_type_str(c.old_field) if c.old_field else None,
+            new_oracle_type_str=_oracle_type_str(c.new_field) if c.new_field else None,
+            old_required=c.old_field.required if c.old_field else None,
+            new_required=c.new_field.required if c.new_field else None,
+        )
+        buckets[c.change_type].append(row)
+    return dict(buckets)
+
+
+def _build_shift_summary(shifted_rows: list[ChangeRow]) -> str | None:
+    """Build the inline shift-summary sentence used in the SHIFTED block.
+
+    Filters out rows missing either old_position or new_position (defensive —
+    classified SHIFTED rows always have both, but ChangeRow's typed Optionals
+    technically allow None).
+    """
+    if not shifted_rows:
+        return None
+    pairs = [
+        (r.old_position, r.new_position)
+        for r in shifted_rows
+        if r.old_position is not None and r.new_position is not None
+    ]
+    if not pairs:
+        return None
+    old_positions = sorted(p[0] for p in pairs)
+    new_positions = sorted(p[1] for p in pairs)
+    n = len(pairs)
+    return (
+        f"{n} field{'s' if n != 1 else ''} shifted from positions "
+        f"{old_positions[0]}-{old_positions[-1]} to {new_positions[0]}-{new_positions[-1]}."
+    )
+
+
+def _build_module_rollup(sections: list[FileSection]) -> dict[str, dict[str, int]]:
+    """Aggregate per-module counts across file sections.
+
+    Each module entry tracks the number of in-scope tabs (file/tab pairs
+    contributing changes) and per-change-type counts. Unknown modules are
+    bucketed under "Unknown" so the rollup never silently drops sections.
+    """
+    rollup: dict[str, dict[str, int]] = {}
+    for s in sections:
+        m = s.module or "Unknown"
+        if m not in rollup:
+            rollup[m] = {
+                "tabs": 0,
+                "added": 0,
+                "removed": 0,
+                "modified": 0,
+                "renamed": 0,
+                "shifted": 0,
+                "multi": 0,
+            }
+        rollup[m]["tabs"] += 1
+        for ct, rows in s.changes_by_type.items():
+            key = ct.lower()
+            rollup[m][key] = rollup[m].get(key, 0) + len(rows)
+    return rollup
