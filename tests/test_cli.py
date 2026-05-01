@@ -135,3 +135,30 @@ def test_populate_module_missing_json_exits_2(tmp_path, monkeypatch):
         cli_mod.main(["populate-module", "--new", "26b", "--old", "26a",
                       "--mapping", "ignored.xlsx"])
     assert excinfo.value.code == 2
+
+
+class TestReportSubcommand:
+    def test_report_subcommand_parses_old_and_new(self, monkeypatch, tmp_path):
+        from fbdi import cli
+
+        called = {}
+
+        def fake_generate(catalog_path, mapping_path, old_release, new_release, out_dir):
+            called.update(dict(
+                catalog_path=catalog_path, mapping_path=mapping_path,
+                old_release=old_release, new_release=new_release, out_dir=out_dir,
+            ))
+            return tmp_path / "x.html", tmp_path / "x.pdf"
+
+        (tmp_path / "cat.xlsx").write_bytes(b"stub")
+        (tmp_path / "map.xlsx").write_bytes(b"stub")
+        monkeypatch.setattr("fbdi.report.generate_report", fake_generate)
+        cli.main([
+            "report", "--old", "26A", "--new", "26B",
+            "--out-dir", str(tmp_path),
+            "--catalog", str(tmp_path / "cat.xlsx"),
+            "--mapping", str(tmp_path / "map.xlsx"),
+        ])
+        assert called["old_release"] == "26A"
+        assert called["new_release"] == "26B"
+        assert called["out_dir"] == tmp_path

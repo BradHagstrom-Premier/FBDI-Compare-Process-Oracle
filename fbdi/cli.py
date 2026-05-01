@@ -124,6 +124,32 @@ def main(argv: list[str] | None = None) -> None:
         help="Path to the mapping spreadsheet (default: ./FBDI_to_ApplaudTables_Mapping.xlsx)",
     )
 
+    report_parser = subparsers.add_parser(
+        "report",
+        help="Generate the FBDI Compliance Report (HTML + PDF) from the catalog + mapping",
+    )
+    report_parser.add_argument(
+        "--old", required=True, type=str,
+        help="Older release label (e.g. 26A)",
+    )
+    report_parser.add_argument(
+        "--new", required=True, type=str,
+        help="Newer release label (e.g. 26B)",
+    )
+    report_parser.add_argument(
+        "--out-dir", type=Path, default=Path("."),
+        help="Output directory (default: ./)",
+    )
+    report_parser.add_argument(
+        "--catalog", type=Path, default=Path("FBDI_Master_Catalog.xlsx"),
+        help="Path to the master catalog (default: ./FBDI_Master_Catalog.xlsx)",
+    )
+    report_parser.add_argument(
+        "--mapping", type=Path,
+        default=Path("FBDI_to_ApplaudTables_Mapping.xlsx"),
+        help="Path to the mapping spreadsheet (default: ./FBDI_to_ApplaudTables_Mapping.xlsx)",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -138,6 +164,8 @@ def main(argv: list[str] | None = None) -> None:
         _run_catalog(args)
     elif args.command == "populate-module":
         _run_populate_module(args)
+    elif args.command == "report":
+        _run_report(args)
 
 
 def _run_compare(args: argparse.Namespace) -> None:
@@ -366,3 +394,30 @@ def _run_populate_module(args: argparse.Namespace) -> None:
         "old_release": args.old.upper(),
         **result,
     }, indent=2))
+
+
+def _run_report(args: argparse.Namespace) -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(name)s: %(message)s",
+    )
+
+    if not args.catalog.is_file():
+        print(f"Error: catalog file not found: {args.catalog}")
+        sys.exit(1)
+    if not args.mapping.is_file():
+        print(f"Error: mapping file not found: {args.mapping}")
+        sys.exit(1)
+
+    from fbdi.report import generate_report
+
+    html_path, pdf_path = generate_report(
+        catalog_path=args.catalog,
+        mapping_path=args.mapping,
+        old_release=args.old.upper(),
+        new_release=args.new.upper(),
+        out_dir=args.out_dir,
+    )
+
+    print(f"HTML: {html_path}")
+    print(f"PDF : {pdf_path}")
