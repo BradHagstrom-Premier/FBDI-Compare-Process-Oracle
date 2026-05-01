@@ -133,9 +133,9 @@ def build_report_context(
         if "Needs to be created in base system" in in_base:
             pending_base.append(PendingBaseEntry(
                 file=file_name, tab=tab,
-                applaud_table=m.get("applaud_table", ""),
-                prefix=m.get("prefix", ""),
-                module=m.get("module", ""),
+                applaud_table=m["applaud_table"],
+                prefix=m["prefix"],
+                module=m["module"],
                 change_count=len(changes),
             ))
             continue
@@ -144,12 +144,12 @@ def build_report_context(
 
         section = FileSection(
             file=file_name, tab=tab,
-            applaud_table=m.get("applaud_table", ""),
-            prefix=m.get("prefix", ""),
-            module=m.get("module", ""),
+            applaud_table=m["applaud_table"],
+            prefix=m["prefix"],
+            module=m["module"],
             in_base_note=in_base_note,
         )
-        section.changes_by_type = _bucket_changes(changes, prefix=m.get("prefix", ""))
+        section.changes_by_type = _bucket_changes(changes, prefix=m["prefix"])
         section.shift_summary = _build_shift_summary(section.changes_by_type.get("SHIFTED", []))
         file_sections.append(section)
 
@@ -243,24 +243,12 @@ def _bucket_changes(changes: list[Change], prefix: str) -> dict[str, list[Change
 
 
 def _build_shift_summary(shifted_rows: list[ChangeRow]) -> str | None:
-    """Build the inline shift-summary sentence used in the SHIFTED block.
-
-    Filters out rows missing either old_position or new_position (defensive —
-    classified SHIFTED rows always have both, but ChangeRow's typed Optionals
-    technically allow None).
-    """
+    """Build the inline shift-summary sentence used in the SHIFTED block."""
     if not shifted_rows:
         return None
-    pairs = [
-        (r.old_position, r.new_position)
-        for r in shifted_rows
-        if r.old_position is not None and r.new_position is not None
-    ]
-    if not pairs:
-        return None
-    old_positions = sorted(p[0] for p in pairs)
-    new_positions = sorted(p[1] for p in pairs)
-    n = len(pairs)
+    old_positions = sorted(r.old_position for r in shifted_rows)
+    new_positions = sorted(r.new_position for r in shifted_rows)
+    n = len(shifted_rows)
     return (
         f"{n} field{'s' if n != 1 else ''} shifted from positions "
         f"{old_positions[0]}-{old_positions[-1]} to {new_positions[0]}-{new_positions[-1]}."
