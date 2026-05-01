@@ -369,3 +369,51 @@ def load_mapping(mapping_path: Path) -> dict[tuple[str, str], dict]:
         }
     wb.close()
     return out
+
+
+# Public: top-level entry point ------------------------------------------------
+
+def generate_report(
+    catalog_path: Path,
+    mapping_path: Path,
+    old_release: str,
+    new_release: str,
+    out_dir: Path,
+) -> tuple[Path, Path]:
+    """Load -> build -> render -> write HTML and PDF.
+
+    Returns (html_path, pdf_path).
+    """
+    import jinja2
+    import weasyprint
+
+    catalog_old = load_catalog_release(catalog_path, old_release)
+    catalog_new = load_catalog_release(catalog_path, new_release)
+    mapping = load_mapping(mapping_path)
+
+    ctx = build_report_context(
+        catalog_old=catalog_old,
+        catalog_new=catalog_new,
+        mapping=mapping,
+        old_release=old_release,
+        new_release=new_release,
+    )
+
+    template_dir = Path(__file__).parent / "templates"
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(template_dir),
+        autoescape=jinja2.select_autoescape(["html", "j2"]),
+    )
+    tpl = env.get_template("report.html.j2")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    base = f"FBDI_Compliance_Report_{old_release}_{new_release}"
+    html_path = out_dir / f"{base}.html"
+    pdf_path = out_dir / f"{base}.pdf"
+
+    html_path.write_text(tpl.render(ctx=ctx, print_mode=False), encoding="utf-8")
+
+    pdf_html = tpl.render(ctx=ctx, print_mode=True)
+    weasyprint.HTML(string=pdf_html).write_pdf(str(pdf_path))
+
+    return html_path, pdf_path
