@@ -12,7 +12,7 @@ rows on either side become ADDED or REMOVED.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
