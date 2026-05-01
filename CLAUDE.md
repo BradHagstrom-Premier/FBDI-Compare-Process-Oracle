@@ -31,12 +31,15 @@ python tools/download_and_clear.py 26B --clear-only    # re-clear only (skip dow
 # Populate Module column in mapping spreadsheet (uses baselines/<ver>/file_modules.json)
 python -m fbdi populate-module --new 26B --old 26A
 
+# Generate HTML + PDF compliance report
+python -m fbdi report --old 26A --new 26B
+
 # Tests
 python -m pytest tests/            # full suite
 python -m pytest tests/test_clear.py -v
 ```
 
-**Requirements:** Python 3.14+. Install deps via `pip install -r requirements.txt` (openpyxl, selenium, webdriver-manager, requests, pytest).
+**Requirements:** Python 3.14+. Install deps via `pip install -r requirements.txt` (openpyxl, selenium, webdriver-manager, requests, pytest, jinja2, weasyprint). weasyprint requires MSYS2 mingw64 GTK (Pango ≥1.44) on Windows for PDF rendering.
 
 ---
 
@@ -47,21 +50,26 @@ python -m pytest tests/test_clear.py -v
   - `compare.py` — diffs two releases tab-by-tab, field-by-field. Each pair runs in a fresh subprocess (via `_subprocess_util.run_worker`) with a 120s timeout to isolate openpyxl resource leaks.
   - `clear.py` — smart clearing of FBDI templates using `detect_header_row` (preserves headers at any row — 4, 5, 8, etc.)
   - `diagnose.py` — reports header-detection outcomes per tab (`DETECTED`, `NO_HEADER`, `SKIPPED_TAB`, `FILE_TOO_LARGE`, `FILE_ERROR`). Uses full (non-read_only) openpyxl mode.
-  - `catalog.py` — generates `FBDI_Master_Catalog.xlsx` with per-release snapshots (file × tab × position × label × technical × type × length × scale × required) + `Issues` + `Drift` tabs. Shares `_subprocess_util.run_worker` with `compare.py`.
+  - `catalog.py` — generates `FBDI_Master_Catalog.xlsx` with per-release snapshots (file × tab × position × label × technical × type × length × scale × required) + `Issues` + `Drift` tabs. Shares `_subprocess_util.run_worker` with `compare.py`. The `Drift` sheet uses alignment-driven classification (`align.align_tabs`) — schema columns: `file`, `tab`, `change_type`, `old_position`, `new_position`, `old_label`, `new_label`, `old_technical`, `new_technical`, `old_data_type`, `new_data_type`, `old_length`, `new_length`, `old_scale`, `new_scale`, `old_required`, `new_required`, `sub_kinds`.
   - `type_parser.py` — parses Oracle data-type strings (`VARCHAR2(N CHAR)`, `NUMBER(p,s)`, `DATE`, `DATE(YYYY/MM/DD)`, `TimeStamp(hh24:mm)`, trailing-period variants) into structured fields. Emits `TYPE_PARSE_WARNING` only for genuinely malformed strings.
   - `_subprocess_util.py` — shared `run_worker(target, args, timeout)` helper used by `catalog.py` and `compare.py`. Drains the result queue *before* joining the child process — required to avoid a pipe-buffer deadlock on Windows when payloads exceed ~64 KB.
   - `catalog_normalize.py` — normalizes FBDI labels (strips non-alphanumeric/underscore/whitespace) for Applaud MDB compatibility.
   - `build_mapping.py` — builds the `fbdi_applaud_mapping.xlsx` workbook that maps FBDI tabs/fields to Applaud target tables for downstream integrations.
   - `audit.py` — FBDI ↔ Applaud mapping audit engine. Reads `baselines/applaud/applaud_snapshot.json` (gitignored), `FBDI_Master_Catalog.xlsx`, and the working `fbdi_applaud_mapping.xlsx`. Two-pass signal scoring + adjudication; emits `Claude_fbdi_applaud_mapping.xlsx` and a markdown audit report.
   - `populate_module.py` — surgical column-F updater for `FBDI_to_ApplaudTables_Mapping.xlsx`. Reads `baselines/<ver>/file_modules.json` (NEW wins, OLD fallback). Uses openpyxl full mode so formatting/formulas/freeze-panes are preserved.
+  - `align.py` — pure LCS-style alignment algorithm. `align_tabs(old_rows, new_rows) -> list[Change]`. Classifies changes across three axes (label, metadata, position); SHIFTED/RENAMED/MODIFIED/ADDED/REMOVED/MULTI. Shared by `catalog.py` (Drift writer) and `report.py`.
+  - `applaud_type.py` — Oracle → Applaud type translator. `applaud_type_for(parsed_type) -> str`. Maps `VARCHAR2(N)` → `char N`, `NUMBER(p,s)` → `numeric p,s`, `DATE`/`TIMESTAMP` → `date`, etc.
+  - `report.py` — compliance report generator. `generate_report(catalog_path, mapping_path, old_release, new_release, out_dir) -> (html_path, pdf_path)`. Filters to MAPPED in-scope tabs; routes pending-base tabs to a separate section; renders HTML + PDF from one Jinja2 template via `weasyprint`.
   - `cli.py` / `__main__.py` — CLI entry point. `_resolve_dir()` makes `--old 26A` resolve to `baselines/26A/originals/`.
   - `config.py`, `utils.py` — shared configuration and helpers.
 - **`tools/download_and_clear.py`** — standalone Selenium downloader + smart clearing entry point. Imports `fbdi.clear` but lives outside the `fbdi/` package so Selenium/webdriver dependencies stay out of the comparison engine.
 - **`.claude/skills/fbdi-compare-release/`** — orchestrator skill that chains the full download → clear → compare → catalog → populate-module pipeline with human-in-the-loop checkpoints. Triggers on phrases like "Compare 26A to 26B" or "Oracle released 26C". Bundles Python helpers (`check_env.py`, `verify_download.py`, `summarize_report.py`, `verify_run.py`, `verify_rerun.py`) under `scripts/` and reference docs under `references/`. See the skill's `SKILL.md` for the 8-stage workflow (plus Stage 6.5 for Module column population).
-- **`tests/`** — 281 unit tests, all passing (`python -m pytest tests/`)
+- **`tests/`** — 320 unit tests, all passing (`python -m pytest tests/`)
 - **Outputs:**
   - `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column diff for VBA validation (unchanged)
-  - `FBDI_Master_Catalog.xlsx` — per-release snapshots + Issues + Drift tabs
+  - `FBDI_Master_Catalog.xlsx` — per-release snapshots + Issues + Drift tabs (Drift now alignment-driven)
+  - `FBDI_Compliance_Report_<OLD>_<NEW>.html` — interactive browseable report with collapsible SHIFTED tables
+  - `FBDI_Compliance_Report_<OLD>_<NEW>.pdf` — formal deliverable, same content, print-rendered
 - **Baseline layout** — `baselines/26A/originals/` (as-downloaded), `baselines/26A/blanks/` (smart-cleared copies for client use), and `baselines/26A/file_modules.json` (per-release `{filename: module}` map written by the downloader, consumed by `populate-module`)
 
 ---
@@ -69,7 +77,6 @@ python -m pytest tests/test_clear.py -v
 ## Current Frontier
 
 - **FBDI → Applaud mapping** — `fbdi_applaud_mapping.xlsx` (built by `fbdi/build_mapping.py`) is partially populated; Brad fills in TBD rows manually. The Module column is now auto-populated via `python -m fbdi populate-module` from `file_modules.json` (100% as of 2026-05-01 rerun).
-- **`report.py`** (not built) — Will reformat comparison output into the compliance change-tracking format used for client deliverables. Blocked on mapping completion.
 - **`python -m fbdi run`** (not built) — Would chain download → compare → report in a single command.
 
 ---
