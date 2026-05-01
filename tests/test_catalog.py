@@ -346,42 +346,64 @@ class TestComputeDrift:
         assert len(drift) == 1
         assert drift[0].change_type == "RENAMED"
 
-    def test_renamed_technical_only(self):
-        old = [_row(release="26A", column_technical="OLD_NAME")]
-        new = [_row(release="26B", column_technical="NEW_NAME")]
+    def test_technical_rename_yields_removed_and_added(self):
+        # Under LCS-by-identity, a pure technical-name change is indistinguishable
+        # from removal+addition: the identity keys ("tech", "OLD_NAME") and
+        # ("tech", "NEW_NAME") never match, so neither row enters a matched pair.
+        old = [_row(release="26A", column_label="", column_technical="OLD_NAME")]
+        new = [_row(release="26B", column_label="", column_technical="NEW_NAME")]
         drift = _compute_drift(old, new, release_old="26A", release_new="26B")
-        assert drift[0].change_type == "RENAMED"
+        assert {d.change_type for d in drift} == {"ADDED", "REMOVED"}
 
     def test_type_changed_only(self):
         old = [_row(release="26A", data_type="VARCHAR2")]
         new = [_row(release="26B", data_type="NUMBER")]
         drift = _compute_drift(old, new, release_old="26A", release_new="26B")
-        assert drift[0].change_type == "TYPE_CHANGED"
+        assert drift[0].change_type == "MODIFIED"
+        assert drift[0].sub_kinds == "type"
 
     def test_length_changed_only(self):
         old = [_row(release="26A", length=50)]
         new = [_row(release="26B", length=100)]
         drift = _compute_drift(old, new, release_old="26A", release_new="26B")
-        assert drift[0].change_type == "LENGTH_CHANGED"
+        assert drift[0].change_type == "MODIFIED"
+        assert drift[0].sub_kinds == "length"
 
-    def test_scale_changed_classified_as_length(self):
+    def test_scale_only_change_not_in_drift(self):
+        # AlignedField carries (data_type, length, required) but not scale.
+        # A scale-only change with identical data_type and length is therefore
+        # invisible in the Drift sheet by design — scale lives in the per-release
+        # tabs but is not an alignment axis.
         old = [_row(release="26A", data_type="NUMBER", length=18, scale=None, data_type_raw="NUMBER(18)")]
         new = [_row(release="26B", data_type="NUMBER", length=18, scale=4, data_type_raw="NUMBER(18,4)")]
         drift = _compute_drift(old, new, release_old="26A", release_new="26B")
-        # data_type same, length same, only scale differs — classified as LENGTH_CHANGED
-        assert drift[0].change_type == "LENGTH_CHANGED"
+        assert drift == []
 
     def test_required_changed_only(self):
         old = [_row(release="26A", required=False)]
         new = [_row(release="26B", required=True)]
         drift = _compute_drift(old, new, release_old="26A", release_new="26B")
-        assert drift[0].change_type == "REQUIRED_CHANGED"
+        assert drift[0].change_type == "MODIFIED"
+        assert drift[0].sub_kinds == "required"
 
-    def test_multi_change(self):
+    def test_multi_metadata_kinds_emit_modified_with_joined_sub_kinds(self):
+        # Multiple metadata sub-kinds change but they're all on one axis (metadata)
+        # — that is MODIFIED with comma-joined sub_kinds, not MULTI.
+        # MULTI requires 2+ distinct axes (label, metadata, position).
         old = [_row(release="26A", data_type="VARCHAR2", length=50, required=False)]
         new = [_row(release="26B", data_type="NUMBER", length=18, required=True)]
         drift = _compute_drift(old, new, release_old="26A", release_new="26B")
+        assert drift[0].change_type == "MODIFIED"
+        kinds = drift[0].sub_kinds.split(",")
+        assert set(kinds) == {"type", "length", "required"}
+
+    def test_multi_change_label_plus_metadata(self):
+        # Two distinct axes change (label + metadata) → MULTI
+        old = [_row(release="26A", column_label="Old Name", length=50)]
+        new = [_row(release="26B", column_label="New Name", length=100)]
+        drift = _compute_drift(old, new, release_old="26A", release_new="26B")
         assert drift[0].change_type == "MULTI"
+        assert "length" in drift[0].sub_kinds
 
     def test_aligns_by_file_tab_position(self):
         old = [
@@ -506,13 +528,14 @@ class TestWriteMasterWorkbook:
     def test_writes_drift_tab(self, tmp_path):
         out = tmp_path / "Master.xlsx"
         drift = [DriftRow(
-            file="F", tab="T", position=1,
-            col_label_old="A", col_label_new="B",
-            col_technical_old="A1", col_technical_new="B1",
+            file="F", tab="T", change_type="MODIFIED",
+            old_position=1, new_position=1,
+            col_label_old="A", col_label_new="A",
+            col_technical_old="A1", col_technical_new="A1",
             data_type_old="VARCHAR2", data_type_new="VARCHAR2",
             length_old="50", length_new="100",
             required_old="FALSE", required_new="FALSE",
-            change_type="LENGTH_CHANGED",
+            sub_kinds="length",
         )]
         _write_master_workbook(
             out, rows_by_release={}, issues=[], drift=drift,
@@ -524,6 +547,17 @@ class TestWriteMasterWorkbook:
         assert "col_label_26A" in headers
         assert "col_label_26B" in headers
         assert "change_type" in headers
+        assert "sub_kinds" in headers
+        assert "position_26A" in headers
+        assert "position_26B" in headers
+        # Spot-check the data row matches the new column order
+        row2 = [c.value for c in ws[2]]
+        assert row2[0] == "F"
+        assert row2[1] == "T"
+        assert row2[2] == "MODIFIED"
+        assert row2[3] == 1                # position_26A
+        assert row2[4] == 1                # position_26B
+        assert row2[-1] == "length"
 
     def test_idempotent_content(self, tmp_path):
         out1 = tmp_path / "M1.xlsx"
@@ -649,11 +683,17 @@ class TestGenerateCatalog:
         assert "TESTB" in wb.sheetnames
         drift_ws = wb["Drift"]
         drift = [[c.value for c in row] for row in drift_ws.iter_rows(min_row=2)]
-        change_types = {r[-1] for r in drift}
-        assert "RENAMED" in change_types
-        assert "LENGTH_CHANGED" in change_types
-        assert "REQUIRED_CHANGED" in change_types
+        # Schema: file, tab, change_type, position_old, position_new, ..., sub_kinds
+        change_types = {r[2] for r in drift}
+        sub_kinds_seen = {r[-1] for r in drift if r[-1]}
+        # COL_A → COL_A_RENAMED: identity key changes → REMOVED + ADDED
+        assert "REMOVED" in change_types
+        # COL_D fresh in TESTB
         assert "ADDED" in change_types
+        # COL_B length 18→32 and COL_C required Optional→Required → MODIFIED
+        assert "MODIFIED" in change_types
+        assert "length" in sub_kinds_seen
+        assert "required" in sub_kinds_seen
 
     def test_end_to_end_file_error_in_issues(self, tmp_path):
         release_dir = tmp_path / "baselines" / "TESTA" / "originals"

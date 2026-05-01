@@ -44,6 +44,11 @@ def _identity_key(f: AlignedField) -> tuple[str, str]:
     Prefers technical name (canonical, position-independent). Falls back to
     label when technical is missing (thin tabs). Tag distinguishes the
     space so a label "ITEM_NAME" never matches a technical "ITEM_NAME".
+
+    Note: fields with both technical=None and label="" all share the same
+    identity key ("label", "") and are matched positionally by the LCS.
+    Verified on the 26A→26B catalog: zero suspicious blank-label change
+    rows, so this collision is benign on real Oracle FBDI data.
     """
     if f.technical:
         return ("tech", f.technical)

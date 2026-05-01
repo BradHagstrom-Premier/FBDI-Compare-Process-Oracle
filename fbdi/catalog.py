@@ -70,10 +70,17 @@ class IssueRow:
 
 @dataclass
 class DriftRow:
-    """One row per position where two releases differ."""
+    """One row per classified change between two releases for one (file, tab).
+
+    Schema is alignment-driven, not naive per-position. position columns
+    are split into old/new because SHIFTED rows have a different position
+    on each side.
+    """
     file: str
     tab: str
-    position: int
+    change_type: str            # ADDED | REMOVED | MODIFIED | RENAMED | SHIFTED | MULTI
+    old_position: int | None
+    new_position: int | None
     col_label_old: str
     col_label_new: str
     col_technical_old: str
@@ -84,7 +91,7 @@ class DriftRow:
     length_new: str
     required_old: str
     required_new: str
-    change_type: str            # ADDED | REMOVED | RENAMED | TYPE_CHANGED | LENGTH_CHANGED | REQUIRED_CHANGED | MULTI
+    sub_kinds: str              # comma-joined ("type", "length", "required") for MODIFIED/MULTI; empty otherwise
 
 
 def _read_row_values(ws: Worksheet, row_idx: int) -> list[str | None]:
@@ -414,98 +421,84 @@ def _compute_drift(
     release_old: str,
     release_new: str,
 ) -> list[DriftRow]:
-    """Position-aligned diff between two release row sets.
+    """Alignment-driven diff between two release row sets.
 
-    Aligns by (file_name, tab_name, position). Emits DriftRows only for
-    positions where something changed. change_type classified by the
-    rules in the spec: ADDED, REMOVED, RENAMED (name only),
-    TYPE_CHANGED, LENGTH_CHANGED (length or scale), REQUIRED_CHANGED,
-    MULTI when more than one axis changes.
+    Groups rows by (file, tab); for each pair, calls fbdi.align.align_tabs
+    to derive the classified Change list; emits one DriftRow per Change.
+    Replaces the prior naive per-position diff that misclassified shift
+    cascades as RENAMED/MULTI.
     """
-    def key(r: CatalogRow) -> tuple:
-        return (r.file_name, r.tab_name, r.position)
+    from fbdi.align import AlignedField, align_tabs
 
-    old_by_key = {key(r): r for r in old_rows}
-    new_by_key = {key(r): r for r in new_rows}
-    all_keys = sorted(set(old_by_key.keys()) | set(new_by_key.keys()))
+    def _to_aligned(r: CatalogRow) -> AlignedField:
+        return AlignedField(
+            position=r.position,
+            label=r.column_label,
+            technical=r.column_technical or None,
+            data_type=r.data_type or None,
+            length=r.length,
+            required=r.required,
+        )
+
+    def _group(rows: list[CatalogRow]) -> dict[tuple[str, str], list[CatalogRow]]:
+        out: dict[tuple[str, str], list[CatalogRow]] = {}
+        for r in rows:
+            out.setdefault((r.file_name, r.tab_name), []).append(r)
+        for v in out.values():
+            v.sort(key=lambda r: r.position)
+        return out
+
+    old_grouped = _group(old_rows)
+    new_grouped = _group(new_rows)
+    all_keys = sorted(set(old_grouped.keys()) | set(new_grouped.keys()))
 
     drift: list[DriftRow] = []
-    for k in all_keys:
-        old = old_by_key.get(k)
-        new = new_by_key.get(k)
-        if old is None:
-            drift.append(_drift_row(None, new, "ADDED"))
-            continue
-        if new is None:
-            drift.append(_drift_row(old, None, "REMOVED"))
-            continue
-
-        name_changed = (
-            old.column_label != new.column_label
-            or old.column_technical != new.column_technical
-        )
-        type_changed = old.data_type != new.data_type
-        length_changed = (old.length != new.length) or (old.scale != new.scale)
-        required_changed = old.required != new.required
-
-        changed_axes = sum([name_changed, type_changed, length_changed, required_changed])
-        if changed_axes == 0:
-            continue
-        if changed_axes > 1:
-            ctype = "MULTI"
-        elif name_changed:
-            ctype = "RENAMED"
-        elif type_changed:
-            ctype = "TYPE_CHANGED"
-        elif length_changed:
-            ctype = "LENGTH_CHANGED"
-        else:
-            ctype = "REQUIRED_CHANGED"
-
-        drift.append(_drift_row(old, new, ctype))
+    for file, tab in all_keys:
+        old_aligned = [_to_aligned(r) for r in old_grouped.get((file, tab), [])]
+        new_aligned = [_to_aligned(r) for r in new_grouped.get((file, tab), [])]
+        for change in align_tabs(old_aligned, new_aligned):
+            drift.append(_drift_row_from_change(file, tab, change))
     return drift
 
 
-def _drift_row(
-    old: CatalogRow | None, new: CatalogRow | None, change_type: str
-) -> DriftRow:
-    """Build a DriftRow from optional old/new CatalogRows."""
-    ref = new if new is not None else old
-    assert ref is not None  # at least one side must exist
+def _drift_row_from_change(file: str, tab: str, change) -> DriftRow:
+    """Build a DriftRow from a fbdi.align.Change."""
+    old = change.old_field
+    new = change.new_field
     return DriftRow(
-        file=ref.file_name,
-        tab=ref.tab_name,
-        position=ref.position,
-        col_label_old=old.column_label if old else "",
-        col_label_new=new.column_label if new else "",
-        col_technical_old=old.column_technical if old else "",
-        col_technical_new=new.column_technical if new else "",
-        data_type_old=_fmt_type(old),
-        data_type_new=_fmt_type(new),
-        length_old=_fmt_length(old),
-        length_new=_fmt_length(new),
-        required_old=_fmt_required(old),
-        required_new=_fmt_required(new),
-        change_type=change_type,
+        file=file,
+        tab=tab,
+        change_type=change.change_type,
+        old_position=change.old_position,
+        new_position=change.new_position,
+        col_label_old=(old.label or "") if old else "",
+        col_label_new=(new.label or "") if new else "",
+        col_technical_old=(old.technical or "") if old else "",
+        col_technical_new=(new.technical or "") if new else "",
+        data_type_old=_fmt_type_align(old),
+        data_type_new=_fmt_type_align(new),
+        length_old=_fmt_length_align(old),
+        length_new=_fmt_length_align(new),
+        required_old=_fmt_required_align(old),
+        required_new=_fmt_required_align(new),
+        sub_kinds=",".join(change.sub_kinds),
     )
 
 
-def _fmt_type(r: CatalogRow | None) -> str:
-    return r.data_type if r else ""
+def _fmt_type_align(f) -> str:
+    return (f.data_type or "") if f else ""
 
 
-def _fmt_length(r: CatalogRow | None) -> str:
-    if r is None or r.length is None:
+def _fmt_length_align(f) -> str:
+    if f is None or f.length is None:
         return ""
-    if r.scale is not None:
-        return f"{r.length},{r.scale}"
-    return str(r.length)
+    return str(f.length)
 
 
-def _fmt_required(r: CatalogRow | None) -> str:
-    if r is None or r.required is None:
+def _fmt_required_align(f) -> str:
+    if f is None or f.required is None:
         return ""
-    return "TRUE" if r.required else "FALSE"
+    return "TRUE" if f.required else "FALSE"
 
 
 _RELEASE_TAB_HEADERS = [
@@ -523,13 +516,14 @@ def _drift_tab_headers(release_old: str | None, release_new: str | None) -> list
     old = release_old or "OLD"
     new = release_new or "NEW"
     return [
-        "file", "tab", "position",
+        "file", "tab", "change_type",
+        f"position_{old}", f"position_{new}",
         f"col_label_{old}", f"col_label_{new}",
         f"col_technical_{old}", f"col_technical_{new}",
         f"data_type_{old}", f"data_type_{new}",
         f"length_{old}", f"length_{new}",
         f"required_{old}", f"required_{new}",
-        "change_type",
+        "sub_kinds",
     ]
 
 
@@ -599,17 +593,19 @@ def _write_master_workbook(
         c.font = bold
     for row_idx, d in enumerate(drift, start=2):
         values = [
-            d.file, d.tab, d.position,
+            d.file, d.tab, d.change_type,
+            d.old_position if d.old_position is not None else "",
+            d.new_position if d.new_position is not None else "",
             d.col_label_old, d.col_label_new,
             d.col_technical_old, d.col_technical_new,
             d.data_type_old, d.data_type_new,
             d.length_old, d.length_new,
             d.required_old, d.required_new,
-            d.change_type,
+            d.sub_kinds,
         ]
         for col_idx, v in enumerate(values, start=1):
             ws.cell(row=row_idx, column=col_idx, value=v).font = plain
-    ws.auto_filter.ref = f"A1:N{max(len(drift) + 1, 1)}"
+    ws.auto_filter.ref = f"A1:P{max(len(drift) + 1, 1)}"
 
     # Atomic save
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
