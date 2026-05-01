@@ -137,3 +137,50 @@ class TestModuleRollup:
         rollup = ctx.module_rollup["Financials"]
         assert rollup["tabs"] == 1   # only F1/T1 has changes
         assert rollup["added"] == 1
+
+
+class TestLoaders:
+    def test_load_catalog_release_groups_by_file_and_tab(self, tmp_path):
+        from fbdi.report import load_catalog_release
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "26B"
+        ws.append(["release", "file_name", "tab_name", "position",
+                   "column_label", "column_technical",
+                   "data_type", "length", "scale", "data_type_raw", "required"])
+        ws.append(["26B", "F1", "T1", 1, "Lab", "TECH", "VARCHAR2", 30, None, "VARCHAR2(30)", "TRUE"])
+        ws.append(["26B", "F1", "T1", 2, "Lab2", "TECH2", "NUMBER", 18, None, "NUMBER(18)", "FALSE"])
+        ws.append(["26B", "F2", "T1", 1, "Lab", "TECH", None, None, None, "", "FALSE"])
+        path = tmp_path / "cat.xlsx"
+        wb.save(path)
+
+        result = load_catalog_release(path, "26B")
+        assert ("F1", "T1") in result
+        assert len(result[("F1", "T1")]) == 2
+        first = result[("F1", "T1")][0]
+        assert first.position == 1
+        assert first.technical == "TECH"
+        assert first.required is True
+        assert first.length == 30
+
+    def test_load_mapping_filters_to_mapped_status(self, tmp_path):
+        from fbdi.report import load_mapping
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "FBDI Mapping"
+        ws.append(["FBDI Template", "FBDI Tab", "Applaud Table", "Prefix",
+                   "Status", "Module", "In Base System?"])
+        ws.append(["F1", "T1", "T_X", "TX1", "MAPPED", "Financials", None])
+        ws.append(["F2", "T1", "T_Y", "TY1", "UNMAPPED", "SCM", None])
+        ws.append(["F3", "T1", "T_Z", "TZ1", "MAPPED", "SCM", "Needs to be created in base system"])
+        path = tmp_path / "mapping.xlsx"
+        wb.save(path)
+
+        result = load_mapping(path)
+        assert ("F1", "T1") in result
+        assert ("F3", "T1") in result   # MAPPED + pending-base still included
+        assert ("F2", "T1") not in result  # UNMAPPED excluded
+        assert result[("F1", "T1")]["module"] == "Financials"
+        assert result[("F3", "T1")]["in_base"] == "Needs to be created in base system"

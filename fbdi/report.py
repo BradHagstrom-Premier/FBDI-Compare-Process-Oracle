@@ -17,6 +17,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
+
+from openpyxl import load_workbook
 
 from fbdi.align import AlignedField, Change, align_tabs
 from fbdi.applaud_type import applaud_type_for
@@ -280,3 +283,89 @@ def _build_module_rollup(sections: list[FileSection]) -> dict[str, dict[str, int
             key = ct.lower()
             rollup[m][key] = rollup[m].get(key, 0) + len(rows)
     return rollup
+
+
+# Public: on-disk loaders -------------------------------------------------------
+
+def load_catalog_release(catalog_path: Path, release: str) -> dict[tuple[str, str], list[AlignedField]]:
+    """Read one release sheet from the master catalog and group by (file, tab).
+
+    Catalog schema (verified against FBDI_Master_Catalog.xlsx):
+    release | file_name | tab_name | position | column_label |
+    column_technical | data_type | length | scale | data_type_raw | required
+    """
+    wb = load_workbook(catalog_path, read_only=True, data_only=True)
+    if release not in wb.sheetnames:
+        wb.close()
+        raise ValueError(f"Release sheet '{release}' not found in {catalog_path}")
+    ws = wb[release]
+
+    grouped: dict[tuple[str, str], list[AlignedField]] = defaultdict(list)
+    rows = ws.iter_rows(min_row=2, values_only=True)
+    for row in rows:
+        # Schema: release, file_name, tab_name, position, column_label,
+        # column_technical, data_type, length, scale, data_type_raw, required
+        _rel, file_name, tab_name, position, label, technical, data_type, length, scale, _raw, required = row
+        if file_name is None or tab_name is None:
+            continue
+        grouped[(file_name, tab_name)].append(AlignedField(
+            position=int(position),
+            label=label,
+            technical=(technical or None),
+            data_type=(data_type or None),
+            length=(int(length) if length is not None and length != "" else None),
+            scale=(int(scale) if scale is not None and scale != "" else None),
+            required=_parse_required(required),
+        ))
+
+    wb.close()
+    # Sort each group's rows by position to be safe
+    for k in grouped:
+        grouped[k].sort(key=lambda f: f.position)
+    return dict(grouped)
+
+
+def _parse_required(v) -> bool | None:
+    if v is None or v == "":
+        return None
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().upper()
+    if s == "TRUE":
+        return True
+    if s == "FALSE":
+        return False
+    return None
+
+
+def load_mapping(mapping_path: Path) -> dict[tuple[str, str], dict]:
+    """Read FBDI_to_ApplaudTables_Mapping.xlsx and return MAPPED-status rows.
+
+    UNMAPPED rows are filtered out at load time (they're noise per the spec).
+    NEEDS_REVIEW rows are kept so the report can flag them visually.
+
+    Mapping schema (verified):
+    FBDI Template | FBDI Tab | Applaud Table | Prefix | Status | Module |
+    In Base System?
+    """
+    wb = load_workbook(mapping_path, read_only=True, data_only=True)
+    ws = wb["FBDI Mapping"]
+    out: dict[tuple[str, str], dict] = {}
+    rows = ws.iter_rows(min_row=2, values_only=True)
+    for row in rows:
+        # Schema: FBDI Template, FBDI Tab, Applaud Table, Prefix, Status,
+        # Module, In Base System?
+        template, tab, applaud_table, prefix, status, module, in_base = row[:7]
+        if template is None or tab is None:
+            continue
+        if status not in ("MAPPED", "NEEDS_REVIEW"):
+            continue
+        out[(str(template), str(tab))] = {
+            "applaud_table": applaud_table,
+            "prefix": prefix,
+            "module": module,
+            "status": status,
+            "in_base": in_base,
+        }
+    wb.close()
+    return out
