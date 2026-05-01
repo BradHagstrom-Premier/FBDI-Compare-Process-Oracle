@@ -33,14 +33,14 @@ The reference Word doc (25D→26A) was hand-built so it correctly identified shi
 |---|---|---|
 | Output format | PDF (formal deliverable) + HTML (interactive working copy) | PDF is what consultants archive/email; HTML is what they browse. Brand-color polish needs both. |
 | PDF render path | `weasyprint` from the same Jinja2 HTML template via `print_mode=True` | Pure Python, no headless browser, excellent CSS support; one template = one source of truth. |
-| Source of truth | `FBDI_Master_Catalog.xlsx` per-release sheets (`26A`, `26B`) | The only source with type/length/required data. Comparison_Report stays untouched (VBA-validation artifact). |
+| Source of truth | `FBDI_Master_Catalog.xlsx` per-release sheets (`26A`, `26B`) | The only source with type/length/scale/required data. Comparison_Report stays untouched (VBA-validation artifact). |
 | Alignment algorithm | LCS-style match by `(technical_name, label)` with tie-breaks; shared module | Required for SHIFTED detection and to stop misclassifying shift cascades as RENAMED/MULTI. |
 | Catalog Drift fix | In scope — root-cause fix using the same shared `align.py` module | Drift is a data product; a wrong data product downstream is worse than a missing one. Aligns with Brad's no-temp-fixes preference. |
 | Report scope | MAPPED in-scope tabs only in main body; pending-base tabs in a separate compact list section; UNMAPPED files excluded entirely | Consultants can't action what isn't on their Applaud install — unmapped data is noise. |
 | `NEEDS_REVIEW` handling | Visual flag in summary + per-file header (no exclusion) | Currently zero `NEEDS_REVIEW` rows in the mapping data, but design supports them for future use. |
 | `In Base System? = "Multiple mapping is possible..."` rows | Treated as MAPPED (in main body) with a small advisory note in the per-file header | 6 such rows exist; they're real mappings, just with an annotation. |
 | Section structure | Cover · Module rollup · Summary table · Per-file sections · Pending base-system tables | Matches the reference doc's content while restructuring for scannability. |
-| Per-file change types | ADDED, REMOVED, MODIFIED (type/length, required), RENAMED (label-only), SHIFTED, MULTI | Derived from the alignment, not from naive per-position diff. |
+| Per-file change types | ADDED, REMOVED, MODIFIED (type/length/scale, required), RENAMED (label-only), SHIFTED, MULTI | Derived from the alignment, not from naive per-position diff. |
 | Action matrix per change type | See "Action matrix" below | Encodes which of DB/IF/EF actually need consultant action; required-flag and rename are flag-only / low-priority. |
 | SHIFTED presentation | HTML: collapsed `<details>` (default closed) with full per-field old→new table; PDF: summary + compact 2-col grid auto-rendered (no toggle) | Same data, presentation per medium. PDF can't toggle. |
 | Applaud field name truncation | Always show `<prefix><technical>` at full length; flag with ⚠ chip when length > 30 chars; never auto-truncate | Truncation is an irreversible naming decision a human must own. |
@@ -58,7 +58,7 @@ Encodes which of DB / IF / EF need a consultant action per change type. Renders 
 |---|---|---|---|---|
 | **ADDED** | Add column | Add field | Add field | Solid blue checkbox each |
 | **REMOVED** | Drop column | Remove field | Remove field | Red checkbox each |
-| **MODIFIED — type/length** | Alter column | Update length validation | Update length validation | Amber checkbox each |
+| **MODIFIED — type/length/scale** | Alter column | Update length validation | Update length validation | Amber checkbox each |
 | **MODIFIED — required flag** | Alter NULL constraint | — *(IF cannot validate required at field level)* | — | Amber DB checkbox; "flag only" badge in change cell; em-dash for IF/EF |
 | **RENAMED — label only** | Optional: update DB data element description | — | — | Dashed-border DB checkbox; em-dash for IF/EF; advisory note "low priority" |
 | **SHIFTED** | — | Reorder field | Reorder field | Em-dash DB; blue checkbox IF/EF |
@@ -75,12 +75,12 @@ Pure function `align_tabs(old_rows, new_rows) -> AlignmentResult`. Inputs are th
 1. **Match pass**: longest common subsequence over `technical_name` (preferred) with `label` as fallback when `technical_name` is None. Produces matched pairs (old_pos, new_pos) and unmatched-old / unmatched-new sets.
 2. **Classify each matched pair across three independent axes**:
    - `label_changed`: labels differ
-   - `metadata_changed`: any of (data_type, length, required) differs
+   - `metadata_changed`: any of (data_type, length, scale, required) differs
    - `position_changed`: old_pos ≠ new_pos
 3. **Map axis combinations to change types**:
    - 0 axes changed → unchanged (not emitted)
    - 1 axis changed → `RENAMED` (label only) / `MODIFIED` (metadata only) / `SHIFTED` (position only)
-   - 2+ axes changed → `MULTI` with `sub_kinds` listing the axes that changed (e.g., `"position,metadata"` for a shift+type change). For MULTI, additionally store which metadata sub-kinds applied (`type`, `length`, `required`).
+   - 2+ axes changed → `MULTI` with `sub_kinds` listing the axes that changed (e.g., `"position,metadata"` for a shift+type change). For MULTI, additionally store which metadata sub-kinds applied (`type`, `length`, `scale`, `required`).
 4. **Classify unmatched**:
    - `ADDED` for unmatched-new
    - `REMOVED` for unmatched-old
@@ -104,8 +104,9 @@ Existing `Drift` writer is replaced by one that calls `align.align_tabs()` and e
 | `old_technical`, `new_technical` | str or `None` |
 | `old_data_type`, `new_data_type` | str or `None` |
 | `old_length`, `new_length` | int or `None` |
+| `old_scale`, `new_scale` | int or `None` |
 | `old_required`, `new_required` | bool or `None` |
-| `sub_kinds` | str or `None` (e.g., `"type,required"` for MULTI) |
+| `sub_kinds` | str or `None` (e.g., `"type,scale"` for MULTI) |
 
 Existing tests for catalog Drift are updated to match the new schema; new tests cover the alignment-based classifications.
 
@@ -213,7 +214,7 @@ Sections 1, 2, 3 only show MAPPED in-scope content. UNMAPPED files are silently 
 
 ## Testing strategy
 
-- `align.py` — unit tests for: pure-add, pure-remove, pure-shift, type-modified, length-modified, required-flipped, rename-only, multi-change, swap (a moves down + b moves up), insertion at start/middle/end, empty-old, empty-new.
+- `align.py` — unit tests for: pure-add, pure-remove, pure-shift, type-modified, length-modified, scale-modified, required-flipped, rename-only, multi-change, swap (a moves down + b moves up), insertion at start/middle/end, empty-old, empty-new.
 - `applaud_type.py` — unit tests for each Oracle type variant present in the catalog plus synthetic edge cases (unparseable, unknown, trailing-period typos).
 - `report.py` — unit tests for: scope filtering (UNMAPPED excluded, pending-base routed), 30-char warning emission, MULTI-row composition, action-matrix correctness per change type. Plus one integration test: load the actual 26A/26B catalog + mapping, run end-to-end, assert that the in-scope file count and per-file section content match expectations.
 - HTML/PDF rendering — golden-file test for one synthetic small input; visual verification via `chrome-devtools` on the real 26A→26B output.

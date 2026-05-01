@@ -12,6 +12,33 @@
 
 ---
 
+## Post-Phase-4 schema amendment (2026-05-01)
+
+After Phase 4 landed, `scale` was added as a fourth metadata sub-kind on `AlignedField` (commit `173b2d3`). The current shape is:
+
+```python
+@dataclass(frozen=True)
+class AlignedField:
+    position: int
+    label: str | None
+    technical: str | None
+    data_type: str | None
+    length: int | None
+    scale: int | None          # ← added 2026-05-01
+    required: bool | None
+```
+
+Consequences for downstream phases (Phase 5 onward):
+
+- **Constructing `AlignedField`** from a `CatalogRow` must pass `scale=r.scale`. The plan's `load_catalog_release` code block in Phase 5 omits this — add it when implementing.
+- **`Change.sub_kinds`** can include `"scale"` in addition to `"type"`, `"length"`, `"required"`. Templates and report logic that branch on sub_kinds (Phase 6) should treat `"scale"` like other metadata sub-kinds.
+- **DriftRow** has `scale_old` / `scale_new` columns sitting between `length_*` and `required_*`. The `_drift_tab_headers`, writer row tuple, and auto-filter range (`A1:R...` not `A1:P...`) reflect this.
+- **Applaud type translator** already handles scale via `numeric p,s` for `NUMBER(p, s)` — no change needed in Phase 3.
+
+The phase 2-4 code blocks below were the original (3-axis) design and are kept as-is for historical context. The committed code on disk supersedes them.
+
+---
+
 ## File map
 
 **Create:**
@@ -1039,9 +1066,9 @@ from fbdi.align import AlignedField, Change
 
 # ---- helpers ----
 
-def _aligned(position, label, technical, data_type=None, length=None, required=None):
+def _aligned(position, label, technical, data_type=None, length=None, required=None, scale=None):
     return AlignedField(position=position, label=label, technical=technical,
-                       data_type=data_type, length=length, required=required)
+                       data_type=data_type, length=length, scale=scale, required=required)
 
 
 def _mapping(template, tab, applaud_table="T_X", prefix="TX1",
@@ -1354,6 +1381,8 @@ def _applaud_field_name(prefix: str, technical: str | None, label: str | None) -
 def _oracle_type_str(field: AlignedField | None) -> str:
     if field is None or not field.data_type:
         return ""
+    if field.length is not None and field.scale is not None:
+        return f"{field.data_type}({field.length},{field.scale})"
     if field.length is not None:
         return f"{field.data_type}({field.length})"
     return field.data_type
@@ -1527,7 +1556,7 @@ def load_catalog_release(catalog_path: Path, release: str) -> dict[tuple[str, st
     for row in rows:
         # Schema: release, file_name, tab_name, position, column_label,
         # column_technical, data_type, length, scale, data_type_raw, required
-        _rel, file_name, tab_name, position, label, technical, data_type, length, _scale, _raw, required = row
+        _rel, file_name, tab_name, position, label, technical, data_type, length, scale, _raw, required = row
         if file_name is None or tab_name is None:
             continue
         grouped[(file_name, tab_name)].append(AlignedField(
@@ -1536,6 +1565,7 @@ def load_catalog_release(catalog_path: Path, release: str) -> dict[tuple[str, st
             technical=(technical or None),
             data_type=(data_type or None),
             length=(int(length) if length is not None and length != "" else None),
+            scale=(int(scale) if scale is not None and scale != "" else None),
             required=_parse_required(required),
         ))
 
@@ -1773,8 +1803,8 @@ import jinja2
 from fbdi.report import build_report_context
 from fbdi.align import AlignedField
 
-old = {('F1','T1'): [AlignedField(1,'A','A','VARCHAR2',30,True)]}
-new = {('F1','T1'): [AlignedField(1,'A','A','VARCHAR2',30,True), AlignedField(2,'B','B','NUMBER',18,False)]}
+old = {('F1','T1'): [AlignedField(1,'A','A','VARCHAR2',30,None,True)]}
+new = {('F1','T1'): [AlignedField(1,'A','A','VARCHAR2',30,None,True), AlignedField(2,'B','B','NUMBER',18,None,False)]}
 mapping = {('F1','T1'): {'applaud_table':'T_X','prefix':'TX1','module':'Financials','in_base':None}}
 ctx = build_report_context(old, new, mapping, '26A', '26B')
 
@@ -1988,11 +2018,11 @@ Insert between the summary table section and the closing `</body>`:
               <td class="field">{{ r.applaud_field_name }}</td>
               <td class="num">{{ r.new_position }}</td>
               <td>
-                {% if 'type' in r.sub_kinds or 'length' in r.sub_kinds %}Type: <span class="type-old">{{ r.old_oracle_type_str }}</span><span class="type-arrow">→</span><span class="type-new">{{ r.new_oracle_type_str }}</span>{% endif %}
+                {% if 'type' in r.sub_kinds or 'length' in r.sub_kinds or 'scale' in r.sub_kinds %}Type: <span class="type-old">{{ r.old_oracle_type_str }}</span><span class="type-arrow">→</span><span class="type-new">{{ r.new_oracle_type_str }}</span>{% endif %}
                 {% if 'required' in r.sub_kinds %}Required: <span class="type-old">{{ 'TRUE' if r.old_required else 'FALSE' }}</span><span class="type-arrow">→</span><span class="type-new">{{ 'TRUE' if r.new_required else 'FALSE' }}</span> <span class="badge warn-text">flag only</span>{% endif %}
               </td>
               <td class="action-col"><span class="checkbox warn" title="Alter column"></span></td>
-              {% if 'required' in r.sub_kinds and 'type' not in r.sub_kinds and 'length' not in r.sub_kinds %}
+              {% if 'required' in r.sub_kinds and 'type' not in r.sub_kinds and 'length' not in r.sub_kinds and 'scale' not in r.sub_kinds %}
                 <td class="action-col dim"><span class="dash-cell">—</span></td>
                 <td class="action-col dim"><span class="dash-cell">—</span></td>
               {% else %}
