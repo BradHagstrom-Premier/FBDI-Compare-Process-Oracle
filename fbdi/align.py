@@ -6,8 +6,9 @@ REMOVED, MODIFIED, RENAMED, SHIFTED, MULTI.
 
 The algorithm matches fields by identity (technical name first, label
 fallback) using longest common subsequence, then classifies each matched
-pair across three independent axes (label, metadata, position). Unmatched
-rows on either side become ADDED or REMOVED.
+pair across three independent axes (label, metadata, position). The
+metadata axis decomposes further into sub-kinds (type, length, scale,
+required). Unmatched rows on either side become ADDED or REMOVED.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ class AlignedField:
     technical: str | None
     data_type: str | None
     length: int | None
+    scale: int | None
     required: bool | None
 
 
@@ -35,7 +37,7 @@ class Change:
     old_field: AlignedField | None
     new_field: AlignedField | None
     axes: tuple[str, ...] = ()            # subset of ("label", "metadata", "position")
-    sub_kinds: tuple[str, ...] = ()       # subset of ("type", "length", "required") when metadata changed
+    sub_kinds: tuple[str, ...] = ()       # subset of ("type", "length", "scale", "required") when metadata changed
 
 
 def _identity_key(f: AlignedField) -> tuple[str, str]:
@@ -96,6 +98,8 @@ def _classify_pair(old_f: AlignedField, new_f: AlignedField) -> Change | None:
         metadata_kinds.append("type")
     if old_f.length != new_f.length:
         metadata_kinds.append("length")
+    if old_f.scale != new_f.scale:
+        metadata_kinds.append("scale")
     if old_f.required != new_f.required:
         metadata_kinds.append("required")
     metadata_changed = bool(metadata_kinds)

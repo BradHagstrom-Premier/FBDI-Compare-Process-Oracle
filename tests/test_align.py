@@ -3,11 +3,11 @@
 from fbdi.align import AlignedField, Change, align_tabs
 
 
-def _row(position, label, technical=None, data_type=None, length=None, required=None):
+def _row(position, label, technical=None, data_type=None, length=None, required=None, scale=None):
     """Build an AlignedField input row."""
     return AlignedField(
         position=position, label=label, technical=technical,
-        data_type=data_type, length=length, required=required,
+        data_type=data_type, length=length, scale=scale, required=required,
     )
 
 
@@ -146,6 +146,18 @@ class TestModifiedVariants:
         c = result[0]
         assert c.change_type == "MODIFIED"
         assert c.sub_kinds == ("length",)
+
+    def test_scale_only_change(self):
+        # NUMBER(18) → NUMBER(18,4): same precision, scale flips from None to 4.
+        # Real semantic shift (integer column gains decimal places); must be
+        # reported as MODIFIED with sub_kinds=("scale",).
+        old = [_row(1, "X", "X", "NUMBER", 18, True, scale=None)]
+        new = [_row(1, "X", "X", "NUMBER", 18, True, scale=4)]
+        result = align_tabs(old, new)
+        assert len(result) == 1
+        c = result[0]
+        assert c.change_type == "MODIFIED"
+        assert c.sub_kinds == ("scale",)
 
     def test_required_flip(self):
         old = [_row(1, "X", "X", "VARCHAR2", 30, False)]

@@ -369,15 +369,19 @@ class TestComputeDrift:
         assert drift[0].change_type == "MODIFIED"
         assert drift[0].sub_kinds == "length"
 
-    def test_scale_only_change_not_in_drift(self):
-        # AlignedField carries (data_type, length, required) but not scale.
-        # A scale-only change with identical data_type and length is therefore
-        # invisible in the Drift sheet by design — scale lives in the per-release
-        # tabs but is not an alignment axis.
+    def test_scale_only_change_emits_modified(self):
+        # Scale is an alignment metadata axis. NUMBER(18) → NUMBER(18,4) keeps
+        # data_type and length identical but flips scale from None to 4 — a real
+        # semantic shift (integer column gains decimal places). Must classify
+        # as MODIFIED with sub_kinds="scale".
         old = [_row(release="26A", data_type="NUMBER", length=18, scale=None, data_type_raw="NUMBER(18)")]
         new = [_row(release="26B", data_type="NUMBER", length=18, scale=4, data_type_raw="NUMBER(18,4)")]
         drift = _compute_drift(old, new, release_old="26A", release_new="26B")
-        assert drift == []
+        assert len(drift) == 1
+        assert drift[0].change_type == "MODIFIED"
+        assert drift[0].sub_kinds == "scale"
+        assert drift[0].scale_old == ""
+        assert drift[0].scale_new == "4"
 
     def test_required_changed_only(self):
         old = [_row(release="26A", required=False)]
@@ -532,10 +536,11 @@ class TestWriteMasterWorkbook:
             old_position=1, new_position=1,
             col_label_old="A", col_label_new="A",
             col_technical_old="A1", col_technical_new="A1",
-            data_type_old="VARCHAR2", data_type_new="VARCHAR2",
-            length_old="50", length_new="100",
+            data_type_old="NUMBER", data_type_new="NUMBER",
+            length_old="18", length_new="18",
+            scale_old="", scale_new="4",
             required_old="FALSE", required_new="FALSE",
-            sub_kinds="length",
+            sub_kinds="scale",
         )]
         _write_master_workbook(
             out, rows_by_release={}, issues=[], drift=drift,
@@ -550,6 +555,8 @@ class TestWriteMasterWorkbook:
         assert "sub_kinds" in headers
         assert "position_26A" in headers
         assert "position_26B" in headers
+        assert "scale_26A" in headers
+        assert "scale_26B" in headers
         # Spot-check the data row matches the new column order
         row2 = [c.value for c in ws[2]]
         assert row2[0] == "F"
@@ -557,7 +564,12 @@ class TestWriteMasterWorkbook:
         assert row2[2] == "MODIFIED"
         assert row2[3] == 1                # position_26A
         assert row2[4] == 1                # position_26B
-        assert row2[-1] == "length"
+        # scale columns sit between length and required
+        scale_a = headers.index("scale_26A")
+        scale_b = headers.index("scale_26B")
+        assert row2[scale_a] in ("", None)   # openpyxl reads blank cells as None
+        assert row2[scale_b] == "4"
+        assert row2[-1] == "scale"
 
     def test_idempotent_content(self, tmp_path):
         out1 = tmp_path / "M1.xlsx"

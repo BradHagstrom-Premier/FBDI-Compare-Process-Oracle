@@ -74,7 +74,8 @@ class DriftRow:
 
     Schema is alignment-driven, not naive per-position. position columns
     are split into old/new because SHIFTED rows have a different position
-    on each side.
+    on each side. length/scale are kept as separate columns so each is
+    independently filterable in Excel.
     """
     file: str
     tab: str
@@ -89,9 +90,11 @@ class DriftRow:
     data_type_new: str
     length_old: str
     length_new: str
+    scale_old: str
+    scale_new: str
     required_old: str
     required_new: str
-    sub_kinds: str              # comma-joined ("type", "length", "required") for MODIFIED/MULTI; empty otherwise
+    sub_kinds: str              # comma-joined ("type", "length", "scale", "required") for MODIFIED/MULTI; empty otherwise
 
 
 def _read_row_values(ws: Worksheet, row_idx: int) -> list[str | None]:
@@ -437,6 +440,7 @@ def _compute_drift(
             technical=r.column_technical or None,
             data_type=r.data_type or None,
             length=r.length,
+            scale=r.scale,
             required=r.required,
         )
 
@@ -479,6 +483,8 @@ def _drift_row_from_change(file: str, tab: str, change) -> DriftRow:
         data_type_new=_fmt_type_align(new),
         length_old=_fmt_length_align(old),
         length_new=_fmt_length_align(new),
+        scale_old=_fmt_scale_align(old),
+        scale_new=_fmt_scale_align(new),
         required_old=_fmt_required_align(old),
         required_new=_fmt_required_align(new),
         sub_kinds=",".join(change.sub_kinds),
@@ -493,6 +499,12 @@ def _fmt_length_align(f) -> str:
     if f is None or f.length is None:
         return ""
     return str(f.length)
+
+
+def _fmt_scale_align(f) -> str:
+    if f is None or f.scale is None:
+        return ""
+    return str(f.scale)
 
 
 def _fmt_required_align(f) -> str:
@@ -522,6 +534,7 @@ def _drift_tab_headers(release_old: str | None, release_new: str | None) -> list
         f"col_technical_{old}", f"col_technical_{new}",
         f"data_type_{old}", f"data_type_{new}",
         f"length_{old}", f"length_{new}",
+        f"scale_{old}", f"scale_{new}",
         f"required_{old}", f"required_{new}",
         "sub_kinds",
     ]
@@ -600,12 +613,13 @@ def _write_master_workbook(
             d.col_technical_old, d.col_technical_new,
             d.data_type_old, d.data_type_new,
             d.length_old, d.length_new,
+            d.scale_old, d.scale_new,
             d.required_old, d.required_new,
             d.sub_kinds,
         ]
         for col_idx, v in enumerate(values, start=1):
             ws.cell(row=row_idx, column=col_idx, value=v).font = plain
-    ws.auto_filter.ref = f"A1:P{max(len(drift) + 1, 1)}"
+    ws.auto_filter.ref = f"A1:R{max(len(drift) + 1, 1)}"
 
     # Atomic save
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
