@@ -20,5 +20,6 @@ __pycache__/
 handoff_*.md
 graphify-out/
 .claude/settings.local.json
+.superpowers/
 *.mdb
 Archive/
