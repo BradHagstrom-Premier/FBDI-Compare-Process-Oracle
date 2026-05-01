@@ -125,3 +125,59 @@ class TestShiftDetection:
             if c.new_field:
                 all_techs.add(c.new_field.technical)
         assert all_techs == {"FIELD_A", "FIELD_B"}
+
+
+class TestModifiedVariants:
+    def test_type_only_change(self):
+        old = [_row(1, "X", "X", "VARCHAR2", 30, True)]
+        new = [_row(1, "X", "X", "NUMBER",   None, True)]
+        result = align_tabs(old, new)
+        assert len(result) == 1
+        c = result[0]
+        assert c.change_type == "MODIFIED"
+        assert c.axes == ("metadata",)
+        assert "type" in c.sub_kinds
+
+    def test_length_only_change(self):
+        old = [_row(1, "X", "X", "VARCHAR2", 30, True)]
+        new = [_row(1, "X", "X", "VARCHAR2", 50, True)]
+        result = align_tabs(old, new)
+        assert len(result) == 1
+        c = result[0]
+        assert c.change_type == "MODIFIED"
+        assert c.sub_kinds == ("length",)
+
+    def test_required_flip(self):
+        old = [_row(1, "X", "X", "VARCHAR2", 30, False)]
+        new = [_row(1, "X", "X", "VARCHAR2", 30, True)]
+        result = align_tabs(old, new)
+        assert result[0].change_type == "MODIFIED"
+        assert result[0].sub_kinds == ("required",)
+
+
+class TestMulti:
+    def test_label_plus_metadata(self):
+        old = [_row(1, "Old Label", "X", "VARCHAR2", 30, True)]
+        new = [_row(1, "New Label", "X", "VARCHAR2", 50, True)]
+        result = align_tabs(old, new)
+        c = result[0]
+        assert c.change_type == "MULTI"
+        assert set(c.axes) == {"label", "metadata"}
+        assert c.sub_kinds == ("length",)
+
+    def test_position_plus_metadata(self):
+        # Field moves AND its type changes
+        old = [
+            _row(1, "Anchor", "ANCHOR", "VARCHAR2", 10, True),
+            _row(2, "Mover",  "MOVER",  "VARCHAR2", 30, True),
+        ]
+        new = [
+            _row(1, "Anchor", "ANCHOR", "VARCHAR2", 10, True),
+            _row(2, "Inserted", "INSERTED", "VARCHAR2", 1, False),
+            _row(3, "Mover",  "MOVER",  "VARCHAR2", 50, True),  # length changed AND moved
+        ]
+        result = align_tabs(old, new)
+        mover_change = [c for c in result if c.new_field and c.new_field.technical == "MOVER"][0]
+        assert mover_change.change_type == "MULTI"
+        assert set(mover_change.axes) == {"position", "metadata"}
+        assert mover_change.sub_kinds == ("length",)
