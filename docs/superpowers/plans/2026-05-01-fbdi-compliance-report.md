@@ -2454,6 +2454,7 @@ Expected: `SHIFTED` appears prominently; `RENAMED` and `MULTI` counts are dramat
 - [ ] **Step 5: Update CLAUDE.md to reflect the new pipeline state**
 
 Edit `CLAUDE.md`:
+- None of the previous sessions touched Claude.md (Brad believes.). Use /claude-md-management:revise-claude-md or /claude-md-management:claude-md-improver or both now that this plan is complete.
 - Add `fbdi/report.py`, `fbdi/applaud_type.py`, `fbdi/align.py` to the "Active Pipeline" section.
 - Move `report.py (not built)` from "Current Frontier" to the active pipeline.
 - Add the `python -m fbdi report` example to "Quick Start".
@@ -2468,7 +2469,7 @@ git commit -m "docs(claude): record FBDI Compliance Report pipeline + Drift sche
 
 - [ ] **Step 7: Push or hand off**
 
-The branch is ready. Either push to origin/master directly (per the workflow note in user memory: handoff/plan execution → direct push to master) or open a PR if a review checkpoint is desired.
+The branch is ready. Push to origin/master directly (per the workflow note in user memory: handoff/plan execution → direct push to master).
 
 ---
 
