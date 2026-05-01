@@ -373,6 +373,34 @@ def load_mapping(mapping_path: Path) -> dict[tuple[str, str], dict]:
 
 # Public: top-level entry point ------------------------------------------------
 
+_GTK_WINDOWS_BIN_CANDIDATES = (
+    r"C:\Program Files\Gtk-Runtime\bin",
+    r"C:\Program Files\GTK3-Runtime Win64\bin",
+    r"C:\Program Files (x86)\GTK3-Runtime Win64\bin",
+)
+
+
+def _register_windows_gtk_dlls() -> None:
+    """On Windows, make a known GTK install dir loadable by weasyprint.
+
+    Python 3.8+ ignores PATH for direct cffi.dlopen calls, so we register the
+    GTK bin dir via os.add_dll_directory. cairocffi (used by weasyprint < 53)
+    falls back to ctypes.util.find_library which honors PATH, so we prepend
+    there too. No-op on non-Windows or when GTK is not at a known path.
+    """
+    import os
+    import sys
+
+    if sys.platform != "win32":
+        return
+    for candidate in _GTK_WINDOWS_BIN_CANDIDATES:
+        if Path(candidate, "libgobject-2.0-0.dll").is_file():
+            os.add_dll_directory(candidate)
+            if candidate not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = candidate + os.pathsep + os.environ.get("PATH", "")
+            return
+
+
 def generate_report(
     catalog_path: Path,
     mapping_path: Path,
@@ -384,6 +412,7 @@ def generate_report(
 
     Returns (html_path, pdf_path).
     """
+    _register_windows_gtk_dlls()
     import jinja2
     import weasyprint
 
