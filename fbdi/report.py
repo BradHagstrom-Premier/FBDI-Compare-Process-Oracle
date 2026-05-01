@@ -373,9 +373,13 @@ def load_mapping(mapping_path: Path) -> dict[tuple[str, str], dict]:
 
 # Public: top-level entry point ------------------------------------------------
 
+# Probed in order; first match wins. MSYS2's mingw64 ships current Pango (1.50+),
+# so it goes first — required for weasyprint >= 53. The standalone GtkD installer
+# is a fallback but caps at Pango 1.43, which can't run weasyprint >= 53.
 _GTK_WINDOWS_BIN_CANDIDATES = (
-    r"C:\Program Files\Gtk-Runtime\bin",
+    r"C:\msys64\mingw64\bin",
     r"C:\Program Files\GTK3-Runtime Win64\bin",
+    r"C:\Program Files\Gtk-Runtime\bin",
     r"C:\Program Files (x86)\GTK3-Runtime Win64\bin",
 )
 
