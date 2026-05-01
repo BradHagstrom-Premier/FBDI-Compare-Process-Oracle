@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FBDI Compliance Report — {{ ctx.old_release }} → {{ ctx.new_release }}</title>
+<style>
+  /* === Definian palette — strict; do not introduce off-palette colors === */
+  :root {
+    --def-blue: #0D2C71;
+    --def-green: #00AB63;
+    --midnight: #02072D;
+    --darkgray: #3C405B;
+    --coolgray: #D8D7EE;
+    --bg-soft: #F7F7FB;
+    --warn: #B8860B;
+    --warn-bg: #FFFBF0;
+    --del: #C0392B;
+  }
+
+  /* === Base typography === */
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--midnight);
+    margin: 0;
+    background: #fff;
+  }
+
+  /* === Cover === */
+  .cover {
+    background: linear-gradient(135deg, var(--def-blue) 0%, var(--midnight) 100%);
+    color: #fff;
+    padding: 64px 48px;
+    text-align: center;
+  }
+  .cover .brand {
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--def-green);
+    font-weight: 700;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .cover h1 {
+    font-size: 36px;
+    margin: 0 0 12px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+  .cover .sub {
+    font-size: 16px;
+    opacity: 0.85;
+    margin-bottom: 24px;
+    font-weight: 300;
+  }
+  .cover .meta {
+    display: inline-flex;
+    gap: 24px;
+    padding: 12px 24px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .cover .meta b { color: var(--def-green); }
+
+  /* === Section base === */
+  .section {
+    padding: 28px 36px;
+    border-top: 1px solid var(--coolgray);
+  }
+  .section h2 {
+    color: var(--def-blue);
+    font-size: 22px;
+    margin: 0 0 4px;
+    font-weight: 700;
+  }
+  .section .lede {
+    color: var(--darkgray);
+    font-size: 13px;
+    margin-bottom: 18px;
+  }
+
+  /* === Module rollup === */
+  .module-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .module-card {
+    background: var(--bg-soft);
+    border-left: 4px solid var(--def-blue);
+    border-radius: 4px;
+    padding: 14px 18px;
+  }
+  .module-card.financials { border-left-color: var(--def-green); }
+  .module-card .name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--def-blue);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .module-card .figures {
+    display: flex;
+    gap: 16px;
+  }
+  .module-card .stat {
+    display: flex;
+    flex-direction: column;
+  }
+  .module-card .stat .num {
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--midnight);
+  }
+  .module-card .stat .lab {
+    font-size: 10px;
+    color: var(--darkgray);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+  }
+
+  /* === Summary table === */
+  .summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+  .summary-table th {
+    background: var(--def-blue);
+    color: #fff;
+    padding: 8px 10px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .summary-table th.num { text-align: right; }
+  .summary-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #eee;
+  }
+  .summary-table td.num {
+    text-align: right;
+    width: 1%;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .module-tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    background: var(--coolgray);
+    color: var(--midnight);
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .module-tag.financials {
+    background: var(--def-green);
+    color: #fff;
+  }
+</style>
+</head>
+<body>
+
+<!-- Cover -->
+<div class="cover">
+  <div class="brand">DEFINIAN · Applaud Base System</div>
+  <h1>FBDI Compliance Report</h1>
+  <div class="sub">Required changes between Oracle Cloud releases</div>
+  <div class="meta">
+    <span><b>From</b> Release {{ ctx.old_release }}</span>
+    <span><b>To</b> Release {{ ctx.new_release }}</span>
+    <span><b>Generated</b> {{ ctx.generated_date }}</span>
+  </div>
+</div>
+
+<!-- Section 1: Module rollup -->
+<div class="section">
+  <h2>1. At a glance</h2>
+  <div class="lede">Mapped, in-scope FBDI tabs only. UNMAPPED files and pending base-system tables are excluded from the per-file detail; pending-base files are listed at the end for visibility.</div>
+  <div class="module-grid">
+    {% for module, stats in ctx.module_rollup.items() %}
+    <div class="module-card{% if module == 'Financials' %} financials{% endif %}">
+      <div class="name">{{ module }}</div>
+      <div class="figures">
+        <div class="stat"><span class="num">{{ stats.tabs }}</span><span class="lab">tabs</span></div>
+        <div class="stat"><span class="num">{{ stats.added }}</span><span class="lab">added</span></div>
+        <div class="stat"><span class="num">{{ stats.shifted }}</span><span class="lab">shifted</span></div>
+        <div class="stat"><span class="num">{{ stats.removed }}</span><span class="lab">removed</span></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Section 2: Summary table -->
+<div class="section">
+  <h2>2. Summary by FBDI tab</h2>
+  <div class="lede">{{ ctx.file_sections | length }} mapped tab{% if ctx.file_sections | length != 1 %}s{% endif %} have changes between {{ ctx.old_release }} and {{ ctx.new_release }}.</div>
+  <table class="summary-table">
+    <thead>
+      <tr>
+        <th>FBDI File · Tab</th>
+        <th>Applaud Table</th>
+        <th>Prefix</th>
+        <th>Module</th>
+        <th class="num">Added</th>
+        <th class="num">Removed</th>
+        <th class="num">Modified</th>
+        <th class="num">Shifted</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in ctx.file_sections %}
+      <tr>
+        <td><b>{{ s.file }}</b><br><span style="font-size:11px;color:var(--darkgray)">{{ s.tab }}</span></td>
+        <td>{{ s.applaud_table }}</td>
+        <td><code>{{ s.prefix }}</code></td>
+        <td><span class="module-tag{% if s.module == 'Financials' %} financials{% endif %}">{{ s.module }}</span></td>
+        <td class="num">{{ s.changes_by_type.get('ADDED', []) | length }}</td>
+        <td class="num">{{ s.changes_by_type.get('REMOVED', []) | length }}</td>
+        <td class="num">{{ (s.changes_by_type.get('MODIFIED', []) | length) + (s.changes_by_type.get('MULTI', []) | length) }}</td>
+        <td class="num">{{ s.changes_by_type.get('SHIFTED', []) | length }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Per-file sections — added in Task 11 -->
+
+</body>
+</html>
