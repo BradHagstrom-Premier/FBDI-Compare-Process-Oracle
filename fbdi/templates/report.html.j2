@@ -162,6 +162,280 @@
     background: var(--def-green);
     color: #fff;
   }
+
+  /* === Per-file section === */
+  .file-section {
+    border: 1px solid var(--coolgray);
+    border-radius: 6px;
+    margin-bottom: 18px;
+    overflow: hidden;
+  }
+  .file-head {
+    background: var(--def-blue);
+    color: #fff;
+    padding: 14px 18px;
+  }
+  .file-head .num {
+    font-size: 11px;
+    opacity: 0.7;
+    letter-spacing: 1px;
+  }
+  .file-head h3 {
+    font-size: 18px;
+    margin: 2px 0 6px;
+    font-weight: 700;
+  }
+  .file-head .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 12px;
+    opacity: 0.92;
+  }
+  .file-head code {
+    background: rgba(255, 255, 255, 0.15);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+  .module-pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    background: var(--def-green);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .file-body { padding: 18px 22px; }
+
+  .in-base-note {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    padding: 8px 12px;
+    border-radius: 3px;
+    font-size: 12px;
+    margin-bottom: 14px;
+  }
+
+  /* === Change blocks === */
+  .change-block { margin-bottom: 18px; }
+  .change-block:last-child { margin-bottom: 0; }
+  .change-block h4 {
+    font-size: 13px;
+    margin: 0 0 8px;
+    color: var(--def-blue);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .change-block h4 .count {
+    background: var(--def-green);
+    color: #fff;
+    border-radius: 10px;
+    padding: 1px 8px;
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+  .change-block.removed h4 { color: var(--del); }
+  .change-block.removed h4 .count { background: var(--del); }
+  .change-block.modified h4 { color: var(--warn); }
+  .change-block.modified h4 .count { background: var(--warn); }
+  .change-block.renamed h4 { color: var(--darkgray); }
+  .change-block.renamed h4 .count { background: var(--darkgray); }
+  .change-block.shifted h4 { color: var(--darkgray); }
+  .change-block.shifted h4 .count { background: var(--darkgray); }
+
+  .ct {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .ct th {
+    background: var(--coolgray);
+    color: var(--midnight);
+    padding: 7px 9px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #ccc;
+  }
+  .ct th.num {
+    text-align: right;
+    padding-right: 14px;
+  }
+  .ct td {
+    padding: 8px 9px;
+    border-bottom: 1px solid #f0f0f0;
+    vertical-align: middle;
+  }
+  .ct td.num {
+    text-align: right;
+    width: 1%;
+    white-space: nowrap;
+    padding-right: 14px;
+    color: var(--darkgray);
+    font-variant-numeric: tabular-nums;
+  }
+  .ct td.field {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 11.5px;
+  }
+  .ct .center { text-align: center; }
+  .ct th.action-col,
+  .ct td.action-col {
+    text-align: center;
+    width: 56px;
+    background: rgba(13, 44, 113, 0.03);
+    border-left: 1px solid #f0f0f0;
+  }
+  .ct td.action-col.dim { background: #f8f8f8; }
+  .ct .checkbox {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--def-blue);
+    border-radius: 2px;
+    vertical-align: middle;
+  }
+  .ct .checkbox.dash {
+    border-style: dashed;
+    opacity: 0.4;
+  }
+  .ct .checkbox.del { border-color: var(--del); }
+  .ct .checkbox.warn { border-color: var(--warn); }
+  .ct .dash-cell {
+    text-align: center;
+    color: #ccc;
+  }
+  .ct .badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .ct .badge.warn-text {
+    background: var(--warn-bg);
+    color: var(--warn);
+    border: 1px solid var(--warn);
+  }
+  .type-arrow {
+    color: var(--darkgray);
+    padding: 0 4px;
+  }
+  .type-old {
+    color: var(--darkgray);
+    text-decoration: line-through;
+    opacity: 0.7;
+  }
+  .type-new {
+    color: var(--midnight);
+    font-weight: 600;
+  }
+  .renamed-note {
+    font-size: 11px;
+    color: var(--darkgray);
+    margin-top: 6px;
+    font-style: italic;
+  }
+
+  /* === Shift summary + collapsible === */
+  .summary-box {
+    background: var(--bg-soft);
+    border-left: 4px solid var(--def-green);
+    padding: 10px 14px;
+    border-radius: 3px;
+    font-size: 12.5px;
+    margin-bottom: 8px;
+  }
+  details.shift-details {
+    border: 1px solid var(--coolgray);
+    border-radius: 4px;
+    margin-top: 8px;
+  }
+  details.shift-details > summary {
+    padding: 8px 14px;
+    cursor: pointer;
+    background: var(--bg-soft);
+    font-size: 12px;
+    color: var(--def-blue);
+    font-weight: 600;
+    list-style: none;
+    user-select: none;
+  }
+  details.shift-details > summary::-webkit-details-marker { display: none; }
+  details.shift-details > summary::before {
+    content: '\25B6';
+    margin-right: 6px;
+    transition: transform 0.15s;
+    display: inline-block;
+    font-size: 9px;
+  }
+  details.shift-details[open] > summary::before { transform: rotate(90deg); }
+  details.shift-details > div {
+    padding: 10px 14px;
+    border-top: 1px solid var(--coolgray);
+  }
+  .shift-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 24px;
+    font-size: 12px;
+  }
+  .shift-grid .row {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 8px;
+    border-bottom: 1px solid #f5f5f5;
+  }
+  .shift-grid .arrow { color: var(--darkgray); }
+  .shift-grid .new-pos {
+    color: var(--def-green);
+    font-weight: 600;
+  }
+  .shift-grid .old-pos { color: var(--darkgray); }
+
+  /* === Pending base list === */
+  .pending-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .pending-list li {
+    padding: 10px 14px;
+    border: 1px solid var(--coolgray);
+    border-radius: 4px;
+    margin-bottom: 6px;
+    background: var(--bg-soft);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12.5px;
+  }
+  .pending-list .name b { color: var(--def-blue); }
+  .pending-list .pending-count {
+    color: var(--darkgray);
+    font-size: 11px;
+  }
+  .pending-footnote {
+    font-size: 11px;
+    color: var(--darkgray);
+    margin-top: 8px;
+    font-style: italic;
+  }
+
+  /* === Print mode (PDF render) — page break hints === */
+  @media print {
+    .file-section { page-break-inside: avoid; }
+    .change-block { page-break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
@@ -231,7 +505,245 @@
   </table>
 </div>
 
-<!-- Per-file sections — added in Task 11 -->
+<!-- Section 3: Required changes by FBDI file -->
+{% if ctx.file_sections %}
+<div class="section">
+  <h2>3. Required changes by FBDI file</h2>
+  <div class="lede">For each tab: Added, Removed, Modified, Renamed, Shifted. Action columns mark where consultants act in their Applaud install (DB table, IF = Import Form, EF = Export Form).</div>
+
+  {% for s in ctx.file_sections %}
+  <div class="file-section">
+    <div class="file-head">
+      <div class="num">3.{{ loop.index }}</div>
+      <h3>{{ s.file }}</h3>
+      <div class="meta">
+        <span><b>FBDI Tab:</b> {{ s.tab }}</span>
+        <span><b>Applaud Table:</b> {{ s.applaud_table }}</span>
+        <span><b>Prefix:</b> <code>{{ s.prefix }}</code></span>
+        <span class="module-pill">{{ s.module }}</span>
+      </div>
+    </div>
+    <div class="file-body">
+
+      {% if s.in_base_note %}
+      <div class="in-base-note"><b>Note:</b> {{ s.in_base_note }}</div>
+      {% endif %}
+
+      {% if s.changes_by_type.get('ADDED') %}
+      <div class="change-block">
+        <h4>Added <span class="count">{{ s.changes_by_type['ADDED'] | length }}</span></h4>
+        <table class="ct">
+          <thead>
+            <tr>
+              <th>Applaud Field</th>
+              <th class="num">Pos</th>
+              <th>Oracle Type</th>
+              <th>Applaud Type</th>
+              <th>Required</th>
+              <th class="action-col" title="Database">DB</th>
+              <th class="action-col" title="Import Form">IF</th>
+              <th class="action-col" title="Export Form">EF</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in s.changes_by_type['ADDED'] %}
+            <tr>
+              <td class="field">{{ r.applaud_field_name }}{% if r.name_exceeds_30 %} <span class="badge warn-text" title="Exceeds 30 char limit">&#9888; {{ r.name_length }} chars</span>{% endif %}</td>
+              <td class="num">{{ r.new_position }}</td>
+              <td>{{ r.oracle_type_str }}</td>
+              <td>{{ r.applaud_type_str }}</td>
+              <td class="center">{% if r.required is true %}TRUE{% elif r.required is false %}FALSE{% endif %}</td>
+              <td class="action-col"><span class="checkbox" title="Add column"></span></td>
+              <td class="action-col"><span class="checkbox" title="Add field"></span></td>
+              <td class="action-col"><span class="checkbox" title="Add field"></span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      {% if s.changes_by_type.get('REMOVED') %}
+      <div class="change-block removed">
+        <h4>Removed <span class="count">{{ s.changes_by_type['REMOVED'] | length }}</span></h4>
+        <table class="ct">
+          <thead>
+            <tr>
+              <th>Applaud Field</th>
+              <th class="num">Was at Pos</th>
+              <th>Oracle Type</th>
+              <th class="action-col" title="Database">DB</th>
+              <th class="action-col" title="Import Form">IF</th>
+              <th class="action-col" title="Export Form">EF</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in s.changes_by_type['REMOVED'] %}
+            <tr>
+              <td class="field">{{ r.applaud_field_name }}</td>
+              <td class="num">{{ r.old_position }}</td>
+              <td>{{ r.oracle_type_str }}</td>
+              <td class="action-col"><span class="checkbox del" title="Drop column"></span></td>
+              <td class="action-col"><span class="checkbox del" title="Remove field"></span></td>
+              <td class="action-col"><span class="checkbox del" title="Remove field"></span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      {% if s.changes_by_type.get('MODIFIED') %}
+      <div class="change-block modified">
+        <h4>Modified <span class="count">{{ s.changes_by_type['MODIFIED'] | length }}</span></h4>
+        <table class="ct">
+          <thead>
+            <tr>
+              <th>Applaud Field</th>
+              <th class="num">Pos</th>
+              <th>Change</th>
+              <th class="action-col" title="Database">DB</th>
+              <th class="action-col" title="Import Form">IF</th>
+              <th class="action-col" title="Export Form">EF</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in s.changes_by_type['MODIFIED'] %}
+            {% set has_type_change = ('type' in r.sub_kinds) or ('length' in r.sub_kinds) or ('scale' in r.sub_kinds) %}
+            {% set has_required_change = 'required' in r.sub_kinds %}
+            <tr>
+              <td class="field">{{ r.applaud_field_name }}</td>
+              <td class="num">{{ r.new_position }}</td>
+              <td>
+                {% if has_type_change %}Type: <span class="type-old">{{ r.old_oracle_type_str }}</span><span class="type-arrow">&rarr;</span><span class="type-new">{{ r.new_oracle_type_str }}</span>{% endif %}
+                {% if has_type_change and has_required_change %}<br>{% endif %}
+                {% if has_required_change %}Required: <span class="type-old">{{ 'TRUE' if r.old_required else 'FALSE' }}</span><span class="type-arrow">&rarr;</span><span class="type-new">{{ 'TRUE' if r.new_required else 'FALSE' }}</span> <span class="badge warn-text">flag only</span>{% endif %}
+              </td>
+              <td class="action-col"><span class="checkbox warn" title="Alter column"></span></td>
+              {% if has_required_change and not has_type_change %}
+              <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
+              <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
+              {% else %}
+              <td class="action-col"><span class="checkbox warn" title="Update length validation"></span></td>
+              <td class="action-col"><span class="checkbox warn" title="Update length validation"></span></td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      {% if s.changes_by_type.get('RENAMED') %}
+      <div class="change-block renamed">
+        <h4>Renamed <span class="count">{{ s.changes_by_type['RENAMED'] | length }}</span></h4>
+        <table class="ct">
+          <thead>
+            <tr>
+              <th>Applaud Field</th>
+              <th class="num">Pos</th>
+              <th>Label change</th>
+              <th class="action-col" title="Database">DB</th>
+              <th class="action-col" title="Import Form">IF</th>
+              <th class="action-col" title="Export Form">EF</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in s.changes_by_type['RENAMED'] %}
+            <tr>
+              <td class="field">{{ r.applaud_field_name }}</td>
+              <td class="num">{{ r.new_position }}</td>
+              <td><span class="type-old">"{{ r.old_label }}"</span><span class="type-arrow">&rarr;</span><span class="type-new">"{{ r.new_label }}"</span></td>
+              <td class="action-col"><span class="checkbox dash" title="Optional: update DB description"></span></td>
+              <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
+              <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="renamed-note">Renamed labels are low priority. The DB data element description in Applaud may be updated; no IF or EF action is required.</div>
+      </div>
+      {% endif %}
+
+      {% if s.changes_by_type.get('SHIFTED') %}
+      <div class="change-block shifted">
+        <h4>Shifted <span class="count">{{ s.changes_by_type['SHIFTED'] | length }}</span></h4>
+        <div class="summary-box">{{ s.shift_summary }}</div>
+        {% if print_mode %}
+        <div class="shift-grid">
+          {% for r in s.changes_by_type['SHIFTED'] %}
+          <div class="row"><span>{{ r.applaud_field_name }}</span><span><span class="old-pos">{{ r.old_position }}</span> <span class="arrow">&rarr;</span> <span class="new-pos">{{ r.new_position }}</span></span></div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <details class="shift-details">
+          <summary>Show all {{ s.changes_by_type['SHIFTED'] | length }} shifted fields</summary>
+          <div>
+            <div class="shift-grid">
+              {% for r in s.changes_by_type['SHIFTED'] %}
+              <div class="row"><span>{{ r.applaud_field_name }}</span><span><span class="old-pos">{{ r.old_position }}</span> <span class="arrow">&rarr;</span> <span class="new-pos">{{ r.new_position }}</span></span></div>
+              {% endfor %}
+            </div>
+          </div>
+        </details>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if s.changes_by_type.get('MULTI') %}
+      <div class="change-block modified">
+        <h4>Multi-axis changes <span class="count">{{ s.changes_by_type['MULTI'] | length }}</span></h4>
+        <table class="ct">
+          <thead>
+            <tr>
+              <th>Applaud Field</th>
+              <th class="num">Was</th>
+              <th class="num">Now</th>
+              <th>Axes Changed</th>
+              <th class="action-col" title="Database">DB</th>
+              <th class="action-col" title="Import Form">IF</th>
+              <th class="action-col" title="Export Form">EF</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in s.changes_by_type['MULTI'] %}
+            <tr>
+              <td class="field">{{ r.applaud_field_name }}</td>
+              <td class="num">{{ r.old_position if r.old_position is not none else '&mdash;' | safe }}</td>
+              <td class="num">{{ r.new_position if r.new_position is not none else '&mdash;' | safe }}</td>
+              <td>{{ r.axes | join(', ') }}{% if r.sub_kinds %} ({{ r.sub_kinds | join(', ') }}){% endif %}</td>
+              <td class="action-col"><span class="checkbox warn"></span></td>
+              <td class="action-col"><span class="checkbox warn"></span></td>
+              <td class="action-col"><span class="checkbox warn"></span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Section 4: Pending base-system tables -->
+{% if ctx.pending_base %}
+<div class="section">
+  <h2>4. Pending base-system tables</h2>
+  <div class="lede">FBDI tabs mapped to an Applaud target table not yet present in the standard base install. Listed for the platform team's visibility; not actionable for client-install consultants.</div>
+  <ul class="pending-list">
+    {% for p in ctx.pending_base %}
+    <li>
+      <span class="name"><b>{{ p.file }}</b> &middot; {{ p.tab }} &rarr; <code>{{ p.applaud_table }}</code> &middot; <code>{{ p.prefix }}</code> <span class="module-tag" style="margin-left:6px">{{ p.module }}</span></span>
+      <span class="pending-count">{{ p.change_count }} change{% if p.change_count != 1 %}s{% endif %} pending</span>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="pending-footnote">For full per-field detail on pending-base tables, see <code>FBDI_Master_Catalog.xlsx</code> &middot; Drift sheet.</div>
+</div>
+{% endif %}
 
 </body>
 </html>
