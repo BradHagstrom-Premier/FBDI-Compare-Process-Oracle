@@ -1,6 +1,6 @@
 ---
 name: fbdi-compare-release
-description: "Use when Oracle ships a quarterly FBDI release and the user wants the full download → clear → compare → catalog pipeline run end-to-end. Triggers on phrases like 'Oracle released 26C', 'compare 26A to 26B', 'run the quarterly FBDI update', 'update the FBDI Master Catalog for 26B', 'new FBDI release dropped', 'FBDI refresh for Q1'. Does NOT trigger on near-miss phrases like 'compare these two spreadsheets' or 'run the test suite'."
+description: "Use when Oracle ships a quarterly FBDI release and the user wants the full download → clear → compare → catalog pipeline run end-to-end. Triggers on phrases like 'Oracle released 26C', 'compare 26A to 26B', 'run the quarterly FBDI update', 'update the FBDI Master Catalog for 26B', 'new FBDI release dropped', 'FBDI refresh for Q1'. Also triggers on report-only phrases like 'generate compliance report', 'generate the report for 26A 26B', 'regenerate the PDF', 'generate the HTML report' — for these, verify FBDI_Master_Catalog.xlsx and FBDI_to_ApplaudTables_Mapping.xlsx exist at repo root, then jump directly to Stage 9. Does NOT trigger on near-miss phrases like 'compare these two spreadsheets' or 'run the test suite'."
 ---
 
 # FBDI Compare-Release Orchestrator
@@ -392,3 +392,78 @@ Each stage is idempotent on output-existence terms:
 If interrupted at Stage 5, re-invoking the skill skips 1-4 (env still
 healthy, downloads still present, blanks still cleared) and resumes from
 compare.
+
+## Stage 9 — Compliance Report
+
+After Stage 8 finishes — or, for a standalone report-only invocation (triggered
+by a report phrase rather than a full-pipeline phrase), immediately — present
+HITL #8.
+
+**Standalone preflight:** When Stage 9 is reached via a report-only invocation
+(Stages 1–8 were skipped), first confirm both required inputs exist at repo root:
+
+- `FBDI_Master_Catalog.xlsx`
+- `FBDI_to_ApplaudTables_Mapping.xlsx`
+
+If either is missing, stop:
+
+> "`<filename>` not found at repo root. Run the full pipeline (Stages 1–6)
+> first to generate it, or check your working directory."
+
+**HITL #8 — validation gate:**
+
+For a **full pipeline run** (Stages 1–8 just completed), present:
+
+> "Pipeline complete. Before generating the formal compliance report, please
+> validate the Excel outputs:
+>
+> - `Comparison_Report_<OLD>_<NEW>.xlsx` — do the total change count and top
+>   files from Stage 7 look plausible? Any files that look wrong?
+> - `FBDI_Master_Catalog.xlsx` — open the `<NEW>` sheet and spot-check a few
+>   rows. Reasonable row count? No obvious gaps or blank data columns?
+>
+> Ready to generate the HTML and PDF compliance report? (yes / skip)"
+
+For a **standalone report-only invocation** (Stages 1–8 skipped), replace the
+opener:
+
+> "Ready to generate the compliance report for `<OLD>` → `<NEW>`. Before
+> generating, please validate the Excel outputs:
+>
+> - `Comparison_Report_<OLD>_<NEW>.xlsx` — do the total change count and top
+>   files look plausible? Any files that look wrong?
+> - `FBDI_Master_Catalog.xlsx` — open the `<NEW>` sheet and spot-check a few
+>   rows. Reasonable row count? No obvious gaps or blank data columns?
+>
+> Ready to generate the HTML and PDF compliance report? (yes / skip)"
+
+If the user says **skip**, log `Compliance Report skipped at user request` and end.
+
+**Report generation:**
+
+```
+python -m fbdi report --old <OLD> --new <NEW>
+```
+
+Expected wall time: ~5–15 seconds.
+
+On success, print:
+
+```
+Compliance Report generated:
+  HTML: FBDI_Compliance_Report_<OLD>_<NEW>.html
+  PDF:  FBDI_Compliance_Report_<OLD>_<NEW>.pdf
+```
+
+**Error handling:**
+
+- **Mapping file missing** (CLI exits 1): Surface as — *"The mapping file
+  `FBDI_to_ApplaudTables_Mapping.xlsx` wasn't found. This file is required for
+  the compliance report. Is it in the repo root? If not, the report can't be
+  generated until it's present."*
+
+- **PDF rendering fails (GTK/weasyprint traceback):** Parse the exception type
+  and say — *"PDF generation failed — this usually means MSYS2/GTK isn't set
+  up. See Known Hazards in CLAUDE.md for the install steps. The HTML file was
+  likely written successfully; check `FBDI_Compliance_Report_<OLD>_<NEW>.html`
+  first."*
