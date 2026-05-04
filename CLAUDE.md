@@ -8,7 +8,7 @@ This file gives Claude Code persistent context for this project. Read it at the 
 
 ## Project Purpose
 
-This repo automates comparison of Oracle FBDI (File-Based Data Import) template files (`.xlsm`) between Oracle Cloud release versions. The goal is to identify field-level changes (added, removed, modified columns) across releases so that Brad and Dan can keep Definian's Oracle integrations current. The primary deliverable is a structured Excel comparison report.
+This repo automates comparison of Oracle FBDI (File-Based Data Import) template files (`.xlsm`) between Oracle Cloud release versions. The goal is to identify field-level changes (added, removed, modified columns) across releases so that Definian's Oracle integration team can keep client integrations current. Primary deliverables are a structured Excel comparison report and an HTML/PDF compliance report.
 
 ---
 
@@ -77,7 +77,7 @@ python -m pytest tests/test_clear.py -v
 ## Current Frontier
 
 - **FBDI → Applaud mapping** — `FBDI_to_ApplaudTables_Mapping.xlsx` (scaffolded by `fbdi/build_mapping.py`, maintained by Brad). No TBD rows as of 2026-05-04. Module column auto-populated via `python -m fbdi populate-module` from `file_modules.json`. New FBDI tabs/files added in future releases may introduce TBD rows requiring manual review.
-- **`python -m fbdi run`** (not built) — Would chain download → compare → report in a single command.
+- **`python -m fbdi run`** (designed, not built) — Headless chained pipeline (download → clear → compare → catalog → populate-module → report). See `docs/superpowers/plans/2026-05-04-fbdi-run-headless-pipeline.md` for the implementation plan.
 
 ---
 
