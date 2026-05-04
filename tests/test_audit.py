@@ -168,7 +168,7 @@ def _make_prior_mapping_xlsx(tmp_path: Path) -> Path:
     ws2.append([1, "T_RA_INTERFACE_LINES_ALL", "YES", "TA4",
                  "AutoInvoiceImportTemplate / RA_INTERFACE_LINES_ALL", "Financials", ""])
     ws2.append([2, "T_GHOST_TABLE", "UNMAPPED", "", "", "HR", "no match found"])
-    path = tmp_path / "fbdi_applaud_mapping.xlsx"
+    path = tmp_path / "FBDI_to_ApplaudTables_Mapping.xlsx"
     wb.save(path)
     return path
 
@@ -849,7 +849,7 @@ def _make_e2e_prior(tmp_path: Path) -> Path:
     ]
     for r in rows:
         ws2.append(r)
-    p = tmp_path / "fbdi_applaud_mapping.xlsx"
+    p = tmp_path / "FBDI_to_ApplaudTables_Mapping.xlsx"
     wb.save(p)
     return p
 

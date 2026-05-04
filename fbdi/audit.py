@@ -2,7 +2,7 @@
 audit.py — FBDI ↔ Applaud mapping audit engine.
 
 Consumes applaud_snapshot.json + FBDI_Master_Catalog.xlsx (26B) +
-fbdi_applaud_mapping.xlsx and produces Claude_fbdi_applaud_mapping.xlsx
+FBDI_to_ApplaudTables_Mapping.xlsx and produces Claude_fbdi_applaud_mapping.xlsx
 (3 sheets) + Claude_fbdi_applaud_mapping_audit.md.
 
 Run: python -m fbdi.audit
@@ -25,7 +25,7 @@ from openpyxl.utils import get_column_letter
 REPO_ROOT = Path(__file__).parent.parent
 SNAPSHOT_PATH = REPO_ROOT / "baselines" / "applaud" / "applaud_snapshot.json"
 CATALOG_PATH = REPO_ROOT / "FBDI_Master_Catalog.xlsx"
-PRIOR_MAPPING_PATH = REPO_ROOT / "fbdi_applaud_mapping.xlsx"
+PRIOR_MAPPING_PATH = REPO_ROOT / "FBDI_to_ApplaudTables_Mapping.xlsx"
 OUTPUT_MAPPING_PATH = REPO_ROOT / "Claude_fbdi_applaud_mapping.xlsx"
 OUTPUT_AUDIT_PATH = REPO_ROOT / "Claude_fbdi_applaud_mapping_audit.md"
 CATALOG_RELEASE = "26B"
@@ -866,7 +866,7 @@ def write_audit_md(
         f"**Generated:** {datetime.now(timezone.utc).isoformat()}",
         f"**Snapshot:** baselines/applaud/applaud_snapshot.json @ {snapshot_meta.get('extracted_at', 'unknown')}",
         "**Catalog:** FBDI_Master_Catalog.xlsx 26B tab",
-        "**Prior mapping:** fbdi_applaud_mapping.xlsx",
+        "**Prior mapping:** FBDI_to_ApplaudTables_Mapping.xlsx",
         "",
         "## Summary",
         "",

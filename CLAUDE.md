@@ -54,8 +54,8 @@ python -m pytest tests/test_clear.py -v
   - `type_parser.py` — parses Oracle data-type strings (`VARCHAR2(N CHAR)`, `NUMBER(p,s)`, `DATE`, `DATE(YYYY/MM/DD)`, `TimeStamp(hh24:mm)`, trailing-period variants) into structured fields. Emits `TYPE_PARSE_WARNING` only for genuinely malformed strings.
   - `_subprocess_util.py` — shared `run_worker(target, args, timeout)` helper used by `catalog.py` and `compare.py`. Drains the result queue *before* joining the child process — required to avoid a pipe-buffer deadlock on Windows when payloads exceed ~64 KB.
   - `catalog_normalize.py` — normalizes FBDI labels (strips non-alphanumeric/underscore/whitespace) for Applaud MDB compatibility.
-  - `build_mapping.py` — builds the `fbdi_applaud_mapping.xlsx` workbook that maps FBDI tabs/fields to Applaud target tables for downstream integrations.
-  - `audit.py` — FBDI ↔ Applaud mapping audit engine. Reads `baselines/applaud/applaud_snapshot.json` (gitignored), `FBDI_Master_Catalog.xlsx`, and the working `fbdi_applaud_mapping.xlsx`. Two-pass signal scoring + adjudication; emits `Claude_fbdi_applaud_mapping.xlsx` and a markdown audit report.
+  - `build_mapping.py` — builds the `FBDI_to_ApplaudTables_Mapping.xlsx` workbook that maps FBDI tabs/fields to Applaud target tables for downstream integrations.
+  - `audit.py` — FBDI ↔ Applaud mapping audit engine. Reads `baselines/applaud/applaud_snapshot.json` (gitignored), `FBDI_Master_Catalog.xlsx`, and the working `FBDI_to_ApplaudTables_Mapping.xlsx`. Two-pass signal scoring + adjudication; emits `Claude_fbdi_applaud_mapping.xlsx` and a markdown audit report.
   - `populate_module.py` — surgical column-F updater for `FBDI_to_ApplaudTables_Mapping.xlsx`. Reads `baselines/<ver>/file_modules.json` (NEW wins, OLD fallback). Uses openpyxl full mode so formatting/formulas/freeze-panes are preserved.
   - `align.py` — pure LCS-style alignment algorithm. `align_tabs(old_rows, new_rows) -> list[Change]`. Classifies changes across three axes (label, metadata, position); SHIFTED/RENAMED/MODIFIED/ADDED/REMOVED/MULTI. Shared by `catalog.py` (Drift writer) and `report.py`.
   - `applaud_type.py` — Oracle → Applaud type translator. `applaud_type_for(parsed_type) -> str`. Maps `VARCHAR2(N)` → `char N`, `NUMBER(p,s)` → `numeric p,s`, `DATE`/`TIMESTAMP` → `date`, etc.
@@ -76,7 +76,7 @@ python -m pytest tests/test_clear.py -v
 
 ## Current Frontier
 
-- **FBDI → Applaud mapping** — `fbdi_applaud_mapping.xlsx` (built by `fbdi/build_mapping.py`) is partially populated; Brad fills in TBD rows manually. The Module column is now auto-populated via `python -m fbdi populate-module` from `file_modules.json` (100% as of 2026-05-01 rerun).
+- **FBDI → Applaud mapping** — `FBDI_to_ApplaudTables_Mapping.xlsx` (scaffolded by `fbdi/build_mapping.py`, maintained by Brad). No TBD rows as of 2026-05-04. Module column auto-populated via `python -m fbdi populate-module` from `file_modules.json`. New FBDI tabs/files added in future releases may introduce TBD rows requiring manual review.
 - **`python -m fbdi run`** (not built) — Would chain download → compare → report in a single command.
 
 ---

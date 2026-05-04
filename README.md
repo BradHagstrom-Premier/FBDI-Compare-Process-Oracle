@@ -109,6 +109,5 @@ python -m pytest tests/test_clear.py -v
 
 ## Status
 
-- **Shipped:** comparison engine, CLI (`fbdi compare` / `catalog` / `diagnose`), smart clearing, `download_and_clear` Selenium driver, FBDI master catalog, Applaud mapping audit, `fbdi-compare-release` Claude Code skill, 241-test suite.
-- **In progress:** `fbdi_applaud_mapping.xlsx` manual review.
-- **Planned:** `report.py` (compliance change-tracking report generation, blocked on mapping finalization); `python -m fbdi run` (chained pipeline).
+- **Shipped:** comparison engine, CLI (`fbdi compare` / `catalog` / `diagnose` / `report`), smart clearing, `download_and_clear` Selenium driver, FBDI master catalog, Applaud mapping audit, `fbdi-compare-release` Claude Code skill, `FBDI_to_ApplaudTables_Mapping.xlsx` mapping complete (no TBD rows), 320-test suite.
+- **Planned:** `python -m fbdi run` (chained pipeline).

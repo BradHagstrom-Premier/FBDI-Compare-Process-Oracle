@@ -6,9 +6,9 @@
 
 Oracle ships updated FBDI (File-Based Data Import) templates each quarter. Definian's integrations are built on top of those templates, and when Oracle renames, adds, or removes fields, the integrations break silently unless someone catches it. This repo automates the catching: given two releases (say 26A and 26B), it produces a field-level diff across every FBDI template so Brad and Dan know exactly what changed before a client goes live.
 
-What's shipped and working: a comparison engine that diffs all template pairs, a per-release catalog that snapshots every field with its type and metadata, a Selenium-based downloader, a smart-clear tool that strips sample data from templates while preserving headers, an Applaud mapping audit that checks whether FBDI fields are covered by downstream Applaud target tables, 241 unit tests, and an orchestrator skill that chains all of it with human-in-the-loop checkpoints.
+What's shipped and working: a comparison engine that diffs all template pairs, a per-release catalog that snapshots every field with its type and metadata, a Selenium-based downloader, a smart-clear tool that strips sample data from templates while preserving headers, an Applaud mapping audit that checks whether FBDI fields are covered by downstream Applaud target tables, a compliance report generator (HTML + PDF via `fbdi report`), 320 unit tests, and an orchestrator skill that chains all of it with human-in-the-loop checkpoints.
 
-What's on the frontier: the FBDI-to-Applaud mapping (`fbdi_applaud_mapping.xlsx`) is partially complete. Brad is filling in the TBD rows manually. `report.py`, which will reformat comparison output into the client compliance change-tracking format, is not built yet. Neither is `python -m fbdi run`, which would chain download → compare → catalog in one shot.
+What's on the frontier: `python -m fbdi run` (not built) would chain download → compare → catalog → report in one shot. The FBDI-to-Applaud mapping (`FBDI_to_ApplaudTables_Mapping.xlsx`) is complete with no TBD rows as of 2026-05-04; new FBDI tabs added in future Oracle releases may introduce rows needing manual review.
 
 The authoritative source of truth for current state is `CLAUDE.md` at the repo root.
 
@@ -34,7 +34,7 @@ The authoritative source of truth for current state is `CLAUDE.md` at the repo r
    ```
    python -m pytest tests/
    ```
-   Expect 241 passed, no failures or errors.
+   Expect 320 passed, no failures or errors.
 
 ## Codebase tour
 
@@ -54,9 +54,9 @@ Everything domain-specific lives under `fbdi/`. The `tools/` directory holds the
 
 **`fbdi/_subprocess_util.py`** is the shared worker harness. Both `compare.py` and `catalog.py` call `run_worker(target, args, timeout)` to run file processing in a fresh subprocess. The implementation detail that matters most: the queue is drained before `join()` is called. On Windows, `multiprocessing.Queue.put()` hands off to a background feeder thread that writes to an OS pipe with roughly a 64 KB buffer. If the parent calls `join()` before reading the queue, the feeder blocks because the pipe is full, the child can't exit, and `join()` times out. This was an actual historical bug that caused `ChangeOrderImportTemplate` and `ItemImportTemplate` to report bogus TIMEOUT in the catalog; both files produce payloads larger than 64 KB. Do not refactor `run_worker` without understanding this constraint.
 
-**`fbdi/audit.py`** is the Applaud mapping audit engine. It reads `applaud_snapshot.json` (at `baselines/applaud/applaud_snapshot.json`), `FBDI_Master_Catalog.xlsx`, and the working `fbdi_applaud_mapping.xlsx`. Two-pass adjudication: score signals like name similarity and prefix matching, then classify each FBDI tab as YES, NEEDS_REVIEW, or UNMAPPED. Outputs are `Claude_fbdi_applaud_mapping.xlsx` (three sheets) and a markdown audit report.
+**`fbdi/audit.py`** is the Applaud mapping audit engine. It reads `applaud_snapshot.json` (at `baselines/applaud/applaud_snapshot.json`), `FBDI_Master_Catalog.xlsx`, and the working `FBDI_to_ApplaudTables_Mapping.xlsx`. Two-pass adjudication: score signals like name similarity and prefix matching, then classify each FBDI tab as YES, NEEDS_REVIEW, or UNMAPPED. Outputs are `Claude_fbdi_applaud_mapping.xlsx` (three sheets) and a markdown audit report.
 
-**`fbdi/build_mapping.py`** built the initial scaffold of `fbdi_applaud_mapping.xlsx`. It's a one-shot utility that scanned the 25D and 26A baselines, enumerated tabs, merged 9 known hardcoded Applaud mappings, and wrote the starting point. Most rows are TBD, pending manual review.
+**`fbdi/build_mapping.py`** built the initial scaffold of `FBDI_to_ApplaudTables_Mapping.xlsx`. It's a one-shot utility that scanned the 25D and 26A baselines, enumerated tabs, merged 9 known hardcoded Applaud mappings, and wrote the starting point.
 
 **`fbdi/catalog_normalize.py`** is a single function, `normalize_label()`. It strips characters Applaud doesn't handle cleanly (asterisks, punctuation, symbols) while preserving alphanumerics, underscores, and whitespace. Applied only to user-facing labels; technical names are left alone.
 

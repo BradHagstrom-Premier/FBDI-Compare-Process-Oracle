@@ -2,7 +2,7 @@
 build_mapping.py — One-shot utility to build the FBDI-to-Applaud mapping spreadsheet.
 
 Scans baselines/25d/ and baselines/26a/, enumerates tabs from every xlsm file,
-merges 9 known Applaud mappings, and writes fbdi_applaud_mapping.xlsx at repo root.
+merges 9 known Applaud mappings, and writes FBDI_to_ApplaudTables_Mapping.xlsx at repo root.
 
 Run as module:  python -m fbdi.build_mapping
 """
@@ -27,7 +27,7 @@ BASELINES = {
     "25d": REPO_ROOT / "baselines" / "25d",
     "26a": REPO_ROOT / "baselines" / "26a",
 }
-OUTPUT_PATH = REPO_ROOT / "fbdi_applaud_mapping.xlsx"
+OUTPUT_PATH = REPO_ROOT / "FBDI_to_ApplaudTables_Mapping.xlsx"
 
 # ---------------------------------------------------------------------------
 # Known Applaud mappings  (fbdi_file_stem, fbdi_tab) → (applaud_table, prefix, module)
