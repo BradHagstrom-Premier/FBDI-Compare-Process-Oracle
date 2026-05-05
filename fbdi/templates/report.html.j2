@@ -4,17 +4,25 @@
 <meta charset="utf-8">
 <title>FBDI Compliance Report — {{ ctx.old_release }} → {{ ctx.new_release }}</title>
 <style>
-  /* === Definian palette — strict; do not introduce off-palette colors === */
+  /* === Definian Signal Palette — strict; do not introduce off-palette colors === */
   :root {
-    --def-blue: #0D2C71;
-    --def-green: #00AB63;
-    --midnight: #02072D;
-    --darkgray: #3C405B;
-    --coolgray: #D8D7EE;
-    --bg-soft: #F7F7FB;
-    --warn: #B8860B;
-    --warn-bg: #FFFBF0;
-    --del: #C0392B;
+    /* Primary */
+    --def-blue: #0D2C71;      /* Authority Blue — structural backbone */
+    --def-green: #00AB63;     /* Signal Green — additions, Financials, brand */
+    /* Neutrals */
+    --midnight: #02072D;      /* Near-Black Midnight — primary text */
+    --darkgray: #3C405B;      /* Slate Annotation — supporting text */
+    --coolgray: #D8D7EE;      /* Mist Divider — borders, structural lines */
+    --bg-soft: #F7F7FB;       /* Cloud Surface — card backgrounds */
+    --canvas: #FFFFFF;        /* Canvas — document ground */
+    /* Semantic supplementals */
+    --warn: #B8860B;          /* Caution Amber — modified fields */
+    --warn-bg: #FFFBF0;       /* Caution tint */
+    --del: #C0392B;           /* Remove Red — removed fields */
+    /* Derived interaction tokens */
+    --row-hover: rgba(13, 44, 113, 0.025);
+    --action-tint: rgba(13, 44, 113, 0.03);
+    --cell-border: rgba(13, 44, 113, 0.06);
   }
 
   /* === Base typography === */
@@ -22,13 +30,13 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: var(--midnight);
     margin: 0;
-    background: #fff;
+    background: var(--canvas);
   }
 
   /* === Cover === */
   .cover {
     background: linear-gradient(135deg, var(--def-blue) 0%, var(--midnight) 100%);
-    color: #fff;
+    color: var(--canvas);
     padding: 64px 48px;
     text-align: center;
   }
@@ -87,11 +95,10 @@
   }
   .module-card {
     background: var(--bg-soft);
-    border-left: 4px solid var(--def-blue);
+    border: 1px solid var(--coolgray);
     border-radius: 4px;
     padding: 14px 18px;
   }
-  .module-card.financials { border-left-color: var(--def-green); }
   .module-card .name {
     font-size: 13px;
     font-weight: 700;
@@ -100,6 +107,7 @@
     text-transform: uppercase;
     letter-spacing: 1px;
   }
+  .module-card.financials .name { color: var(--def-green); }
   .module-card .figures {
     display: flex;
     gap: 16px;
@@ -130,7 +138,7 @@
   }
   .summary-table th {
     background: var(--def-blue);
-    color: #fff;
+    color: var(--canvas);
     padding: 8px 10px;
     text-align: left;
     font-weight: 600;
@@ -141,7 +149,7 @@
   .summary-table th.num { text-align: right; }
   .summary-table td {
     padding: 7px 10px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--coolgray);
   }
   .summary-table td.num {
     text-align: right;
@@ -160,7 +168,7 @@
   }
   .module-tag.financials {
     background: var(--def-green);
-    color: #fff;
+    color: var(--canvas);
   }
 
   /* === Per-file section === */
@@ -172,7 +180,7 @@
   }
   .file-head {
     background: var(--def-blue);
-    color: #fff;
+    color: var(--canvas);
     padding: 14px 18px;
   }
   .file-head .num {
@@ -203,11 +211,14 @@
     padding: 2px 10px;
     border-radius: 12px;
     background: var(--def-green);
-    color: #fff;
+    color: var(--canvas);
     font-size: 11px;
     font-weight: 600;
   }
-  .file-body { padding: 18px 22px; }
+  .file-body {
+    padding: 18px 22px;
+    background: var(--canvas);
+  }
 
   .in-base-note {
     background: var(--warn-bg);
@@ -235,7 +246,7 @@
   }
   .change-block h4 .count {
     background: var(--def-green);
-    color: #fff;
+    color: var(--canvas);
     border-radius: 10px;
     padding: 1px 8px;
     font-size: 11px;
@@ -264,7 +275,7 @@
     font-size: 10.5px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    border-bottom: 1px solid #ccc;
+    border-bottom: 1px solid var(--coolgray);
   }
   .ct th.num {
     text-align: right;
@@ -272,7 +283,7 @@
   }
   .ct td {
     padding: 8px 9px;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--cell-border);
     vertical-align: middle;
   }
   .ct td.num {
@@ -292,28 +303,24 @@
   .ct td.action-col {
     text-align: center;
     width: 56px;
-    background: rgba(13, 44, 113, 0.03);
-    border-left: 1px solid #f0f0f0;
+    background: var(--action-tint);
+    border-left: 1px solid var(--cell-border);
   }
-  .ct td.action-col.dim { background: #f8f8f8; }
-  .ct .checkbox {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border: 1.5px solid var(--def-blue);
-    border-radius: 2px;
-    vertical-align: middle;
-  }
-  .ct .checkbox.dash {
-    border-style: dashed;
-    opacity: 0.4;
-  }
-  .ct .checkbox.del { border-color: var(--del); }
-  .ct .checkbox.warn { border-color: var(--warn); }
+  .ct td.action-col.dim { background: var(--bg-soft); }
   .ct .dash-cell {
     text-align: center;
-    color: #ccc;
+    color: var(--coolgray);
   }
+  /* PDF-only action indicators (colored dot signals action type) */
+  .pdf-action {
+    font-size: 11px;
+    line-height: 1;
+    color: var(--def-blue);
+    display: inline-block;
+  }
+  .pdf-action.pdf-del  { color: var(--del); }
+  .pdf-action.pdf-warn { color: var(--warn); }
+  .pdf-action.pdf-dash { color: var(--darkgray); opacity: 0.45; }
   .ct .badge {
     display: inline-block;
     padding: 1px 6px;
@@ -348,8 +355,8 @@
 
   /* === Shift summary + collapsible === */
   .summary-box {
-    background: var(--bg-soft);
-    border-left: 4px solid var(--def-green);
+    background: rgba(0, 171, 99, 0.05);
+    border: 1px solid rgba(0, 171, 99, 0.28);
     padding: 10px 14px;
     border-radius: 3px;
     font-size: 12.5px;
@@ -368,13 +375,12 @@
     color: var(--def-blue);
     font-weight: 600;
     list-style: none;
-    user-select: none;
+    transition: background 0.15s ease-out;
   }
-  details.shift-details > summary::-webkit-details-marker { display: none; }
   details.shift-details > summary::before {
     content: '\25B6';
     margin-right: 6px;
-    transition: transform 0.15s;
+    transition: transform 0.15s ease-out;
     display: inline-block;
     font-size: 9px;
   }
@@ -393,7 +399,7 @@
     display: flex;
     justify-content: space-between;
     padding: 3px 8px;
-    border-bottom: 1px solid #f5f5f5;
+    border-bottom: 1px solid var(--cell-border);
   }
   .shift-grid .arrow { color: var(--darkgray); }
   .shift-grid .new-pos {
@@ -431,10 +437,80 @@
     font-style: italic;
   }
 
-  /* === Print mode (PDF render) — page break hints === */
+  /* === HTML-only interactive states === */
+  @media screen {
+    .ct tbody tr:hover td { background: var(--row-hover); }
+    .ct tbody tr:hover td.action-col { background: var(--action-tint); }
+    details.shift-details > summary { user-select: none; }
+    details.shift-details > summary:hover { background: var(--coolgray); }
+    details.shift-details > summary::-webkit-details-marker { display: none; }
+    /* Interactive checkboxes */
+    input.action-check {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border: 1.5px solid var(--def-blue);
+      border-radius: 2px;
+      cursor: pointer;
+      vertical-align: middle;
+      margin: 0;
+      display: inline-block;
+      position: relative;
+      transition: background 0.1s ease-out, border-color 0.1s ease-out;
+    }
+    input.action-check::after {
+      content: '';
+      position: absolute;
+      display: none;
+      left: 4px;
+      top: 1px;
+      width: 5px;
+      height: 8px;
+      border: 1.5px solid var(--canvas);
+      border-top: none;
+      border-left: none;
+      transform: rotate(45deg);
+    }
+    input.action-check:checked { background: var(--def-blue); }
+    input.action-check:checked::after { display: block; }
+    input.action-check:hover { border-width: 2px; }
+    input.action-check.del { border-color: var(--del); }
+    input.action-check.del:checked { background: var(--del); }
+    input.action-check.warn { border-color: var(--warn); }
+    input.action-check.warn:checked { background: var(--warn); }
+    input.action-check.dash { border-style: dashed; opacity: 0.45; }
+    input.action-check.dash:checked { opacity: 1; border-style: solid; }
+    /* Summary table horizontal scroll */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  }
+
+  /* === Print mode (PDF) === */
   @media print {
+    @page { margin: 1.5cm 2cm; size: A4; }
+    body { font-size: 12px; }
+    .cover { padding: 48px 36px; }
+    .section { padding: 18px 24px; }
+    .file-body { padding: 12px 16px; }
+    .ct td, .ct th { padding: 6px 8px; }
+    .table-scroll { overflow: visible; }
+    .summary-table { table-layout: fixed; width: 100%; font-size: 10.5px; }
+    .summary-table th:nth-child(1) { width: 27%; }
+    .summary-table th:nth-child(2) { width: 22%; }
+    .summary-table th:nth-child(3) { width: 7%; }
+    .summary-table th:nth-child(4) { width: 20%; }
+    .summary-table th:nth-child(5),
+    .summary-table th:nth-child(6),
+    .summary-table th:nth-child(7),
+    .summary-table th:nth-child(8) { width: 6%; }
+    .summary-table td, .summary-table th { padding: 5px 6px; overflow: hidden; overflow-wrap: break-word; }
+    h2 { page-break-after: avoid; }
+    h3 { page-break-after: avoid; }
+    h4 { page-break-after: avoid; }
+    thead { display: table-header-group; }
     .file-section { page-break-inside: avoid; }
     .change-block { page-break-inside: avoid; }
+    .ct tbody tr:hover td { background: inherit; }
   }
 </style>
 </head>
@@ -475,6 +551,7 @@
 <div class="section">
   <h2>2. Summary by FBDI tab</h2>
   <div class="lede">{{ ctx.file_sections | length }} mapped tab{% if ctx.file_sections | length != 1 %}s{% endif %} have changes between {{ ctx.old_release }} and {{ ctx.new_release }}.</div>
+  <div class="table-scroll">
   <table class="summary-table">
     <thead>
       <tr>
@@ -503,6 +580,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 
 <!-- Section 3: Required changes by FBDI file -->
@@ -539,7 +617,7 @@
               <th class="num">Pos</th>
               <th>Oracle Type</th>
               <th>Applaud Type</th>
-              <th>Required</th>
+              <th class="center">Required</th>
               <th class="action-col" title="Database">DB</th>
               <th class="action-col" title="Import Form">IF</th>
               <th class="action-col" title="Export Form">EF</th>
@@ -553,9 +631,9 @@
               <td>{{ r.oracle_type_str }}</td>
               <td>{{ r.applaud_type_str }}</td>
               <td class="center">{% if r.required is true %}TRUE{% elif r.required is false %}FALSE{% endif %}</td>
-              <td class="action-col"><span class="checkbox" title="Add column"></span></td>
-              <td class="action-col"><span class="checkbox" title="Add field"></span></td>
-              <td class="action-col"><span class="checkbox" title="Add field"></span></td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" title="Add DB column">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" title="Add field to Import Form">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" title="Add field to Export Form">{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -583,9 +661,9 @@
               <td class="field">{{ r.applaud_field_name }}</td>
               <td class="num">{{ r.old_position }}</td>
               <td>{{ r.oracle_type_str }}</td>
-              <td class="action-col"><span class="checkbox del" title="Drop column"></span></td>
-              <td class="action-col"><span class="checkbox del" title="Remove field"></span></td>
-              <td class="action-col"><span class="checkbox del" title="Remove field"></span></td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" title="Drop DB column">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" title="Remove from Import Form">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" title="Remove from Export Form">{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -619,13 +697,13 @@
                 {% if has_type_change and has_required_change %}<br>{% endif %}
                 {% if has_required_change %}Required: <span class="type-old">{{ 'TRUE' if r.old_required else 'FALSE' }}</span><span class="type-arrow">&rarr;</span><span class="type-new">{{ 'TRUE' if r.new_required else 'FALSE' }}</span> <span class="badge warn-text">flag only</span>{% endif %}
               </td>
-              <td class="action-col"><span class="checkbox warn" title="Alter column"></span></td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Alter DB column">{% endif %}</td>
               {% if has_required_change and not has_type_change %}
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
               {% else %}
-              <td class="action-col"><span class="checkbox warn" title="Update length validation"></span></td>
-              <td class="action-col"><span class="checkbox warn" title="Update length validation"></span></td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Update Import Form field">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Update Export Form field">{% endif %}</td>
               {% endif %}
             </tr>
             {% endfor %}
@@ -654,7 +732,7 @@
               <td class="field">{{ r.applaud_field_name }}</td>
               <td class="num">{{ r.new_position }}</td>
               <td><span class="type-old">"{{ r.old_label }}"</span><span class="type-arrow">&rarr;</span><span class="type-new">"{{ r.new_label }}"</span></td>
-              <td class="action-col"><span class="checkbox dash" title="Optional: update DB description"></span></td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-dash">○</span>{% else %}<input type="checkbox" class="action-check dash" title="Optional: update DB description">{% endif %}</td>
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
             </tr>
@@ -712,9 +790,9 @@
               <td class="num">{{ r.old_position if r.old_position is not none else '&mdash;' | safe }}</td>
               <td class="num">{{ r.new_position if r.new_position is not none else '&mdash;' | safe }}</td>
               <td>{{ r.axes | join(', ') }}{% if r.sub_kinds %} ({{ r.sub_kinds | join(', ') }}){% endif %}</td>
-              <td class="action-col"><span class="checkbox warn"></span></td>
-              <td class="action-col"><span class="checkbox warn"></span></td>
-              <td class="action-col"><span class="checkbox warn"></span></td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Update DB column">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Update Import Form field">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Update Export Form field">{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>

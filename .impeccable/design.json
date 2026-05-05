@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-05T00:00:00Z",
+  "title": "Design System: Definian FBDI Compliance Report",
+  "extensions": {
+    "colorMeta": {
+      "blue-authority": {
+        "role": "primary",
+        "displayName": "Authority Blue",
+        "canonical": "#0D2C71",
+        "tonalRamp": ["#020B20", "#060F38", "#0A1A54", "#0D2C71", "#1A4090", "#3B65B8", "#8AAAD0", "#D3DEEF"]
+      },
+      "green-signal": {
+        "role": "primary",
+        "displayName": "Signal Green",
+        "canonical": "#00AB63",
+        "tonalRamp": ["#001F0D", "#003820", "#006038", "#008050", "#00AB63", "#33C07D", "#80D9A8", "#C5F0DC"]
+      },
+      "midnight": {
+        "role": "neutral",
+        "displayName": "Near-Black Midnight",
+        "canonical": "#02072D",
+        "tonalRamp": ["#010312", "#02072D", "#060D45", "#0E175C", "#1E2A7A", "#3C4A8C", "#7B88B8", "#C8CEDF"]
+      },
+      "slate-annotation": {
+        "role": "neutral",
+        "displayName": "Slate Annotation",
+        "canonical": "#3C405B",
+        "tonalRamp": ["#0A0B14", "#161929", "#21253C", "#3C405B", "#545A7C", "#7880A0", "#A0A6BE", "#CCCFDE"]
+      },
+      "mist-divider": {
+        "role": "neutral",
+        "displayName": "Mist Divider",
+        "canonical": "#D8D7EE",
+        "tonalRamp": ["#1A1B28", "#383A50", "#56587A", "#7A7D9E", "#9A9CB8", "#B8BAD0", "#D8D7EE", "#ECEBF5"]
+      },
+      "cloud-surface": {
+        "role": "neutral",
+        "displayName": "Cloud Surface",
+        "canonical": "#F7F7FB",
+        "tonalRamp": ["#1C1C28", "#353540", "#505064", "#6E6E88", "#9898B0", "#C0C0D4", "#E0E0EE", "#F7F7FB"]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas",
+        "canonical": "#FFFFFF",
+        "tonalRamp": ["#1A1A22", "#343445", "#505068", "#70708A", "#9898B0", "#C8C8D8", "#E8E8F0", "#FFFFFF"]
+      },
+      "caution-amber": {
+        "role": "secondary",
+        "displayName": "Caution Amber",
+        "canonical": "#B8860B",
+        "tonalRamp": ["#2A1A00", "#4D3100", "#7A5005", "#9E6C08", "#B8860B", "#D4A830", "#EDD090", "#F8ECC0"]
+      },
+      "remove-red": {
+        "role": "secondary",
+        "displayName": "Remove Red",
+        "canonical": "#C0392B",
+        "tonalRamp": ["#2A0604", "#550C08", "#7D1210", "#A01E1B", "#C0392B", "#D96550", "#ECA090", "#F5D8D0"]
+      }
+    },
+    "typographyMeta": {
+      "display":  { "displayName": "Display",  "purpose": "Cover title only. One instance per report." },
+      "headline": { "displayName": "Headline", "purpose": "Section h2 headers. Always Authority Blue." },
+      "title":    { "displayName": "Title",    "purpose": "File section names in the blue header bar." },
+      "body":     { "displayName": "Body",     "purpose": "Main prose, table data, lede text, metadata." },
+      "label":    { "displayName": "Label",    "purpose": "All table column headers, category sub-labels, badge text. Always uppercase." },
+      "mono":     { "displayName": "Mono",     "purpose": "All Oracle/Applaud field names, prefixes, filenames. No exceptions." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "shift-triangle", "value": "transform 0.15s ease-out", "purpose": "Rotate the disclosure triangle on shift-details open/close. Only animation in the system." }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Cover Hero",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Branded report cover. Navy-to-midnight gradient, Signal Green wordmark, white title.",
+      "html": "<div class=\"ds-cover\"><div class=\"ds-cover__brand\">DEFINIAN · Applaud Base System</div><h1 class=\"ds-cover__title\">FBDI Compliance Report</h1><div class=\"ds-cover__sub\">Required changes between Oracle Cloud releases</div><div class=\"ds-cover__meta\"><span><b>From</b> Release 26A</span><span><b>To</b> Release 26B</span><span><b>Generated</b> 2026-05-05</span></div></div>",
+      "css": ".ds-cover { background: linear-gradient(135deg, #0D2C71 0%, #02072D 100%); color: #FFFFFF; padding: 64px 48px; text-align: center; } .ds-cover__brand { font-size: 11px; letter-spacing: 3px; color: #00AB63; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; } .ds-cover__title { font-size: 36px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.1; margin: 0 0 12px; } .ds-cover__sub { font-size: 16px; font-weight: 300; opacity: 0.85; margin-bottom: 24px; } .ds-cover__meta { display: inline-flex; gap: 24px; padding: 12px 24px; background: rgba(255,255,255,0.08); border-radius: 4px; font-size: 13px; } .ds-cover__meta b { color: #00AB63; }"
+    },
+    {
+      "name": "File Section",
+      "kind": "card",
+      "refersTo": "file-head",
+      "description": "Primary structural unit. Each FBDI file occupies one file section with a blue header bar and white body.",
+      "html": "<div class=\"ds-file-section\"><div class=\"ds-file-head\"><div class=\"ds-file-head__num\">3.1</div><h3 class=\"ds-file-head__name\">EmploymentImportTemplateFull</h3><div class=\"ds-file-head__meta\"><span><b>FBDI Tab:</b> EmpFullfeed</span><span><b>Applaud Table:</b> per_all_people_f</span><span><b>Prefix:</b> <code class=\"ds-file-head__code\">PAP</code></span><span class=\"ds-module-pill\">HCM</span></div></div><div class=\"ds-file-body\"><p style=\"color:#3C405B;font-size:13px;margin:0\">Change detail content goes here.</p></div></div>",
+      "css": ".ds-file-section { border: 1px solid #D8D7EE; border-radius: 6px; overflow: hidden; margin-bottom: 18px; } .ds-file-head { background: #0D2C71; color: #FFFFFF; padding: 14px 18px; } .ds-file-head__num { font-size: 11px; opacity: 0.7; letter-spacing: 1px; } .ds-file-head__name { font-size: 18px; font-weight: 700; margin: 2px 0 6px; } .ds-file-head__meta { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; opacity: 0.92; } .ds-file-head__code { background: rgba(255,255,255,0.15); padding: 1px 6px; border-radius: 3px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; } .ds-module-pill { display: inline-block; padding: 2px 10px; border-radius: 12px; background: #00AB63; color: #FFFFFF; font-size: 11px; font-weight: 600; } .ds-file-body { padding: 18px 22px; background: #FFFFFF; }"
+    },
+    {
+      "name": "Change Block Header — Added",
+      "kind": "custom",
+      "refersTo": "badge-added",
+      "description": "Section header for ADDED fields. Authority Blue text, Signal Green count badge.",
+      "html": "<div class=\"ds-change-head ds-change-head--added\"><span class=\"ds-change-head__label\">Added</span><span class=\"ds-badge ds-badge--added\">12</span></div>",
+      "css": ".ds-change-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; } .ds-change-head__label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; } .ds-change-head--added .ds-change-head__label { color: #0D2C71; } .ds-change-head--removed .ds-change-head__label { color: #C0392B; } .ds-change-head--modified .ds-change-head__label { color: #B8860B; } .ds-change-head--shifted .ds-change-head__label { color: #3C405B; } .ds-badge { display: inline-block; padding: 1px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; color: #FFFFFF; } .ds-badge--added { background: #00AB63; } .ds-badge--removed { background: #C0392B; } .ds-badge--modified { background: #B8860B; } .ds-badge--shifted { background: #3C405B; }"
+    },
+    {
+      "name": "Change Block Header — Removed",
+      "kind": "custom",
+      "refersTo": "badge-removed",
+      "description": "Section header for REMOVED fields. Remove Red text and badge.",
+      "html": "<div class=\"ds-change-head ds-change-head--removed\"><span class=\"ds-change-head__label\">Removed</span><span class=\"ds-badge ds-badge--removed\">3</span></div>",
+      "css": ".ds-change-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; } .ds-change-head__label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; } .ds-change-head--removed .ds-change-head__label { color: #C0392B; } .ds-badge { display: inline-block; padding: 1px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; color: #FFFFFF; } .ds-badge--removed { background: #C0392B; }"
+    },
+    {
+      "name": "Module Tag",
+      "kind": "chip",
+      "refersTo": "module-tag",
+      "description": "Category pill used in summary tables and pending-base lists. Financials variant uses Signal Green.",
+      "html": "<div style=\"display:flex;gap:8px;align-items:center\"><span class=\"ds-module-tag\">HCM</span><span class=\"ds-module-tag ds-module-tag--financials\">Financials</span></div>",
+      "css": ".ds-module-tag { display: inline-block; padding: 1px 8px; border-radius: 10px; background: #D8D7EE; color: #02072D; font-size: 10px; font-weight: 600; } .ds-module-tag--financials { background: #00AB63; color: #FFFFFF; }"
+    },
+    {
+      "name": "Shift Details",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Collapsible SHIFTED field disclosure. HTML: interactive details/summary. PDF: grid expands inline.",
+      "html": "<details class=\"ds-shift-details\" open><summary class=\"ds-shift-details__summary\">Show all 8 shifted fields</summary><div class=\"ds-shift-details__body\"><div class=\"ds-shift-grid\"><div class=\"ds-shift-row\"><span>PERSON_ID</span><span><span class=\"ds-shift-old\">1</span> <span class=\"ds-shift-arrow\">&rarr;</span> <span class=\"ds-shift-new\">3</span></span></div><div class=\"ds-shift-row\"><span>EFFECTIVE_START_DATE</span><span><span class=\"ds-shift-old\">2</span> <span class=\"ds-shift-arrow\">&rarr;</span> <span class=\"ds-shift-new\">4</span></span></div></div></div></details>",
+      "css": ".ds-shift-details { border: 1px solid #D8D7EE; border-radius: 4px; margin-top: 8px; } .ds-shift-details__summary { display: flex; align-items: center; gap: 6px; padding: 8px 14px; cursor: pointer; background: #F7F7FB; font-size: 12px; font-weight: 600; color: #0D2C71; list-style: none; user-select: none; } .ds-shift-details__summary::-webkit-details-marker { display: none; } .ds-shift-details__summary::before { content: '\\25B6'; font-size: 9px; transition: transform 0.15s ease-out; display: inline-block; } .ds-shift-details[open] .ds-shift-details__summary::before { transform: rotate(90deg); } .ds-shift-details__body { padding: 10px 14px; border-top: 1px solid #D8D7EE; } .ds-shift-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; } .ds-shift-row { display: flex; justify-content: space-between; padding: 3px 8px; border-bottom: 1px solid #f5f5f5; } .ds-shift-old { color: #3C405B; } .ds-shift-arrow { color: #3C405B; padding: 0 4px; } .ds-shift-new { color: #00AB63; font-weight: 600; }"
+    },
+    {
+      "name": "Action Checkbox",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Visual action placeholder in table action columns (DB / IF / EF). Not a real input.",
+      "html": "<div style=\"display:flex;gap:12px;align-items:center\"><span class=\"ds-checkbox\" title=\"Standard action\"></span><span class=\"ds-checkbox ds-checkbox--del\" title=\"Remove action\"></span><span class=\"ds-checkbox ds-checkbox--warn\" title=\"Modify action\"></span><span class=\"ds-checkbox ds-checkbox--dash\" title=\"No action required\"></span></div>",
+      "css": ".ds-checkbox { display: inline-block; width: 16px; height: 16px; border: 1.5px solid #0D2C71; border-radius: 2px; vertical-align: middle; } .ds-checkbox--del { border-color: #C0392B; } .ds-checkbox--warn { border-color: #B8860B; } .ds-checkbox--dash { border-style: dashed; border-color: #0D2C71; opacity: 0.4; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Signal Extract",
+    "overview": "Each Oracle Cloud quarterly release buries hundreds of FBDI field changes across dozens of template files. This report's entire purpose is to extract the signal — exactly what changed, in exactly which field, at exactly which position — and deliver it with the authority of Definian's brand. The design system exists to serve that extraction: nothing decorative, nothing ambient, nothing that slows a consultant's read-through.\n\nThe system is built on the Definian canonical palette — Authority Blue, Signal Green, and their four supporting neutrals — supplemented by two semantic additions: Caution Amber for modified fields and Remove Red for removals. Color is the primary semantic layer; shape and spacing are structure. The system is deliberately flat, tightly typeset, and unambiguous about hierarchy.\n\nHTML and PDF are treated as separate media. A consultant running the HTML report in a browser gets interaction and space; a consultant printing the PDF gets density and legibility. The one thing constant across both: an unmistakable Definian visual signature.",
+    "keyCharacteristics": [
+      "Flat tonal depth — no shadows, surfaces differentiated by background color alone",
+      "Semantic color system — every color has one job and never doubles as decoration",
+      "Mono for machines — all technical identifiers in monospace",
+      "Definian brand through structure — blue headers, green accents, the palette does the branding work",
+      "Two-medium design — HTML and PDF optimized independently for their respective audiences"
+    ],
+    "rules": [
+      { "name": "The Signal Rule", "body": "Color carries semantic meaning, never decoration. Green = added/positive, Red = removed/critical, Amber = modified/caution, Blue = structure/authority.", "section": "colors" },
+      { "name": "The Six Plus Two Rule", "body": "The six canonical Definian colors are primary. Caution Amber and Remove Red are the only approved supplementals. Any future semantic extension must be documented.", "section": "colors" },
+      { "name": "The No Off-Palette Rule", "body": "Introducing a color outside the eight documented tokens is prohibited without explicit justification and documentation.", "section": "colors" },
+      { "name": "The Mono Rule", "body": "Every technical identifier — Oracle field name, Applaud column name, table prefix, filename — must render in monospace. A field name in regular sans is a defect.", "section": "typography" },
+      { "name": "The Label Rule", "body": "All column headers and structural sub-labels are uppercase with letter-spacing ≥0.5px. Breaking this disrupts the visual contract with the reader.", "section": "typography" },
+      { "name": "The Flat Signal Rule", "body": "No box-shadow anywhere. If you need to distinguish a surface, use a background color shift or a 1px Mist Divider border.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use Authority Blue (#0D2C71) for all structural headers, file head bars, table column fills, and section h2 headings.",
+      "Do use Signal Green (#00AB63) only for ADDED field counts and labels, Financials module identification, and the cover brand wordmark.",
+      "Do render every Oracle field name, Applaud column name, table prefix, and filename in monospace.",
+      "Do use uppercase + letter-spacing ≥0.5px for all table column headers and structural sub-labels.",
+      "Do use 1px solid #D8D7EE for all surface containment borders.",
+      "Do use Cloud Surface (#F7F7FB) for all card-like backgrounds.",
+      "Do treat HTML and PDF as separate design targets — optimize each for its medium.",
+      "Do use Midnight (#02072D) — not #000 — for all body text."
+    ],
+    "donts": [
+      "Don't use border-left greater than 1px as a colored accent stripe on cards, panels, or callouts. Side-stripe borders are prohibited.",
+      "Don't use Signal Green decoratively. Once it appears on a non-addition element, its semantic value is gone.",
+      "Don't use box-shadow anywhere. The system is flat.",
+      "Don't use gradient text (background-clip: text with a gradient). All text is a single solid color.",
+      "Don't introduce a ninth color without documenting its semantic role.",
+      "Don't render the cover gradient as flat Authority Blue — the gradient is earned.",
+      "Don't add decoration that carries no semantic meaning.",
+      "Don't add a new change-type label in body weight or mixed case — all change labels are uppercase, weight 700, Label scale."
+    ]
+  }
+}
