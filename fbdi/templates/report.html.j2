@@ -4,151 +4,279 @@
 <meta charset="utf-8">
 <title>FBDI Compliance Report — {{ ctx.old_release }} → {{ ctx.new_release }}</title>
 <style>
-  /* === Definian Signal Palette — strict; do not introduce off-palette colors === */
+  /* === Bundled fonts — Inter (sans) + JetBrains Mono (mono).
+         Both OFL-licensed; files in fonts/ alongside this template.
+         Variable fonts; weasyprint resolves via base_url passed by report.py.
+         Only emitted in print_mode: when consumed as HTML in a browser, the
+         relative path won't resolve from wherever the file is opened, and
+         the system-font fallback stack already covers screen rendering. === */
+  {% if print_mode %}
+  @font-face {
+    font-family: 'Inter';
+    src: url('fonts/InterVariable.ttf') format('truetype-variations');
+    font-weight: 100 900;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: url('fonts/JetBrainsMono.ttf') format('truetype-variations');
+    font-weight: 100 900;
+    font-style: normal;
+  }
+  {% endif %}
+
+  /* === Design system tokens — palette, type, spacing, radius === */
   :root {
-    /* Primary */
+    /* Palette: Definian Signal — strict; do not introduce off-palette colors */
     --def-blue: #0D2C71;      /* Authority Blue — structural backbone */
     --def-green: #00AB63;     /* Signal Green — additions, Financials, brand */
-    /* Neutrals */
     --midnight: #02072D;      /* Near-Black Midnight — primary text */
     --darkgray: #3C405B;      /* Slate Annotation — supporting text */
     --coolgray: #D8D7EE;      /* Mist Divider — borders, structural lines */
     --bg-soft: #F7F7FB;       /* Cloud Surface — card backgrounds */
     --canvas: #FFFFFF;        /* Canvas — document ground */
-    /* Semantic supplementals */
     --warn: #B8860B;          /* Caution Amber — modified fields */
     --warn-bg: #FFFBF0;       /* Caution tint */
     --del: #C0392B;           /* Remove Red — removed fields */
-    /* Derived interaction tokens */
     --row-hover: rgba(13, 44, 113, 0.025);
     --action-tint: rgba(13, 44, 113, 0.03);
     --cell-border: rgba(13, 44, 113, 0.06);
+
+    /* Type scale (DESIGN.md) — six steps, no in-betweens */
+    --type-display:  36px;
+    --type-headline: 22px;
+    --type-title:    18px;
+    --type-body:     13px;
+    --type-label:    10.5px;
+    --type-mono:     11.5px;
+
+    /* Weight */
+    --weight-regular:  400;
+    --weight-semibold: 600;
+    --weight-bold:     700;
+    --weight-black:    800;
+
+    /* Letter-spacing */
+    --track-display: -0.5px;
+    --track-label:    0.5px;
+    --track-brand:    3px;     /* cover wordmark only */
+
+    /* Spacing scale (DESIGN.md) — five steps */
+    --space-xs:  4px;
+    --space-sm:  8px;
+    --space-md:  14px;
+    --space-lg:  22px;
+    --space-xl:  36px;
+
+    /* Radius (DESIGN.md) */
+    --radius-xs:   2px;
+    --radius-sm:   4px;
+    --radius-md:   6px;
+    --radius-pill: 12px;
+
+    /* Tint scale — used as opacity for layered text/glyphs against tinted backgrounds.
+       Three steps; pick the step, don't hand-tune each call site. */
+    --tint-strong: 0.92;
+    --tint-mid:    0.7;
+    --tint-faint:  0.45;
+
+    /* Motion — single duration for HTML interactivity. PDF doesn't animate. */
+    --motion-fast: 0.15s;
   }
 
   /* === Base typography === */
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: var(--midnight);
     margin: 0;
     background: var(--canvas);
+  }
+  /* Mono Rule (DESIGN.md): every <code> element is a technical identifier — render mono. */
+  code {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
   }
 
   /* === Cover === */
   .cover {
     background: linear-gradient(135deg, var(--def-blue) 0%, var(--midnight) 100%);
     color: var(--canvas);
-    padding: 64px 48px;
+    padding: var(--space-xl);
     text-align: center;
   }
   .cover .brand {
-    font-size: 11px;
-    letter-spacing: 3px;
+    font-size: var(--type-label);
+    letter-spacing: var(--track-brand);
     color: var(--def-green);
-    font-weight: 700;
+    font-weight: var(--weight-bold);
     text-transform: uppercase;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-sm);
   }
   .cover h1 {
-    font-size: 36px;
-    margin: 0 0 12px;
-    font-weight: 800;
-    letter-spacing: -0.5px;
+    font-size: var(--type-display);
+    margin: 0 0 var(--space-md);
+    font-weight: var(--weight-black);
+    letter-spacing: var(--track-display);
   }
   .cover .sub {
-    font-size: 16px;
-    opacity: 0.85;
-    margin-bottom: 24px;
-    font-weight: 300;
+    font-size: var(--type-body);
+    opacity: var(--tint-strong);
+    margin-bottom: var(--space-lg);
+    font-weight: var(--weight-regular);
   }
   .cover .meta {
     display: inline-flex;
-    gap: 24px;
-    padding: 12px 24px;
+    gap: var(--space-lg);
+    padding: var(--space-md) var(--space-lg);
     background: rgba(255, 255, 255, 0.08);
-    border-radius: 4px;
-    font-size: 13px;
+    border-radius: var(--radius-sm);
+    font-size: var(--type-body);
   }
-  .cover .meta b { color: var(--def-green); }
+  .cover .meta b {
+    text-transform: uppercase;
+    letter-spacing: var(--track-label);
+    font-size: var(--type-label);
+    font-weight: var(--weight-semibold);
+    opacity: var(--tint-faint);
+  }
 
   /* === Section base === */
   .section {
-    padding: 28px 36px;
+    padding: var(--space-lg) var(--space-xl);
     border-top: 1px solid var(--coolgray);
   }
   .section h2 {
     color: var(--def-blue);
-    font-size: 22px;
-    margin: 0 0 4px;
-    font-weight: 700;
+    font-size: var(--type-headline);
+    margin: 0 0 var(--space-xs);
+    font-weight: var(--weight-bold);
+    /* PDF outline: top-level bookmarks for §1, §2, §3. */
+    bookmark-level: 1;
+    bookmark-label: content(text);
   }
   .section .lede {
     color: var(--darkgray);
-    font-size: 13px;
-    margin-bottom: 18px;
+    font-size: var(--type-body);
+    margin-bottom: var(--space-lg);
   }
 
-  /* === Module rollup === */
-  .module-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-  }
-  .module-card {
+  /* === Progress meter (HTML only) — sits in §1 header area, updates live === */
+  .progress-meter {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-left: var(--space-md);
+    padding: var(--space-xs) var(--space-md);
     background: var(--bg-soft);
     border: 1px solid var(--coolgray);
-    border-radius: 4px;
-    padding: 14px 18px;
+    border-radius: var(--radius-pill);
+    font-size: var(--type-label);
+    vertical-align: middle;
   }
-  .module-card .name {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--def-blue);
-    margin-bottom: 6px;
+  .progress-meter-eyebrow {
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: var(--track-label);
+    font-weight: var(--weight-semibold);
+    color: var(--darkgray);
   }
-  .module-card.financials .name { color: var(--def-green); }
-  .module-card .figures {
-    display: flex;
-    gap: 16px;
-  }
-  .module-card .stat {
-    display: flex;
-    flex-direction: column;
-  }
-  .module-card .stat .num {
-    font-size: 24px;
-    font-weight: 700;
-    line-height: 1;
+  .progress-meter-count {
+    font-weight: var(--weight-bold);
     color: var(--midnight);
+    font-variant-numeric: tabular-nums;
   }
-  .module-card .stat .lab {
-    font-size: 10px;
+  .progress-meter-bar {
+    width: 80px;
+    height: 4px;
+    background: var(--coolgray);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-meter-fill {
+    height: 100%;
+    background: var(--def-green);
+    width: 0%;
+    transition: width 0.2s ease-out;
+  }
+  .progress-meter-pct {
+    color: var(--darkgray);
+    font-variant-numeric: tabular-nums;
+  }
+  .progress-meter.complete .progress-meter-fill { background: var(--def-green); }
+
+  /* === Module quick-jump (HTML nav above §2 module groups) === */
+  .module-jump {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-lg);
+  }
+  .module-jump-eyebrow {
+    text-transform: uppercase;
+    letter-spacing: var(--track-label);
+    font-weight: var(--weight-semibold);
+    font-size: var(--type-label);
+    color: var(--darkgray);
+    align-self: center;
+    margin-right: var(--space-xs);
+  }
+  .module-jump a {
+    display: inline-block;
+    padding: 2px var(--space-sm);
+    border: 1px solid var(--coolgray);
+    border-radius: var(--radius-pill);
+    background: var(--canvas);
+    color: var(--midnight);
+    font-size: var(--type-label);
+    font-weight: var(--weight-semibold);
+    text-decoration: none;
+  }
+
+  /* === Module group (structural landmark for §2) === */
+  .module-group { margin-bottom: var(--space-xl); }
+  .module-group:last-child { margin-bottom: 0; }
+  .module-header {
+    margin: 0 0 var(--space-md);
+    padding-bottom: var(--space-sm);
+    border-bottom: 2px solid var(--def-blue);
+  }
+  .module-eyebrow {
+    display: block;
+    font-size: var(--type-label);
+    font-weight: var(--weight-semibold);
     color: var(--darkgray);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-top: 4px;
+    letter-spacing: var(--track-label);
+    margin-bottom: var(--space-xs);
+  }
+  .module-name {
+    font-size: var(--type-title);
+    font-weight: var(--weight-bold);
+    color: var(--def-blue);
+    margin: 0;
+    line-height: 1.2;
+    /* PDF outline: module groups nest under §2. */
+    bookmark-level: 2;
+    bookmark-label: content(text);
   }
 
   /* === Summary table === */
   .summary-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 12.5px;
+    font-size: var(--type-body);
   }
   .summary-table th {
     background: var(--def-blue);
     color: var(--canvas);
-    padding: 8px 10px;
+    padding: var(--space-sm);
     text-align: left;
-    font-weight: 600;
-    font-size: 11px;
+    font-weight: var(--weight-semibold);
+    font-size: var(--type-label);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: var(--track-label);
   }
   .summary-table th.num { text-align: right; }
   .summary-table td {
-    padding: 7px 10px;
+    padding: var(--space-sm);
     border-bottom: 1px solid var(--coolgray);
   }
   .summary-table td.num {
@@ -157,66 +285,94 @@
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
   }
+  /* Semantic count cells: non-zero counts adopt the legend's color so the
+     at-a-glance scan column carries signal, not just numbers. Zeros fade to
+     Mist so they recede visually. */
+  .summary-table td.num.zero { color: var(--coolgray); }
+  .summary-table td.num.add   { color: var(--def-green); font-weight: var(--weight-bold); }
+  .summary-table td.num.rem   { color: var(--del);       font-weight: var(--weight-bold); }
+  .summary-table td.num.mod   { color: var(--warn);      font-weight: var(--weight-bold); }
+  .summary-table td.num.shift { color: var(--darkgray);  font-weight: var(--weight-bold); }
+  /* Summary-table technical-identifier cells (FBDI file/tab, Applaud table) — mono per Mono Rule. */
+  .summary-table td.tech {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: var(--type-mono);
+  }
+  .summary-table td.tech b { font-weight: var(--weight-bold); }
+  .summary-table td.tech .sub {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--type-label);
+    color: var(--darkgray);
+    font-weight: var(--weight-regular);
+  }
+  /* Summary-table file links: jump to the matching file-section. Inherit color
+     (no default browser blue), no underline by default; underline on hover for HTML. */
+  .summary-table td.tech a {
+    color: inherit;
+    text-decoration: none;
+  }
+  /* Module tag — neutral for every module, including Financials. Signal Green
+     is reserved for ADDED counts and the cover wordmark; using it as a module
+     decoration would dilute that semantic. The module's name does the
+     differentiation; color does not. */
   .module-tag {
     display: inline-block;
-    padding: 1px 8px;
-    border-radius: 10px;
+    padding: 1px var(--space-sm);
+    border-radius: var(--radius-pill);
     background: var(--coolgray);
     color: var(--midnight);
-    font-size: 10px;
-    font-weight: 600;
-  }
-  .module-tag.financials {
-    background: var(--def-green);
-    color: var(--canvas);
+    font-size: var(--type-label);
+    font-weight: var(--weight-semibold);
   }
 
   /* === Per-file section === */
   .file-section {
     border: 1px solid var(--coolgray);
-    border-radius: 6px;
-    margin-bottom: 18px;
-    overflow: hidden;
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-md);
   }
   .file-head {
     background: var(--def-blue);
     color: var(--canvas);
-    padding: 14px 18px;
+    padding: var(--space-md);
+    /* file-head fills the top of the file-section, so it carries the
+       top corner radius directly (no overflow:hidden trick on the parent). */
+    border-top-left-radius: var(--radius-md);
+    border-top-right-radius: var(--radius-md);
   }
-  .file-head .num {
-    font-size: 11px;
-    opacity: 0.7;
-    letter-spacing: 1px;
-  }
-  .file-head h3 {
-    font-size: 18px;
-    margin: 2px 0 6px;
-    font-weight: 700;
+  .file-head .file-name {
+    /* Filename is a technical identifier — mono per DESIGN.md Mono Rule.
+       Tighter tracking compensates for mono's wider glyphs at title scale. */
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: var(--type-title);
+    margin: 0 0 var(--space-xs);
+    font-weight: var(--weight-bold);
+    line-height: 1.2;
+    letter-spacing: -0.3px;
+    /* PDF outline: per-file bookmarks nest under each module. */
+    bookmark-level: 3;
+    bookmark-label: content(text);
+    /* PDF running header: weasyprint captures the latest file-name into
+       --running-file, which the @page @top-left margin box pulls in. So a
+       file-section spanning pages shows its file name on continuation pages. */
+    string-set: running-file content(text);
   }
   .file-head .meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 14px;
-    font-size: 12px;
-    opacity: 0.92;
+    gap: var(--space-md);
+    font-size: var(--type-body);
+    opacity: var(--tint-strong);
   }
   .file-head code {
     background: rgba(255, 255, 255, 0.15);
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-size: 11px;
-  }
-  .module-pill {
-    display: inline-block;
-    padding: 2px 10px;
-    border-radius: 12px;
-    background: var(--def-green);
-    color: var(--canvas);
-    font-size: 11px;
-    font-weight: 600;
+    padding: 1px var(--space-xs);
+    border-radius: var(--radius-xs);
+    font-size: var(--type-label);
   }
   .file-body {
-    padding: 18px 22px;
+    padding: var(--space-md) var(--space-lg);
     background: var(--canvas);
   }
 
@@ -224,32 +380,32 @@
     background: var(--warn-bg);
     border: 1px solid var(--warn);
     color: var(--warn);
-    padding: 8px 12px;
-    border-radius: 3px;
-    font-size: 12px;
-    margin-bottom: 14px;
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-xs);
+    font-size: var(--type-body);
+    margin-bottom: var(--space-md);
   }
 
   /* === Change blocks === */
-  .change-block { margin-bottom: 18px; }
+  .change-block { margin-bottom: var(--space-md); }
   .change-block:last-child { margin-bottom: 0; }
   .change-block h4 {
-    font-size: 13px;
-    margin: 0 0 8px;
+    font-size: var(--type-body);
+    margin: 0 0 var(--space-sm);
     color: var(--def-blue);
     text-transform: uppercase;
-    letter-spacing: 1px;
-    font-weight: 700;
+    letter-spacing: var(--track-label);
+    font-weight: var(--weight-bold);
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-sm);
   }
   .change-block h4 .count {
     background: var(--def-green);
     color: var(--canvas);
-    border-radius: 10px;
-    padding: 1px 8px;
-    font-size: 11px;
+    border-radius: var(--radius-pill);
+    padding: 1px var(--space-sm);
+    font-size: var(--type-label);
     letter-spacing: 0;
   }
   .change-block.removed h4 { color: var(--del); }
@@ -264,25 +420,25 @@
   .ct {
     width: 100%;
     border-collapse: collapse;
-    font-size: 12px;
+    font-size: var(--type-body);
   }
   .ct th {
     background: var(--coolgray);
     color: var(--midnight);
-    padding: 7px 9px;
+    padding: var(--space-sm);
     text-align: left;
-    font-weight: 600;
-    font-size: 10.5px;
+    font-weight: var(--weight-semibold);
+    font-size: var(--type-label);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: var(--track-label);
     border-bottom: 1px solid var(--coolgray);
   }
   .ct th.num {
     text-align: right;
-    padding-right: 14px;
+    padding-right: var(--space-md);
   }
   .ct td {
-    padding: 8px 9px;
+    padding: var(--space-sm);
     border-bottom: 1px solid var(--cell-border);
     vertical-align: middle;
   }
@@ -290,13 +446,14 @@
     text-align: right;
     width: 1%;
     white-space: nowrap;
-    padding-right: 14px;
+    padding-right: var(--space-md);
     color: var(--darkgray);
     font-variant-numeric: tabular-nums;
   }
   .ct td.field {
-    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-size: 11.5px;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: var(--type-mono);
+    white-space: nowrap;
   }
   .ct .center { text-align: center; }
   .ct th.action-col,
@@ -313,20 +470,21 @@
   }
   /* PDF-only action indicators (colored dot signals action type) */
   .pdf-action {
-    font-size: 11px;
+    font-size: var(--type-label);
     line-height: 1;
     color: var(--def-blue);
     display: inline-block;
   }
-  .pdf-action.pdf-del  { color: var(--del); }
-  .pdf-action.pdf-warn { color: var(--warn); }
-  .pdf-action.pdf-dash { color: var(--darkgray); opacity: 0.45; }
+  .pdf-action.pdf-del   { color: var(--del); }
+  .pdf-action.pdf-warn  { color: var(--warn); }
+  .pdf-action.pdf-shift { color: var(--darkgray); }
+  .pdf-action.pdf-dash  { color: var(--darkgray); opacity: var(--tint-faint); }
   .ct .badge {
     display: inline-block;
-    padding: 1px 6px;
-    border-radius: 8px;
-    font-size: 10px;
-    font-weight: 600;
+    padding: 1px var(--space-xs);
+    border-radius: var(--radius-pill);
+    font-size: var(--type-label);
+    font-weight: var(--weight-semibold);
   }
   .ct .badge.warn-text {
     background: var(--warn-bg);
@@ -335,78 +493,130 @@
   }
   .type-arrow {
     color: var(--darkgray);
-    padding: 0 4px;
+    padding: 0 var(--space-xs);
   }
   .type-old {
     color: var(--darkgray);
     text-decoration: line-through;
-    opacity: 0.7;
+    opacity: var(--tint-mid);
   }
   .type-new {
     color: var(--midnight);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
   }
   .renamed-note {
-    font-size: 11px;
+    font-size: var(--type-label);
     color: var(--darkgray);
-    margin-top: 6px;
+    margin-top: var(--space-xs);
     font-style: italic;
   }
 
   /* === Shift summary + collapsible === */
   .summary-box {
-    background: rgba(0, 171, 99, 0.05);
-    border: 1px solid rgba(0, 171, 99, 0.28);
-    padding: 10px 14px;
-    border-radius: 3px;
-    font-size: 12.5px;
-    margin-bottom: 8px;
+    background: var(--bg-soft);
+    border: 1px solid var(--coolgray);
+    padding: var(--space-sm) var(--space-md);
+    font-size: var(--type-body);
+    color: var(--darkgray);
+    margin-bottom: var(--space-sm);
   }
   details.shift-details {
     border: 1px solid var(--coolgray);
-    border-radius: 4px;
-    margin-top: 8px;
+    border-radius: var(--radius-sm);
+    margin-top: var(--space-sm);
   }
   details.shift-details > summary {
-    padding: 8px 14px;
+    padding: var(--space-sm) var(--space-md);
     cursor: pointer;
     background: var(--bg-soft);
-    font-size: 12px;
+    font-size: var(--type-body);
     color: var(--def-blue);
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     list-style: none;
-    transition: background 0.15s ease-out;
+    transition: background var(--motion-fast) ease-out;
   }
   details.shift-details > summary::before {
     content: '\25B6';
-    margin-right: 6px;
-    transition: transform 0.15s ease-out;
+    margin-right: var(--space-xs);
+    transition: transform var(--motion-fast) ease-out;
     display: inline-block;
-    font-size: 9px;
+    font-size: var(--type-label);
   }
   details.shift-details[open] > summary::before { transform: rotate(90deg); }
   details.shift-details > div {
-    padding: 10px 14px;
+    padding: var(--space-sm) var(--space-md);
     border-top: 1px solid var(--coolgray);
   }
   .shift-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 4px 24px;
-    font-size: 12px;
+    gap: var(--space-xs) var(--space-lg);
+    font-size: var(--type-body);
   }
   .shift-grid .row {
     display: flex;
     justify-content: space-between;
-    padding: 3px 8px;
+    align-items: baseline;
+    gap: var(--space-md);
+    padding: var(--space-xs) var(--space-sm);
     border-bottom: 1px solid var(--cell-border);
   }
+  .shift-grid .field-name {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: var(--type-mono);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .shift-grid .pos-pair { white-space: nowrap; }
   .shift-grid .arrow { color: var(--darkgray); }
   .shift-grid .new-pos {
-    color: var(--def-green);
-    font-weight: 600;
+    color: var(--midnight);
+    font-weight: var(--weight-semibold);
+    font-variant-numeric: tabular-nums;
   }
-  .shift-grid .old-pos { color: var(--darkgray); }
+  .shift-grid .old-pos {
+    color: var(--darkgray);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* === Legend strip (placed at top of §2) === */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    align-items: center;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-soft);
+    border: 1px solid var(--coolgray);
+    border-radius: var(--radius-sm);
+    font-size: var(--type-label);
+    margin-bottom: var(--space-lg);
+  }
+  .legend-eyebrow {
+    text-transform: uppercase;
+    letter-spacing: var(--track-label);
+    font-weight: var(--weight-semibold);
+    color: var(--darkgray);
+  }
+  .legend-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-xs);
+    color: var(--darkgray);
+  }
+  .legend-item b {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-weight: var(--weight-bold);
+    color: var(--midnight);
+    font-size: var(--type-label);
+  }
+  .legend-divider {
+    width: 1px;
+    height: 12px;
+    background: var(--coolgray);
+  }
 
   /* === Pending base list === */
   .pending-list {
@@ -415,49 +625,81 @@
     margin: 0;
   }
   .pending-list li {
-    padding: 10px 14px;
+    padding: var(--space-sm) var(--space-md);
     border: 1px solid var(--coolgray);
-    border-radius: 4px;
-    margin-bottom: 6px;
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-xs);
     background: var(--bg-soft);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 12.5px;
+    font-size: var(--type-body);
   }
-  .pending-list .name b { color: var(--def-blue); }
+  .pending-list .file-id {
+    /* Inherits mono via the global `code` rule. Kept bold; color stays Midnight
+       (inherited) so the file-id reads consistently with the summary-table file-ids
+       rather than as a colored heading. */
+    font-weight: var(--weight-bold);
+  }
+  .pending-list .name .module-tag { margin-left: var(--space-xs); }
   .pending-list .pending-count {
     color: var(--darkgray);
-    font-size: 11px;
+    font-size: var(--type-label);
   }
   .pending-footnote {
-    font-size: 11px;
+    font-size: var(--type-label);
     color: var(--darkgray);
-    margin-top: 8px;
+    margin-top: var(--space-sm);
     font-style: italic;
   }
 
+  /* === Two-media boundary ===
+     The HTML and PDF outputs share this template but diverge through TWO mechanisms,
+     each carrying responsibility for a different kind of difference:
+
+       1. The Jinja `print_mode` flag swaps DOM elements that are categorically
+          different between media — interactive checkboxes vs. printed dot indicators,
+          collapsible <details> vs. always-expanded shift-grids.
+       2. The `@media print` block (below) overrides layout/styling — paddings,
+          page rules, font sizing, table widths.
+
+     A consumer printing the HTML directly from a browser triggers `@media print`
+     but NOT `print_mode` (which is server-side Jinja). The `@media print` rules
+     therefore include guards that make the printed HTML still legible — primarily
+     hiding the interactive checkboxes that wouldn't make sense on paper. */
+
   /* === HTML-only interactive states === */
   @media screen {
+    /* Sticky summary thead so column headers stay visible while scrolling §1 list. */
+    .summary-table thead th { position: sticky; top: 0; z-index: 1; }
+    .summary-table td.tech a:hover { text-decoration: underline; }
+    .summary-table tbody tr:hover { background: var(--row-hover); cursor: pointer; }
+    .module-jump a:hover { background: var(--bg-soft); border-color: var(--def-blue); }
     .ct tbody tr:hover td { background: var(--row-hover); }
     .ct tbody tr:hover td.action-col { background: var(--action-tint); }
     details.shift-details > summary { user-select: none; }
     details.shift-details > summary:hover { background: var(--coolgray); }
     details.shift-details > summary::-webkit-details-marker { display: none; }
-    /* Interactive checkboxes */
+    /* Interactive checkboxes — template-internal component, fixed pixel art.
+       The 16/4/1/5/8px values and 1.5px borders aren't on the DESIGN.md spacing
+       scale because this is a custom-rendered control (appearance: none + a
+       hand-drawn checkmark via a rotated bordered box). Treating it as a
+       template-local component rather than a token-scale element. If a second
+       custom control ever ships, upstream these into DESIGN.md as a `checkbox`
+       component spec. */
     input.action-check {
       appearance: none;
       -webkit-appearance: none;
       width: 16px;
       height: 16px;
       border: 1.5px solid var(--def-blue);
-      border-radius: 2px;
+      border-radius: var(--radius-xs);
       cursor: pointer;
       vertical-align: middle;
       margin: 0;
       display: inline-block;
       position: relative;
-      transition: background 0.1s ease-out, border-color 0.1s ease-out;
+      transition: background var(--motion-fast) ease-out, border-color var(--motion-fast) ease-out;
     }
     input.action-check::after {
       content: '';
@@ -479,7 +721,7 @@
     input.action-check.del:checked { background: var(--del); }
     input.action-check.warn { border-color: var(--warn); }
     input.action-check.warn:checked { background: var(--warn); }
-    input.action-check.dash { border-style: dashed; opacity: 0.45; }
+    input.action-check.dash { border-style: dashed; opacity: var(--tint-faint); }
     input.action-check.dash:checked { opacity: 1; border-style: solid; }
     /* Summary table horizontal scroll */
     .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -487,30 +729,72 @@
 
   /* === Print mode (PDF) === */
   @media print {
-    @page { margin: 1.5cm 2cm; size: A4; }
-    body { font-size: 12px; }
-    .cover { padding: 48px 36px; }
-    .section { padding: 18px 24px; }
-    .file-body { padding: 12px 16px; }
-    .ct td, .ct th { padding: 6px 8px; }
+    /* Default page: A4, comfortable margins. Running header (top-left) carries
+       the current file-section name so continuation pages keep their anchor;
+       running footer (bottom-right) carries release pair + page numbers. */
+    @page {
+      margin: 2cm 2cm 2cm;
+      size: A4;
+      @top-left {
+        content: string(running-file);
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: var(--type-label);
+        font-weight: var(--weight-bold);
+        color: var(--darkgray);
+        letter-spacing: -0.2px;
+      }
+      @bottom-right {
+        /* Two spaces after each hex escape: first terminates the escape, second is literal */
+        content: "{{ ctx.old_release }}  \2192  {{ ctx.new_release }}  \00B7  Page " counter(page) " of " counter(pages);
+        font-family: 'Inter', sans-serif;
+        font-size: var(--type-label);
+        color: var(--darkgray);
+        letter-spacing: var(--track-label);
+      }
+    }
+    /* Cover page bleeds to the edge — the document's one creative moment.
+       Suppress both running header and footer on the cover. */
+    @page :first {
+      margin: 0;
+      @top-left { content: ""; }
+      @bottom-right { content: ""; }
+    }
+    .cover { padding: var(--space-xl); }
+    .section { padding: var(--space-md) var(--space-lg); }
+    .file-body { padding: var(--space-sm) var(--space-md); }
+    .ct td, .ct th { padding: var(--space-xs) var(--space-sm); }
     .table-scroll { overflow: visible; }
-    .summary-table { table-layout: fixed; width: 100%; font-size: 10.5px; }
-    .summary-table th:nth-child(1) { width: 27%; }
-    .summary-table th:nth-child(2) { width: 22%; }
-    .summary-table th:nth-child(3) { width: 7%; }
-    .summary-table th:nth-child(4) { width: 20%; }
+    /* Explicit cm widths summing to ~16.5cm (page content is 17cm with 2cm side
+       margins) — avoids a weasyprint quirk that clips the last column when
+       table-layout: fixed widths sum to exactly 100% alongside @page margin boxes. */
+    .summary-table { table-layout: fixed; width: 100%; font-size: var(--type-label); }
+    .summary-table th:nth-child(1) { width: 3.6cm; }
+    .summary-table th:nth-child(2) { width: 2.8cm; }
+    .summary-table th:nth-child(3) { width: 1.0cm; }
+    .summary-table th:nth-child(4) { width: 2.6cm; }
     .summary-table th:nth-child(5),
     .summary-table th:nth-child(6),
     .summary-table th:nth-child(7),
-    .summary-table th:nth-child(8) { width: 6%; }
-    .summary-table td, .summary-table th { padding: 5px 6px; overflow: hidden; overflow-wrap: break-word; }
-    h2 { page-break-after: avoid; }
-    h3 { page-break-after: avoid; }
-    h4 { page-break-after: avoid; }
+    .summary-table th:nth-child(8) { width: 1.6cm; }
+    .summary-table td, .summary-table th { padding: var(--space-xs); overflow: hidden; overflow-wrap: break-word; }
+    /* Shift-grid: single column in print so long mono field names + position pair stay on one row */
+    .shift-grid { grid-template-columns: 1fr; gap: 2px 0; }
+    h2, h3, h4 { page-break-after: avoid; }
     thead { display: table-header-group; }
-    .file-section { page-break-inside: avoid; }
-    .change-block { page-break-inside: avoid; }
+    /* Page-break discipline:
+       - Headings stay with their content (page-break-after: avoid above).
+       - Individual table rows are atomic — never split a row mid-cell.
+       - Change-blocks DO flow across pages: with .change-block { avoid },
+         a future release shipping 50+ ADDED rows in one block would push
+         the entire block to a new page (and overflow if it's >1 page tall).
+         Without avoid, the block flows; thead repeats via table-header-group;
+         consultants see column headers on every continuation page. */
+    .ct tr { page-break-inside: avoid; }
+    .ct thead tr { page-break-after: avoid; }
     .ct tbody tr:hover td { background: inherit; }
+    /* Browser-print guard: if HTML is printed directly (not via weasyprint),
+       hide the interactive checkbox so action cells don't show empty boxes. */
+    input.action-check { display: none; }
   }
 </style>
 </head>
@@ -528,29 +812,15 @@
   </div>
 </div>
 
-<!-- Section 1: Module rollup -->
+<!-- Section 1: Summary table -->
 <div class="section">
-  <h2>1. At a glance</h2>
-  <div class="lede">Mapped, in-scope FBDI tabs only. UNMAPPED files and pending base-system tables are excluded from the per-file detail; pending-base files are listed at the end for visibility.</div>
-  <div class="module-grid">
-    {% for module, stats in ctx.module_rollup.items() %}
-    <div class="module-card{% if module == 'Financials' %} financials{% endif %}">
-      <div class="name">{{ module }}</div>
-      <div class="figures">
-        <div class="stat"><span class="num">{{ stats.tabs }}</span><span class="lab">tabs</span></div>
-        <div class="stat"><span class="num">{{ stats.added }}</span><span class="lab">added</span></div>
-        <div class="stat"><span class="num">{{ stats.shifted }}</span><span class="lab">shifted</span></div>
-        <div class="stat"><span class="num">{{ stats.removed }}</span><span class="lab">removed</span></div>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-</div>
-
-<!-- Section 2: Summary table -->
-<div class="section">
-  <h2>2. Summary by FBDI tab</h2>
-  <div class="lede">{{ ctx.file_sections | length }} mapped tab{% if ctx.file_sections | length != 1 %}s{% endif %} have changes between {{ ctx.old_release }} and {{ ctx.new_release }}.</div>
+  <h2>1. Summary by FBDI tab{% if not print_mode %}<span class="progress-meter" id="progress-meter">
+    <span class="progress-meter-eyebrow">Progress</span>
+    <span class="progress-meter-count"><span id="progress-done">0</span>&thinsp;/&thinsp;<span id="progress-total">0</span></span>
+    <span class="progress-meter-bar"><span class="progress-meter-fill" id="progress-fill"></span></span>
+    <span class="progress-meter-pct"><span id="progress-pct">0</span>%</span>
+  </span>{% endif %}</h2>
+  <div class="lede">{{ ctx.file_sections | length }} mapped tab{% if ctx.file_sections | length != 1 %}s{% endif %} have changes between {{ ctx.old_release }} and {{ ctx.new_release }}. UNMAPPED files are excluded; pending base-system tables are listed at the end.</div>
   <div class="table-scroll">
   <table class="summary-table">
     <thead>
@@ -559,23 +829,27 @@
         <th>Applaud Table</th>
         <th>Prefix</th>
         <th>Module</th>
-        <th class="num">Added</th>
-        <th class="num">Removed</th>
-        <th class="num">Modified</th>
-        <th class="num">Shifted</th>
+        <th class="num">Add</th>
+        <th class="num">Rem</th>
+        <th class="num">Mod</th>
+        <th class="num">Shift</th>
       </tr>
     </thead>
     <tbody>
       {% for s in ctx.file_sections %}
+      {% set added_n   = s.changes_by_type.get('ADDED', [])    | length %}
+      {% set removed_n = s.changes_by_type.get('REMOVED', [])  | length %}
+      {% set mod_n     = (s.changes_by_type.get('MODIFIED', []) | length) + (s.changes_by_type.get('MULTI', []) | length) %}
+      {% set shift_n   = s.changes_by_type.get('SHIFTED', [])  | length %}
       <tr>
-        <td><b>{{ s.file }}</b><br><span style="font-size:11px;color:var(--darkgray)">{{ s.tab }}</span></td>
-        <td>{{ s.applaud_table }}</td>
+        <td class="tech"><a href="#file-{{ s.file }}-{{ s.prefix }}"><b>{{ s.file }}</b><span class="sub">{{ s.tab }}</span></a></td>
+        <td class="tech">{{ s.applaud_table }}</td>
         <td><code>{{ s.prefix }}</code></td>
-        <td><span class="module-tag{% if s.module == 'Financials' %} financials{% endif %}">{{ s.module }}</span></td>
-        <td class="num">{{ s.changes_by_type.get('ADDED', []) | length }}</td>
-        <td class="num">{{ s.changes_by_type.get('REMOVED', []) | length }}</td>
-        <td class="num">{{ (s.changes_by_type.get('MODIFIED', []) | length) + (s.changes_by_type.get('MULTI', []) | length) }}</td>
-        <td class="num">{{ s.changes_by_type.get('SHIFTED', []) | length }}</td>
+        <td><span class="module-tag">{{ s.module }}</span></td>
+        <td class="num {{ 'add'   if added_n   else 'zero' }}">{{ added_n }}</td>
+        <td class="num {{ 'rem'   if removed_n else 'zero' }}">{{ removed_n }}</td>
+        <td class="num {{ 'mod'   if mod_n     else 'zero' }}">{{ mod_n }}</td>
+        <td class="num {{ 'shift' if shift_n   else 'zero' }}">{{ shift_n }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -583,22 +857,52 @@
   </div>
 </div>
 
-<!-- Section 3: Required changes by FBDI file -->
+<!-- Section 2: Required changes by FBDI file, grouped by module -->
 {% if ctx.file_sections %}
 <div class="section">
-  <h2>3. Required changes by FBDI file</h2>
-  <div class="lede">For each tab: Added, Removed, Modified, Renamed, Shifted. Action columns mark where consultants act in their Applaud install (DB table, IF = Import Form, EF = Export Form).</div>
+  <h2>2. Required changes</h2>
+  <div class="lede">Grouped by Applaud module. For each tab: Added, Removed, Modified, Renamed, Shifted.</div>
 
-  {% for s in ctx.file_sections %}
-  <div class="file-section">
+  <div class="legend">
+    <span class="legend-eyebrow">Legend</span>
+    <span class="legend-item"><span class="pdf-action">&#9679;</span>&nbsp;Add</span>
+    <span class="legend-item"><span class="pdf-action pdf-del">&#9679;</span>&nbsp;Remove</span>
+    <span class="legend-item"><span class="pdf-action pdf-warn">&#9679;</span>&nbsp;Modify</span>
+    <span class="legend-item"><span class="pdf-action pdf-shift">&#9679;</span>&nbsp;Shift</span>
+    <span class="legend-item"><span class="pdf-action pdf-dash">&#9675;</span>&nbsp;Rename</span>
+    <span class="legend-divider"></span>
+    <span class="legend-item"><b>DB</b>&nbsp;Database</span>
+    <span class="legend-item"><b>IF</b>&nbsp;Import&nbsp;form</span>
+    <span class="legend-item"><b>EF</b>&nbsp;Export&nbsp;form</span>
+  </div>
+
+  {% set grouped = ctx.file_sections | groupby('module') | list %}
+  {% if grouped | length > 1 %}
+  <nav class="module-jump">
+    <span class="module-jump-eyebrow">Jump to</span>
+    {% for g in grouped %}<a href="#module-{{ (g.grouper or 'unknown') | replace(' ', '-') | replace('&', 'and') | lower }}">{{ g.grouper or 'Unknown' }}</a>{% endfor %}
+  </nav>
+  {% endif %}
+
+  {% for g in grouped %}
+  {% set module = g.grouper %}
+  {% set sections_in_module = g.list %}
+  {% set module_slug = (module or 'unknown') | replace(' ', '-') | replace('&', 'and') | lower %}
+  <div class="module-group" id="module-{{ module_slug }}">
+    <div class="module-header">
+      <span class="module-eyebrow">Module</span>
+      <h3 class="module-name">{{ module or 'Unknown' }}</h3>
+    </div>
+
+    {% for s in sections_in_module %}
+    {% set file_id = s.file ~ '-' ~ s.prefix %}
+    <div class="file-section" id="file-{{ file_id }}">
     <div class="file-head">
-      <div class="num">3.{{ loop.index }}</div>
-      <h3>{{ s.file }}</h3>
+      <div class="file-name">{{ s.file }}</div>
       <div class="meta">
         <span><b>FBDI Tab:</b> {{ s.tab }}</span>
         <span><b>Applaud Table:</b> {{ s.applaud_table }}</span>
         <span><b>Prefix:</b> <code>{{ s.prefix }}</code></span>
-        <span class="module-pill">{{ s.module }}</span>
       </div>
     </div>
     <div class="file-body">
@@ -631,9 +935,9 @@
               <td>{{ r.oracle_type_str }}</td>
               <td>{{ r.applaud_type_str }}</td>
               <td class="center">{% if r.required is true %}TRUE{% elif r.required is false %}FALSE{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" title="Add DB column">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" title="Add field to Import Form">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" title="Add field to Export Form">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" data-key="{{ file_id }}|ADDED|{{ r.applaud_field_name }}|DB" title="Add DB column">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" data-key="{{ file_id }}|ADDED|{{ r.applaud_field_name }}|IF" title="Add field to Import Form">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" data-key="{{ file_id }}|ADDED|{{ r.applaud_field_name }}|EF" title="Add field to Export Form">{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -661,9 +965,9 @@
               <td class="field">{{ r.applaud_field_name }}</td>
               <td class="num">{{ r.old_position }}</td>
               <td>{{ r.oracle_type_str }}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" title="Drop DB column">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" title="Remove from Import Form">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" title="Remove from Export Form">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|DB" title="Drop DB column">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|IF" title="Remove from Import Form">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|EF" title="Remove from Export Form">{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -697,13 +1001,13 @@
                 {% if has_type_change and has_required_change %}<br>{% endif %}
                 {% if has_required_change %}Required: <span class="type-old">{{ 'TRUE' if r.old_required else 'FALSE' }}</span><span class="type-arrow">&rarr;</span><span class="type-new">{{ 'TRUE' if r.new_required else 'FALSE' }}</span> <span class="badge warn-text">flag only</span>{% endif %}
               </td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Alter DB column">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MODIFIED|{{ r.applaud_field_name }}|DB" title="Alter DB column">{% endif %}</td>
               {% if has_required_change and not has_type_change %}
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
               {% else %}
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Update Import Form field">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Update Export Form field">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MODIFIED|{{ r.applaud_field_name }}|IF" title="Update Import Form field">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MODIFIED|{{ r.applaud_field_name }}|EF" title="Update Export Form field">{% endif %}</td>
               {% endif %}
             </tr>
             {% endfor %}
@@ -732,7 +1036,7 @@
               <td class="field">{{ r.applaud_field_name }}</td>
               <td class="num">{{ r.new_position }}</td>
               <td><span class="type-old">"{{ r.old_label }}"</span><span class="type-arrow">&rarr;</span><span class="type-new">"{{ r.new_label }}"</span></td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-dash">○</span>{% else %}<input type="checkbox" class="action-check dash" title="Optional: update DB description">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-dash">○</span>{% else %}<input type="checkbox" class="action-check dash" data-key="{{ file_id }}|RENAMED|{{ r.applaud_field_name }}|DB" title="Optional: update DB description">{% endif %}</td>
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
             </tr>
@@ -750,7 +1054,7 @@
         {% if print_mode %}
         <div class="shift-grid">
           {% for r in s.changes_by_type['SHIFTED'] %}
-          <div class="row"><span>{{ r.applaud_field_name }}</span><span><span class="old-pos">{{ r.old_position }}</span> <span class="arrow">&rarr;</span> <span class="new-pos">{{ r.new_position }}</span></span></div>
+          <div class="row"><span class="field-name">{{ r.applaud_field_name }}</span><span class="pos-pair"><span class="old-pos">{{ r.old_position }}</span> <span class="arrow">&rarr;</span> <span class="new-pos">{{ r.new_position }}</span></span></div>
           {% endfor %}
         </div>
         {% else %}
@@ -759,7 +1063,7 @@
           <div>
             <div class="shift-grid">
               {% for r in s.changes_by_type['SHIFTED'] %}
-              <div class="row"><span>{{ r.applaud_field_name }}</span><span><span class="old-pos">{{ r.old_position }}</span> <span class="arrow">&rarr;</span> <span class="new-pos">{{ r.new_position }}</span></span></div>
+              <div class="row"><span class="field-name">{{ r.applaud_field_name }}</span><span class="pos-pair"><span class="old-pos">{{ r.old_position }}</span> <span class="arrow">&rarr;</span> <span class="new-pos">{{ r.new_position }}</span></span></div>
               {% endfor %}
             </div>
           </div>
@@ -787,12 +1091,12 @@
             {% for r in s.changes_by_type['MULTI'] %}
             <tr>
               <td class="field">{{ r.applaud_field_name }}</td>
-              <td class="num">{{ r.old_position if r.old_position is not none else '&mdash;' | safe }}</td>
-              <td class="num">{{ r.new_position if r.new_position is not none else '&mdash;' | safe }}</td>
+              <td class="num">{% if r.old_position is not none %}{{ r.old_position }}{% else %}&mdash;{% endif %}</td>
+              <td class="num">{% if r.new_position is not none %}{{ r.new_position }}{% else %}&mdash;{% endif %}</td>
               <td>{{ r.axes | join(', ') }}{% if r.sub_kinds %} ({{ r.sub_kinds | join(', ') }}){% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Update DB column">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Update Import Form field">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" title="Update Export Form field">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MULTI|{{ r.applaud_field_name }}|DB" title="Update DB column">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MULTI|{{ r.applaud_field_name }}|IF" title="Update Import Form field">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MULTI|{{ r.applaud_field_name }}|EF" title="Update Export Form field">{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -802,19 +1106,21 @@
 
     </div>
   </div>
+    {% endfor %}
+  </div>
   {% endfor %}
 </div>
 {% endif %}
 
-<!-- Section 4: Pending base-system tables -->
+<!-- Section 3: Pending base-system tables -->
 {% if ctx.pending_base %}
 <div class="section">
-  <h2>4. Pending base-system tables</h2>
+  <h2>3. Pending base-system tables</h2>
   <div class="lede">FBDI tabs mapped to an Applaud target table not yet present in the standard base install. Listed for the platform team's visibility; not actionable for client-install consultants.</div>
   <ul class="pending-list">
     {% for p in ctx.pending_base %}
     <li>
-      <span class="name"><b>{{ p.file }}</b> &middot; {{ p.tab }} &rarr; <code>{{ p.applaud_table }}</code> &middot; <code>{{ p.prefix }}</code> <span class="module-tag" style="margin-left:6px">{{ p.module }}</span></span>
+      <span class="name"><code class="file-id">{{ p.file }}</code> &middot; {{ p.tab }} &rarr; <code>{{ p.applaud_table }}</code> &middot; <code>{{ p.prefix }}</code> <span class="module-tag">{{ p.module }}</span></span>
       <span class="pending-count">{{ p.change_count }} change{% if p.change_count != 1 %}s{% endif %} pending</span>
     </li>
     {% endfor %}
@@ -823,5 +1129,66 @@
 </div>
 {% endif %}
 
+{% if not print_mode %}
+<script>
+/* Action-checkbox persistence (HTML only).
+   Key shape: fbdi-report:{old}-{new}:{file-id}|{change_type}|{field_name}|{action}
+   Content-keyed (not index-keyed) so persistence survives row count or order
+   changes between releases — adding a new ADDED field next quarter doesn't
+   shift other rows' state onto the wrong checkbox.
+
+   On load, prune any keys for release pairs other than the current one to
+   prevent indefinite localStorage growth across quarters. */
+(function () {
+  var ROOT = 'fbdi-report:';
+  var pair = '{{ ctx.old_release }}-{{ ctx.new_release }}';
+  var prefix = ROOT + pair + ':';
+
+  // Auto-prune: drop any fbdi-report keys from release pairs that aren't current.
+  try {
+    for (var i = localStorage.length - 1; i >= 0; i--) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf(ROOT) === 0 && k.indexOf(prefix) !== 0) {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch (e) { /* localStorage may be disabled */ }
+
+  var allBoxes = document.querySelectorAll('input.action-check[data-key]');
+  allBoxes.forEach(function (cb) {
+    var key = prefix + cb.dataset.key;
+    try {
+      if (localStorage.getItem(key) === '1') cb.checked = true;
+    } catch (e) { /* swallow */ }
+    cb.addEventListener('change', function () {
+      try {
+        if (cb.checked) localStorage.setItem(key, '1');
+        else localStorage.removeItem(key);
+      } catch (e) { /* swallow quota errors */ }
+      updateProgress();
+    });
+  });
+
+  // Progress meter — counts checked vs total action-checkboxes.
+  var doneEl  = document.getElementById('progress-done');
+  var totalEl = document.getElementById('progress-total');
+  var fillEl  = document.getElementById('progress-fill');
+  var pctEl   = document.getElementById('progress-pct');
+  var meter   = document.getElementById('progress-meter');
+  function updateProgress() {
+    var total = allBoxes.length;
+    var done = 0;
+    allBoxes.forEach(function (cb) { if (cb.checked) done++; });
+    var pct = total === 0 ? 0 : Math.round(done / total * 100);
+    if (doneEl)  doneEl.textContent = done;
+    if (totalEl) totalEl.textContent = total;
+    if (pctEl)   pctEl.textContent = pct;
+    if (fillEl)  fillEl.style.width = pct + '%';
+    if (meter)   meter.classList.toggle('complete', done === total && total > 0);
+  }
+  updateProgress();
+})();
+</script>
+{% endif %}
 </body>
 </html>

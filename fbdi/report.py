@@ -84,7 +84,6 @@ class ReportContext:
     old_release: str
     new_release: str
     generated_date: str
-    module_rollup: dict[str, dict[str, int]]    # module -> {"tabs": N, "added": N, ...}
     file_sections: list[FileSection]
     pending_base: list[PendingBaseEntry]
 
@@ -156,17 +155,15 @@ def build_report_context(
         section.shift_summary = _build_shift_summary(section.changes_by_type.get("SHIFTED", []))
         file_sections.append(section)
 
-    # Sort by (module, file, tab) for stable ordering
+    # Sort by (module, file, tab) for stable ordering — also drives
+    # the template's groupby('module') so groups appear in this order.
     file_sections.sort(key=lambda s: (s.module or "", s.file, s.tab))
     pending_base.sort(key=lambda p: (p.module or "", p.file, p.tab))
-
-    module_rollup = _build_module_rollup(file_sections)
 
     return ReportContext(
         old_release=old_release,
         new_release=new_release,
         generated_date=generated_date,
-        module_rollup=module_rollup,
         file_sections=file_sections,
         pending_base=pending_base,
     )
@@ -256,33 +253,6 @@ def _build_shift_summary(shifted_rows: list[ChangeRow]) -> str | None:
         f"{n} field{'s' if n != 1 else ''} shifted from positions "
         f"{old_positions[0]}-{old_positions[-1]} to {new_positions[0]}-{new_positions[-1]}."
     )
-
-
-def _build_module_rollup(sections: list[FileSection]) -> dict[str, dict[str, int]]:
-    """Aggregate per-module counts across file sections.
-
-    Each module entry tracks the number of in-scope tabs (file/tab pairs
-    contributing changes) and per-change-type counts. Unknown modules are
-    bucketed under "Unknown" so the rollup never silently drops sections.
-    """
-    rollup: dict[str, dict[str, int]] = {}
-    for s in sections:
-        m = s.module or "Unknown"
-        if m not in rollup:
-            rollup[m] = {
-                "tabs": 0,
-                "added": 0,
-                "removed": 0,
-                "modified": 0,
-                "renamed": 0,
-                "shifted": 0,
-                "multi": 0,
-            }
-        rollup[m]["tabs"] += 1
-        for ct, rows in s.changes_by_type.items():
-            key = ct.lower()
-            rollup[m][key] = rollup[m].get(key, 0) + len(rows)
-    return rollup
 
 
 # Public: on-disk loaders -------------------------------------------------------
@@ -447,6 +417,7 @@ def generate_report(
     html_path.write_text(tpl.render(ctx=ctx, print_mode=False), encoding="utf-8")
 
     pdf_html = tpl.render(ctx=ctx, print_mode=True)
-    weasyprint.HTML(string=pdf_html).write_pdf(str(pdf_path))
+    # base_url lets weasyprint resolve the bundled fonts in templates/fonts/
+    weasyprint.HTML(string=pdf_html, base_url=str(template_dir)).write_pdf(str(pdf_path))
 
     return html_path, pdf_path

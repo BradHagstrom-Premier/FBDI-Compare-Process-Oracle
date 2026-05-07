@@ -117,28 +117,6 @@ class TestApplaudFieldNameConstruction:
         assert added[0].name_length > 30
 
 
-class TestModuleRollup:
-    def test_module_counts_aggregate_across_files(self):
-        catalog_old = {
-            ("F1", "T1"): [_aligned(1, "X", "X")],
-            ("F2", "T1"): [_aligned(1, "X", "X")],
-        }
-        catalog_new = {
-            ("F1", "T1"): [_aligned(1, "X", "X"), _aligned(2, "Y", "Y")],
-            ("F2", "T1"): [_aligned(1, "X", "X")],  # no changes
-        }
-        mapping = {**_mapping("F1", "T1", module="Financials"),
-                   **_mapping("F2", "T1", module="Financials")}
-        ctx = build_report_context(
-            catalog_old=catalog_old, catalog_new=catalog_new,
-            mapping=mapping, old_release="26A", new_release="26B",
-        )
-        assert "Financials" in ctx.module_rollup
-        rollup = ctx.module_rollup["Financials"]
-        assert rollup["tabs"] == 1   # only F1/T1 has changes
-        assert rollup["added"] == 1
-
-
 class TestLoaders:
     def test_load_catalog_release_groups_by_file_and_tab(self, tmp_path):
         from fbdi.report import load_catalog_release
