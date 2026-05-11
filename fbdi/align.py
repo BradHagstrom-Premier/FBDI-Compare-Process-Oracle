@@ -26,6 +26,7 @@ class AlignedField:
     length: int | None
     scale: int | None
     required: bool | None
+    data_type_raw: str | None = None
 
 
 @dataclass(frozen=True)

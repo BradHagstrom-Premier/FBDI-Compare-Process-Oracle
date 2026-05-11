@@ -62,6 +62,7 @@ class FileSection:
     applaud_table: str
     prefix: str
     module: str
+    status: str                    # "MAPPED" | "NEEDS_REVIEW"
     in_base_note: str | None       # e.g. the "Multiple mapping is possible..." string when present
     changes_by_type: dict[str, list[ChangeRow]] = field(default_factory=dict)
     shift_summary: str | None = None  # e.g. "20 fields shifted from positions 19-39 to 20-40"
@@ -149,6 +150,7 @@ def build_report_context(
             applaud_table=m["applaud_table"],
             prefix=m["prefix"],
             module=m["module"],
+            status=m.get("status", "MAPPED"),
             in_base_note=in_base_note,
         )
         section.changes_by_type = _bucket_changes(changes, prefix=m["prefix"])
@@ -184,9 +186,15 @@ def _applaud_field_name(prefix: str, technical: str | None, label: str | None) -
 
 
 def _oracle_type_str(f: AlignedField | None) -> str:
-    """Reconstruct the Oracle-style type string from a parsed AlignedField."""
+    """Return the Oracle-style type string for a field.
+
+    Prefers data_type_raw (preserves CHAR unit, e.g. VARCHAR2(30 CHAR)) when
+    present; falls back to reconstructing from parsed parts.
+    """
     if f is None or not f.data_type:
         return ""
+    if f.data_type_raw:
+        return f.data_type_raw
     if f.length is not None and f.scale is not None:
         return f"{f.data_type}({f.length},{f.scale})"
     if f.length is not None:
@@ -275,7 +283,7 @@ def load_catalog_release(catalog_path: Path, release: str) -> dict[tuple[str, st
     for row in rows:
         # Schema: release, file_name, tab_name, position, column_label,
         # column_technical, data_type, length, scale, data_type_raw, required
-        _rel, file_name, tab_name, position, label, technical, data_type, length, scale, _raw, required = row
+        _rel, file_name, tab_name, position, label, technical, data_type, length, scale, data_type_raw, required = row
         if file_name is None or tab_name is None:
             continue
         grouped[(file_name, tab_name)].append(AlignedField(
@@ -286,6 +294,7 @@ def load_catalog_release(catalog_path: Path, release: str) -> dict[tuple[str, st
             length=(int(length) if length is not None and length != "" else None),
             scale=(int(scale) if scale is not None and scale != "" else None),
             required=_parse_required(required),
+            data_type_raw=(str(data_type_raw).strip() if data_type_raw is not None and data_type_raw != "" else None),
         ))
 
     wb.close()

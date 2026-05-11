@@ -200,7 +200,9 @@
     color: var(--darkgray);
     font-variant-numeric: tabular-nums;
   }
+  .progress-meter.complete { border-color: var(--def-green); background: #f0fff8; }
   .progress-meter.complete .progress-meter-fill { background: var(--def-green); }
+  .progress-meter.complete .progress-meter-eyebrow::after { content: ' \2713'; color: var(--def-green); }
 
   /* === Module quick-jump (HTML nav above §2 module groups) === */
   .module-jump {
@@ -618,6 +620,22 @@
     background: var(--coolgray);
   }
 
+  /* === Needs-review badge === */
+  .needs-review-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 1px var(--space-sm);
+    border-radius: var(--radius-pill);
+    background: var(--warn-bg);
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    font-size: var(--type-label);
+    font-weight: var(--weight-semibold);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
   /* === Pending base list === */
   .pending-list {
     list-style: none;
@@ -680,6 +698,17 @@
     details.shift-details > summary { user-select: none; }
     details.shift-details > summary:hover { background: var(--coolgray); }
     details.shift-details > summary::-webkit-details-marker { display: none; }
+    /* Sticky progress meter — fixed to bottom-right so it stays visible while scrolling. */
+    .progress-meter {
+      position: fixed;
+      bottom: var(--space-lg);
+      right: var(--space-lg);
+      margin-left: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(2, 7, 45, 0.12);
+    }
+    /* Sticky legend — pins to top of viewport as the user scrolls into §2. */
+    .legend { position: sticky; top: 0; z-index: 10; }
     /* Interactive checkboxes — template-internal component, fixed pixel art.
        The 16/4/1/5/8px values and 1.5px borders aren't on the DESIGN.md spacing
        scale because this is a custom-rendered control (appearance: none + a
@@ -825,25 +854,30 @@
   <table class="summary-table">
     <thead>
       <tr>
-        <th>FBDI File · Tab</th>
-        <th>Applaud Table</th>
-        <th>Prefix</th>
-        <th>Module</th>
-        <th class="num">Add</th>
-        <th class="num">Rem</th>
-        <th class="num">Mod</th>
-        <th class="num">Shift</th>
+        <th scope="col">FBDI File · Tab</th>
+        <th scope="col">Applaud Table</th>
+        <th scope="col">Prefix</th>
+        <th scope="col">Module</th>
+        <th class="num" scope="col">Add</th>
+        <th class="num" scope="col">Rem</th>
+        <th class="num" scope="col">Mod</th>
+        <th class="num" scope="col">Shift</th>
       </tr>
     </thead>
+    {% set totals = namespace(add=0, rem=0, mod=0, shift=0) %}
     <tbody>
       {% for s in ctx.file_sections %}
       {% set added_n   = s.changes_by_type.get('ADDED', [])    | length %}
       {% set removed_n = s.changes_by_type.get('REMOVED', [])  | length %}
       {% set mod_n     = (s.changes_by_type.get('MODIFIED', []) | length) + (s.changes_by_type.get('MULTI', []) | length) %}
       {% set shift_n   = s.changes_by_type.get('SHIFTED', [])  | length %}
+      {% set totals.add   = totals.add   + added_n %}
+      {% set totals.rem   = totals.rem   + removed_n %}
+      {% set totals.mod   = totals.mod   + mod_n %}
+      {% set totals.shift = totals.shift + shift_n %}
       <tr>
         <td class="tech"><a href="#file-{{ s.file }}-{{ s.prefix }}"><b>{{ s.file }}</b><span class="sub">{{ s.tab }}</span></a></td>
-        <td class="tech">{{ s.applaud_table }}</td>
+        <td class="tech">{{ s.applaud_table }}{% if s.status == 'NEEDS_REVIEW' %} <span class="needs-review-badge">&#9888; Needs review</span>{% endif %}</td>
         <td><code>{{ s.prefix }}</code></td>
         <td><span class="module-tag">{{ s.module }}</span></td>
         <td class="num {{ 'add'   if added_n   else 'zero' }}">{{ added_n }}</td>
@@ -853,6 +887,15 @@
       </tr>
       {% endfor %}
     </tbody>
+    <tfoot>
+      <tr>
+        <td class="tech" colspan="4"><b>Total</b></td>
+        <td class="num {{ 'add'   if totals.add   else 'zero' }}">{{ totals.add }}</td>
+        <td class="num {{ 'rem'   if totals.rem   else 'zero' }}">{{ totals.rem }}</td>
+        <td class="num {{ 'mod'   if totals.mod   else 'zero' }}">{{ totals.mod }}</td>
+        <td class="num {{ 'shift' if totals.shift else 'zero' }}">{{ totals.shift }}</td>
+      </tr>
+    </tfoot>
   </table>
   </div>
 </div>
@@ -898,7 +941,7 @@
     {% set file_id = s.file ~ '-' ~ s.prefix %}
     <div class="file-section" id="file-{{ file_id }}">
     <div class="file-head">
-      <div class="file-name">{{ s.file }}</div>
+      <div class="file-name">{{ s.file }}{% if s.status == 'NEEDS_REVIEW' %} <span class="needs-review-badge">&#9888; Needs review</span>{% endif %}</div>
       <div class="meta">
         <span><b>FBDI Tab:</b> {{ s.tab }}</span>
         <span><b>Applaud Table:</b> {{ s.applaud_table }}</span>
@@ -917,14 +960,14 @@
         <table class="ct">
           <thead>
             <tr>
-              <th>Applaud Field</th>
-              <th class="num">Pos</th>
-              <th>Oracle Type</th>
-              <th>Applaud Type</th>
-              <th class="center">Required</th>
-              <th class="action-col" title="Database">DB</th>
-              <th class="action-col" title="Import Form">IF</th>
-              <th class="action-col" title="Export Form">EF</th>
+              <th scope="col">Applaud Field</th>
+              <th class="num" scope="col">Pos</th>
+              <th scope="col">Oracle Type</th>
+              <th scope="col">Applaud Type</th>
+              <th class="center" scope="col">Required</th>
+              <th class="action-col" scope="col" title="Database">DB</th>
+              <th class="action-col" scope="col" title="Import Form">IF</th>
+              <th class="action-col" scope="col" title="Export Form">EF</th>
             </tr>
           </thead>
           <tbody>
@@ -934,14 +977,15 @@
               <td class="num">{{ r.new_position }}</td>
               <td>{{ r.oracle_type_str }}</td>
               <td>{{ r.applaud_type_str }}</td>
-              <td class="center">{% if r.required is true %}TRUE{% elif r.required is false %}FALSE{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" data-key="{{ file_id }}|ADDED|{{ r.applaud_field_name }}|DB" title="Add DB column">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" data-key="{{ file_id }}|ADDED|{{ r.applaud_field_name }}|IF" title="Add field to Import Form">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" data-key="{{ file_id }}|ADDED|{{ r.applaud_field_name }}|EF" title="Add field to Export Form">{% endif %}</td>
+              <td class="center">{% if r.required is true %}TRUE{% elif r.required is false %}FALSE{% else %}—{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" data-key="{{ file_id }}|ADDED|{{ r.applaud_field_name }}|DB" aria-label="{{ r.applaud_field_name }}: add database column" title="Add DB column">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" data-key="{{ file_id }}|ADDED|{{ r.applaud_field_name }}|IF" aria-label="{{ r.applaud_field_name }}: add to import form" title="Add field to Import Form">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action">●</span>{% else %}<input type="checkbox" class="action-check" data-key="{{ file_id }}|ADDED|{{ r.applaud_field_name }}|EF" aria-label="{{ r.applaud_field_name }}: add to export form" title="Add field to Export Form">{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
+        <div class="required-note">Required status reflects Oracle catalog data; validate against the live Oracle instance before treating as authoritative.</div>
       </div>
       {% endif %}
 
@@ -954,6 +998,7 @@
               <th>Applaud Field</th>
               <th class="num">Was at Pos</th>
               <th>Oracle Type</th>
+              <th>Applaud Type</th>
               <th class="action-col" title="Database">DB</th>
               <th class="action-col" title="Import Form">IF</th>
               <th class="action-col" title="Export Form">EF</th>
@@ -965,6 +1010,7 @@
               <td class="field">{{ r.applaud_field_name }}</td>
               <td class="num">{{ r.old_position }}</td>
               <td>{{ r.oracle_type_str }}</td>
+              <td>{{ r.applaud_type_str }}</td>
               <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|DB" title="Drop DB column">{% endif %}</td>
               <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|IF" title="Remove from Import Form">{% endif %}</td>
               <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|EF" title="Remove from Export Form">{% endif %}</td>
@@ -999,7 +1045,7 @@
               <td>
                 {% if has_type_change %}Type: <span class="type-old">{{ r.old_oracle_type_str }}</span><span class="type-arrow">&rarr;</span><span class="type-new">{{ r.new_oracle_type_str }}</span>{% endif %}
                 {% if has_type_change and has_required_change %}<br>{% endif %}
-                {% if has_required_change %}Required: <span class="type-old">{{ 'TRUE' if r.old_required else 'FALSE' }}</span><span class="type-arrow">&rarr;</span><span class="type-new">{{ 'TRUE' if r.new_required else 'FALSE' }}</span> <span class="badge warn-text">flag only</span>{% endif %}
+                {% if has_required_change %}Required: <span class="type-old">{% if r.old_required is true %}TRUE{% elif r.old_required is false %}FALSE{% else %}—{% endif %}</span><span class="type-arrow">&rarr;</span><span class="type-new">{% if r.new_required is true %}TRUE{% elif r.new_required is false %}FALSE{% else %}—{% endif %}</span> <span class="badge warn-text">flag only</span>{% endif %}
               </td>
               <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MODIFIED|{{ r.applaud_field_name }}|DB" title="Alter DB column">{% endif %}</td>
               {% if has_required_change and not has_type_change %}
@@ -1051,6 +1097,7 @@
       <div class="change-block shifted">
         <h4>Shifted <span class="count">{{ s.changes_by_type['SHIFTED'] | length }}</span></h4>
         <div class="summary-box">{{ s.shift_summary }}</div>
+        <div class="renamed-note">Position shifts are informational — no DB or form action is required unless Oracle has explicitly changed a column dependency.</div>
         {% if print_mode %}
         <div class="shift-grid">
           {% for r in s.changes_by_type['SHIFTED'] %}
@@ -1074,7 +1121,7 @@
 
       {% if s.changes_by_type.get('MULTI') %}
       <div class="change-block modified">
-        <h4>Multi-axis changes <span class="count">{{ s.changes_by_type['MULTI'] | length }}</span></h4>
+        <h4>Combined changes <span class="count">{{ s.changes_by_type['MULTI'] | length }}</span></h4>
         <table class="ct">
           <thead>
             <tr>
@@ -1101,6 +1148,7 @@
             {% endfor %}
           </tbody>
         </table>
+        <div class="renamed-note">Combined changes have multiple simultaneous axes — review each action column individually and apply all that are relevant.</div>
       </div>
       {% endif %}
 
