@@ -38,6 +38,7 @@
     --warn: #B8860B;          /* Caution Amber — modified fields */
     --warn-bg: #FFFBF0;       /* Caution tint */
     --del: #C0392B;           /* Remove Red — removed fields */
+    --success-bg: oklch(97% 0.025 155); /* Complete state tint — progress meter only */
     --row-hover: rgba(13, 44, 113, 0.025);
     --action-tint: rgba(13, 44, 113, 0.03);
     --cell-border: rgba(13, 44, 113, 0.06);
@@ -193,14 +194,24 @@
   .progress-meter-fill {
     height: 100%;
     background: var(--def-green);
-    width: 0%;
-    transition: width 0.2s ease-out;
+    width: 100%;
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 0.2s ease-out;
   }
   .progress-meter-pct {
     color: var(--darkgray);
     font-variant-numeric: tabular-nums;
   }
-  .progress-meter.complete { border-color: var(--def-green); background: #f0fff8; }
+  .progress-meter-local {
+    color: var(--darkgray);
+    opacity: var(--tint-faint);
+    font-size: 9px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    align-self: center;
+  }
+  .progress-meter.complete { border-color: var(--def-green); background: var(--success-bg); }
   .progress-meter.complete .progress-meter-fill { background: var(--def-green); }
   .progress-meter.complete .progress-meter-eyebrow::after { content: ' \2713'; color: var(--def-green); }
 
@@ -313,6 +324,13 @@
   .summary-table td.tech a {
     color: inherit;
     text-decoration: none;
+    cursor: pointer;
+  }
+  .summary-table td.tech a::after {
+    content: ' \2192';
+    font-family: sans-serif;
+    color: var(--coolgray);
+    font-weight: var(--weight-regular);
   }
   /* Module tag — neutral for every module, including Financials. Signal Green
      is reserved for ADDED counts and the cover wordmark; using it as a module
@@ -512,6 +530,15 @@
     margin-top: var(--space-xs);
     font-style: italic;
   }
+  .required-note {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-xs);
+    font-size: var(--type-body);
+    margin-bottom: var(--space-md);
+  }
 
   /* === Shift summary + collapsible === */
   .summary-box {
@@ -690,7 +717,8 @@
   @media screen {
     /* Sticky summary thead so column headers stay visible while scrolling §1 list. */
     .summary-table thead th { position: sticky; top: 0; z-index: 1; }
-    .summary-table td.tech a:hover { text-decoration: underline; }
+    .summary-table td.tech a:hover { text-decoration: underline; color: var(--def-blue); }
+    .summary-table td.tech a:hover::after { color: var(--def-blue); }
     .summary-table tbody tr:hover { background: var(--row-hover); cursor: pointer; }
     .module-jump a:hover { background: var(--bg-soft); border-color: var(--def-blue); }
     .ct tbody tr:hover td { background: var(--row-hover); }
@@ -705,10 +733,68 @@
       right: var(--space-lg);
       margin-left: 0;
       z-index: 100;
-      box-shadow: 0 2px 8px rgba(2, 7, 45, 0.12);
     }
-    /* Sticky legend — pins to top of viewport as the user scrolls into §2. */
-    .legend { position: sticky; top: 0; z-index: 10; }
+    /* Change-type filter bar (HTML only) */
+    .change-filter {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-sm) var(--space-md);
+      background: var(--canvas);
+      border: 1px solid var(--coolgray);
+      border-radius: var(--radius-sm);
+      font-size: var(--type-label);
+      margin-bottom: var(--space-md);
+    }
+    .change-filter-eyebrow {
+      text-transform: uppercase;
+      letter-spacing: var(--track-label);
+      font-weight: var(--weight-semibold);
+      color: var(--darkgray);
+    }
+    .change-filter-option {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-xs);
+      cursor: pointer;
+      padding: 2px var(--space-sm);
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--coolgray);
+      background: var(--canvas);
+      user-select: none;
+      transition: background var(--motion-fast) ease-out, border-color var(--motion-fast) ease-out;
+    }
+    .change-filter-option:has(input:checked) { background: var(--bg-soft); }
+    .cf-check { cursor: pointer; accent-color: var(--def-blue); }
+    .cf-label { font-weight: var(--weight-semibold); }
+    .cf-label.added   { color: var(--def-green); }
+    .cf-label.removed { color: var(--del); }
+    .cf-label.modified { color: var(--warn); }
+    .cf-label.shifted  { color: var(--darkgray); }
+    /* Sticky controls — legend + filter bar stack as one pinned band. */
+    .sticky-controls {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--canvas);
+      border-bottom: 1px solid var(--coolgray);
+      margin-bottom: var(--space-md);
+    }
+    .sticky-controls .legend { margin-bottom: 0; border-bottom: none; border-radius: 0; border-left: none; border-right: none; border-top: none; }
+    .sticky-controls .change-filter { margin-bottom: 0; border-bottom: none; border-radius: 0; border-left: none; border-right: none; }
+    /* Export state link — HTML-only, progress meter companion. */
+    .export-state-link {
+      font-size: 9px;
+      color: var(--darkgray);
+      opacity: 0.7;
+      text-decoration: none;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .export-state-link:hover { opacity: 1; text-decoration: underline; }
+    /* Module jump focus ring. */
+    .module-jump a:focus-visible { outline: 2px solid var(--def-blue); outline-offset: 2px; border-radius: var(--radius-pill); }
     /* Interactive checkboxes — template-internal component, fixed pixel art.
        The 16/4/1/5/8px values and 1.5px borders aren't on the DESIGN.md spacing
        scale because this is a custom-rendered control (appearance: none + a
@@ -843,11 +929,13 @@
 
 <!-- Section 1: Summary table -->
 <div class="section">
-  <h2>1. Summary by FBDI tab{% if not print_mode %}<span class="progress-meter" id="progress-meter">
+  <h2>1. Summary by FBDI tab{% if not print_mode %}<span class="progress-meter" id="progress-meter" title="Action state saved in this browser only. Use Export to share or preserve across machines.">
     <span class="progress-meter-eyebrow">Progress</span>
     <span class="progress-meter-count"><span id="progress-done">0</span>&thinsp;/&thinsp;<span id="progress-total">0</span></span>
     <span class="progress-meter-bar"><span class="progress-meter-fill" id="progress-fill"></span></span>
     <span class="progress-meter-pct"><span id="progress-pct">0</span>%</span>
+    <span class="progress-meter-local">this browser</span>
+    <a id="export-state-link" href="#" class="export-state-link" title="Download action state as JSON" aria-label="Export action state as JSON">Export</a>
   </span>{% endif %}</h2>
   <div class="lede">{{ ctx.file_sections | length }} mapped tab{% if ctx.file_sections | length != 1 %}s{% endif %} have changes between {{ ctx.old_release }} and {{ ctx.new_release }}. UNMAPPED files are excluded; pending base-system tables are listed at the end.</div>
   <div class="table-scroll">
@@ -906,24 +994,37 @@
   <h2>2. Required changes</h2>
   <div class="lede">Grouped by Applaud module. For each tab: Added, Removed, Modified, Renamed, Shifted.</div>
 
-  <div class="legend">
-    <span class="legend-eyebrow">Legend</span>
-    <span class="legend-item"><span class="pdf-action">&#9679;</span>&nbsp;Add</span>
-    <span class="legend-item"><span class="pdf-action pdf-del">&#9679;</span>&nbsp;Remove</span>
-    <span class="legend-item"><span class="pdf-action pdf-warn">&#9679;</span>&nbsp;Modify</span>
-    <span class="legend-item"><span class="pdf-action pdf-shift">&#9679;</span>&nbsp;Shift</span>
-    <span class="legend-item"><span class="pdf-action pdf-dash">&#9675;</span>&nbsp;Rename</span>
-    <span class="legend-divider"></span>
-    <span class="legend-item"><b>DB</b>&nbsp;Database</span>
-    <span class="legend-item"><b>IF</b>&nbsp;Import&nbsp;form</span>
-    <span class="legend-item"><b>EF</b>&nbsp;Export&nbsp;form</span>
+  <div class="sticky-controls">
+    <div class="legend">
+      <span class="legend-eyebrow">Legend</span>
+      <span class="legend-item"><span class="pdf-action">&#9679;</span>&nbsp;Add</span>
+      <span class="legend-item"><span class="pdf-action pdf-del">&#9679;</span>&nbsp;Remove</span>
+      <span class="legend-item"><span class="pdf-action pdf-warn">&#9679;</span>&nbsp;Modify</span>
+      <span class="legend-item"><span class="pdf-action pdf-shift">&#9679;</span>&nbsp;Shift</span>
+      <span class="legend-item"><span class="pdf-action pdf-dash">&#9675;</span>&nbsp;Rename</span>
+      <span class="legend-divider"></span>
+      <span class="legend-item"><b>DB</b>&nbsp;Database</span>
+      <span class="legend-item"><b>IF</b>&nbsp;Import&nbsp;form</span>
+      <span class="legend-item"><b>EF</b>&nbsp;Export&nbsp;form</span>
+    </div>
+    {% if not print_mode %}
+    <div class="change-filter" id="change-filter" role="group" aria-label="Filter by change type">
+      <span class="change-filter-eyebrow">Show</span>
+      <label class="change-filter-option"><input type="checkbox" class="cf-check" data-type="added" checked> <span class="cf-label added">Added</span></label>
+      <label class="change-filter-option"><input type="checkbox" class="cf-check" data-type="removed" checked> <span class="cf-label removed">Removed</span></label>
+      <label class="change-filter-option"><input type="checkbox" class="cf-check" data-type="modified" checked> <span class="cf-label modified">Modified</span></label>
+      <label class="change-filter-option"><input type="checkbox" class="cf-check" data-type="shifted" checked> <span class="cf-label shifted">Shifted</span></label>
+    </div>
+    {% endif %}
   </div>
+
+  <div role="note" class="required-note">Required status in Added tables reflects Oracle catalog data — validate against the live Oracle instance before treating as authoritative.</div>
 
   {% set grouped = ctx.file_sections | groupby('module') | list %}
   {% if grouped | length > 1 %}
-  <nav class="module-jump">
-    <span class="module-jump-eyebrow">Jump to</span>
-    {% for g in grouped %}<a href="#module-{{ (g.grouper or 'unknown') | replace(' ', '-') | replace('&', 'and') | lower }}">{{ g.grouper or 'Unknown' }}</a>{% endfor %}
+  <nav class="module-jump" aria-label="Jump to module">
+    <span class="module-jump-eyebrow">Jump to{% if not print_mode %} &nbsp;·&nbsp; <kbd style="font-size:var(--type-label);padding:1px 4px;border:1px solid var(--coolgray);border-radius:var(--radius-xs);background:var(--bg-soft);font-family:inherit;">J</kbd>/<kbd style="font-size:var(--type-label);padding:1px 4px;border:1px solid var(--coolgray);border-radius:var(--radius-xs);background:var(--bg-soft);font-family:inherit;">K</kbd> prev/next{% endif %}</span>
+    {% for g in grouped %}<a href="#module-{{ (g.grouper or 'unknown') | replace(' ', '-') | replace('&', 'and') | lower }}" aria-label="Jump to module: {{ g.grouper or 'Unknown' }}">{{ g.grouper or 'Unknown' }}</a>{% endfor %}
   </nav>
   {% endif %}
 
@@ -955,7 +1056,7 @@
       {% endif %}
 
       {% if s.changes_by_type.get('ADDED') %}
-      <div class="change-block">
+      <div class="change-block added">
         <h4>Added <span class="count">{{ s.changes_by_type['ADDED'] | length }}</span></h4>
         <table class="ct">
           <thead>
@@ -985,7 +1086,6 @@
             {% endfor %}
           </tbody>
         </table>
-        <div class="required-note">Required status reflects Oracle catalog data; validate against the live Oracle instance before treating as authoritative.</div>
       </div>
       {% endif %}
 
@@ -1011,9 +1111,9 @@
               <td class="num">{{ r.old_position }}</td>
               <td>{{ r.oracle_type_str }}</td>
               <td>{{ r.applaud_type_str }}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|DB" title="Drop DB column">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|IF" title="Remove from Import Form">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|EF" title="Remove from Export Form">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|DB" aria-label="{{ r.applaud_field_name }}: drop database column" title="Drop DB column">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|IF" aria-label="{{ r.applaud_field_name }}: remove from import form" title="Remove from Import Form">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-del">●</span>{% else %}<input type="checkbox" class="action-check del" data-key="{{ file_id }}|REMOVED|{{ r.applaud_field_name }}|EF" aria-label="{{ r.applaud_field_name }}: remove from export form" title="Remove from Export Form">{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -1047,13 +1147,13 @@
                 {% if has_type_change and has_required_change %}<br>{% endif %}
                 {% if has_required_change %}Required: <span class="type-old">{% if r.old_required is true %}TRUE{% elif r.old_required is false %}FALSE{% else %}—{% endif %}</span><span class="type-arrow">&rarr;</span><span class="type-new">{% if r.new_required is true %}TRUE{% elif r.new_required is false %}FALSE{% else %}—{% endif %}</span> <span class="badge warn-text">flag only</span>{% endif %}
               </td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MODIFIED|{{ r.applaud_field_name }}|DB" title="Alter DB column">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MODIFIED|{{ r.applaud_field_name }}|DB" aria-label="{{ r.applaud_field_name }}: alter database column" title="Alter DB column">{% endif %}</td>
               {% if has_required_change and not has_type_change %}
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
               {% else %}
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MODIFIED|{{ r.applaud_field_name }}|IF" title="Update Import Form field">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MODIFIED|{{ r.applaud_field_name }}|EF" title="Update Export Form field">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MODIFIED|{{ r.applaud_field_name }}|IF" aria-label="{{ r.applaud_field_name }}: update import form field" title="Update Import Form field">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MODIFIED|{{ r.applaud_field_name }}|EF" aria-label="{{ r.applaud_field_name }}: update export form field" title="Update Export Form field">{% endif %}</td>
               {% endif %}
             </tr>
             {% endfor %}
@@ -1082,7 +1182,7 @@
               <td class="field">{{ r.applaud_field_name }}</td>
               <td class="num">{{ r.new_position }}</td>
               <td><span class="type-old">"{{ r.old_label }}"</span><span class="type-arrow">&rarr;</span><span class="type-new">"{{ r.new_label }}"</span></td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-dash">○</span>{% else %}<input type="checkbox" class="action-check dash" data-key="{{ file_id }}|RENAMED|{{ r.applaud_field_name }}|DB" title="Optional: update DB description">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-dash">○</span>{% else %}<input type="checkbox" class="action-check dash" data-key="{{ file_id }}|RENAMED|{{ r.applaud_field_name }}|DB" aria-label="{{ r.applaud_field_name }}: update database description (optional)" title="Optional: update DB description">{% endif %}</td>
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
               <td class="action-col dim"><span class="dash-cell">&mdash;</span></td>
             </tr>
@@ -1141,9 +1241,9 @@
               <td class="num">{% if r.old_position is not none %}{{ r.old_position }}{% else %}&mdash;{% endif %}</td>
               <td class="num">{% if r.new_position is not none %}{{ r.new_position }}{% else %}&mdash;{% endif %}</td>
               <td>{{ r.axes | join(', ') }}{% if r.sub_kinds %} ({{ r.sub_kinds | join(', ') }}){% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MULTI|{{ r.applaud_field_name }}|DB" title="Update DB column">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MULTI|{{ r.applaud_field_name }}|IF" title="Update Import Form field">{% endif %}</td>
-              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MULTI|{{ r.applaud_field_name }}|EF" title="Update Export Form field">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MULTI|{{ r.applaud_field_name }}|DB" aria-label="{{ r.applaud_field_name }}: update database column" title="Update DB column">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MULTI|{{ r.applaud_field_name }}|IF" aria-label="{{ r.applaud_field_name }}: update import form field" title="Update Import Form field">{% endif %}</td>
+              <td class="action-col">{% if print_mode %}<span class="pdf-action pdf-warn">●</span>{% else %}<input type="checkbox" class="action-check warn" data-key="{{ file_id }}|MULTI|{{ r.applaud_field_name }}|EF" aria-label="{{ r.applaud_field_name }}: update export form field" title="Update Export Form field">{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -1231,10 +1331,69 @@
     if (doneEl)  doneEl.textContent = done;
     if (totalEl) totalEl.textContent = total;
     if (pctEl)   pctEl.textContent = pct;
-    if (fillEl)  fillEl.style.width = pct + '%';
+    if (fillEl)  fillEl.style.transform = 'scaleX(' + (pct / 100) + ')';
     if (meter)   meter.classList.toggle('complete', done === total && total > 0);
   }
   updateProgress();
+
+  // Export state — downloads a JSON of all checked keys for this release pair.
+  var exportLink = document.getElementById('export-state-link');
+  if (exportLink) {
+    exportLink.addEventListener('click', function (e) {
+      e.preventDefault();
+      var state = {};
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf(prefix) === 0) state[k.substring(prefix.length)] = '1';
+        }
+      } catch (e2) {}
+      var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'fbdi-state-{{ ctx.old_release }}-{{ ctx.new_release }}.json';
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    });
+  }
+
+  // Change-type filter bar — toggles visibility of change-block divs by type.
+  var filterChecks = document.querySelectorAll('.cf-check');
+  function applyFilter() {
+    var show = {};
+    filterChecks.forEach(function (cb) { show[cb.dataset.type] = cb.checked; });
+    document.querySelectorAll('.change-block').forEach(function (block) {
+      var type = block.classList.contains('removed') ? 'removed' :
+                 block.classList.contains('shifted')  ? 'shifted'  :
+                 block.classList.contains('modified')  ? 'modified'  :
+                 block.classList.contains('added')     ? 'added'     : null;
+      if (type !== null) block.style.display = show[type] === false ? 'none' : '';
+    });
+    // Collapse empty file-sections and module-groups from view.
+    document.querySelectorAll('.file-section').forEach(function (sec) {
+      var visible = Array.from(sec.querySelectorAll('.change-block')).some(function (b) { return b.style.display !== 'none'; });
+      sec.style.display = visible ? '' : 'none';
+    });
+    document.querySelectorAll('.module-group').forEach(function (grp) {
+      var visible = Array.from(grp.querySelectorAll('.file-section')).some(function (s) { return s.style.display !== 'none'; });
+      grp.style.display = visible ? '' : 'none';
+    });
+  }
+  filterChecks.forEach(function (cb) { cb.addEventListener('change', applyFilter); });
+
+  // J / K keyboard navigation — jump between visible file-sections.
+  document.addEventListener('keydown', function (e) {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    if (e.key !== 'j' && e.key !== 'k') return;
+    var sections = Array.from(document.querySelectorAll('.file-section')).filter(function (s) { return s.style.display !== 'none'; });
+    if (!sections.length) return;
+    var scrollY = window.scrollY + window.innerHeight / 3;
+    var cur = -1;
+    sections.forEach(function (s, i) { if (s.getBoundingClientRect().top + window.scrollY <= scrollY) cur = i; });
+    var next = e.key === 'j' ? Math.min(cur + 1, sections.length - 1) : Math.max(cur - 1, 0);
+    sections[next].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    e.preventDefault();
+  });
 })();
 </script>
 {% endif %}
