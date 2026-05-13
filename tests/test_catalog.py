@@ -4,6 +4,8 @@ import pytest
 from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
+from openpyxl.comments import Comment
+
 from fbdi.catalog import (
     CatalogRow,
     IssueRow,
@@ -262,6 +264,256 @@ class TestExtractTabRowsRich:
         assert rows[1].column_technical == "FIELD_BETA"
         assert rows[2].position == 3
         assert rows[2].column_technical == "FIELD_GAMMA"
+
+
+class TestExtractTabRowsCommentFallback:
+    """Cell comments on header cells can carry Oracle metadata.
+
+    Oracle ships some FBDI templates with TECHNICAL_NAME / data type /
+    description embedded in a cell comment rather than in dedicated
+    metadata rows. Example (PayablesStandardInvoiceImportTemplate,
+    "Landed Cost Enabled"):
+
+        LCM_ENABLED_FLAG
+        VARCHAR2(1 CHAR)
+        Flag which indicates whether invoice line is enabled for...
+    """
+
+    def test_thin_tab_recovers_technical_and_type_from_comment(self):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "PAY_INV_LINES_IFACE"
+        _make_thin_tab(ws, ["Landed Cost Enabled", "Plain Column"])
+        ws.cell(row=4, column=1).comment = Comment(
+            "LCM_ENABLED_FLAG\nVARCHAR2(1 CHAR)\nFlag which indicates...",
+            "oracle",
+        )
+
+        rows, issues = extract_tab_rows(
+            ws, file_stem="PayablesStandardInvoiceImportTemplate", release="26B",
+        )
+
+        assert issues == []
+        assert len(rows) == 2
+        r0 = rows[0]
+        assert r0.column_label == "Landed Cost Enabled"
+        assert r0.column_technical == "LCM_ENABLED_FLAG"
+        assert r0.data_type == "VARCHAR2"
+        assert r0.length == 1
+        assert r0.data_type_raw == "VARCHAR2(1 CHAR)"
+        # Second column has no comment — fields stay blank
+        assert rows[1].column_technical == ""
+        assert rows[1].data_type == ""
+
+    def test_rich_tab_comment_fills_missing_type(self):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "RICH_WITH_GAP"
+        _make_rich_tab(
+            ws,
+            labels=["Col A"],
+            data_types=[""],
+            technicals=["COL_A"],
+        )
+        ws.cell(row=5, column=2).comment = Comment(
+            "COL_A\nVARCHAR2(80)\nDescription",
+            "oracle",
+        )
+
+        rows, _ = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        # Row-based provided technical; comment fills the type gap
+        assert rows[0].column_technical == "COL_A"
+        assert rows[0].data_type == "VARCHAR2"
+        assert rows[0].length == 80
+        assert rows[0].data_type_raw == "VARCHAR2(80)"
+
+    def test_rich_tab_label_row_comment_fills_missing_type(self):
+        """Oracle sometimes attaches the metadata comment to the
+        user-facing label cell (above the tier-1 technical row) rather
+        than the tier-1 cell itself — rich-tab fallback must probe both.
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "RICH_LABEL_COMMENT"
+        _make_rich_tab(
+            ws,
+            labels=["Col A"],
+            data_types=[""],
+            technicals=["COL_A"],
+        )
+        # Label row is at row 1 (header_row=5, header_row-4=1)
+        ws.cell(row=1, column=2).comment = Comment(
+            "COL_A\nVARCHAR2(120)\nVisible label tooltip",
+            "oracle",
+        )
+
+        rows, _ = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        assert rows[0].column_technical == "COL_A"
+        assert rows[0].data_type == "VARCHAR2"
+        assert rows[0].length == 120
+        assert rows[0].data_type_raw == "VARCHAR2(120)"
+
+    def test_description_only_comment_emits_no_warning(self):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "TabWithNotes"
+        _make_thin_tab(ws, ["Field Name", "Other Column"])
+        ws.cell(row=4, column=1).comment = Comment(
+            "This is a free-form note.\nNo technical name or type here.",
+            "author",
+        )
+
+        rows, issues = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        assert rows[0].column_technical == ""
+        assert rows[0].data_type == ""
+        assert [i for i in issues if i.issue_type == "COMMENT_PARSE_WARNING"] == []
+
+    def test_malformed_length_in_comment_falls_back_to_bare_type(self):
+        """When Oracle ships a malformed length spec like 'VARCHAR2(BOGUS_LEN)',
+        the type-prefix extractor recovers the bare type 'VARCHAR2' (length
+        unknown) rather than discarding the whole line.
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "BadLength"
+        _make_thin_tab(ws, ["Field", "Other"])
+        ws.cell(row=4, column=1).comment = Comment(
+            "BAD_FIELD_NAME\nVARCHAR2(BOGUS_LEN)\nA description",
+            "author",
+        )
+
+        rows, _ = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        assert rows[0].column_technical == "BAD_FIELD_NAME"
+        assert rows[0].data_type == "VARCHAR2"
+        assert rows[0].length is None
+        assert rows[0].data_type_raw == "VARCHAR2"
+
+    def test_technical_only_comment_no_warning(self):
+        """Single-line UPPER_SNAKE_CASE comment is acceptable — no warning."""
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "TechOnly"
+        _make_thin_tab(ws, ["Field", "Other"])
+        ws.cell(row=4, column=1).comment = Comment(
+            "TECH_NAME_ONLY",
+            "author",
+        )
+
+        rows, issues = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        assert rows[0].column_technical == "TECH_NAME_ONLY"
+        assert rows[0].data_type == ""
+        assert [i for i in issues if i.issue_type == "COMMENT_PARSE_WARNING"] == []
+
+    def test_prose_only_comment_extracts_mixed_case_technical_no_warning(self):
+        """Real-world AutoInvoiceImportTemplate shape: technical name on
+        line 1 (mixed-case, underscores), no type line, just prose
+        description. Extract the technical; do NOT warn (it's the
+        documented Oracle convention for prose-only metadata comments).
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "RA_INTERFACE_LINES_ALL"
+        _make_thin_tab(ws, ["Some Field", "Other"])
+        ws.cell(row=4, column=1).comment = Comment(
+            "bill_customer_account_number\n\n"
+            "Value used to uniquely identify the Bill-to customer account number\n"
+            "of the transaction.\n\n"
+            "To identify an existing customer account:\n"
+            "1. Navigate to Billing Work Area.",
+            "oracle",
+        )
+
+        rows, issues = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        assert rows[0].column_technical == "bill_customer_account_number"
+        assert rows[0].data_type == ""
+        assert [i for i in issues if i.issue_type == "COMMENT_PARSE_WARNING"] == []
+
+    def test_type_with_trailing_prose_on_same_line(self):
+        """Real-world InventoryTransactionImportTemplate shape: type spec
+        and description text are squished onto a single line, e.g.
+        'VARCHAR2(300) This column is used to store...'. Extract just the
+        type prefix and avoid firing a warning.
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "INV_TRANSACTIONS_INTERFACE"
+        _make_thin_tab(ws, ["Some Field", "Other"])
+        ws.cell(row=4, column=1).comment = Comment(
+            "EXTERNAL_SYS_TXN_REFERENCE\n\n"
+            "VARCHAR2(300) This column is used to store the link to the "
+            "transaction references passed by external WMS or 3PL systems.",
+            "oracle",
+        )
+
+        rows, issues = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        assert rows[0].column_technical == "EXTERNAL_SYS_TXN_REFERENCE"
+        assert rows[0].data_type == "VARCHAR2"
+        assert rows[0].length == 300
+        assert rows[0].data_type_raw == "VARCHAR2(300)"
+        assert [i for i in issues if i.issue_type == "COMMENT_PARSE_WARNING"] == []
+
+    def test_prose_only_comment_with_single_word_lines_no_warning(self):
+        """A prose comment whose second line happens to be a one-word token
+        like 'Description' must NOT fire COMMENT_PARSE_WARNING — only lines
+        that start with a known Oracle type word qualify as drift signals.
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "ProseTab"
+        _make_thin_tab(ws, ["Field A", "Field B"])
+        ws.cell(row=4, column=1).comment = Comment(
+            "my_field_name\nDescription\nof what this field does",
+            "oracle",
+        )
+
+        rows, issues = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        assert rows[0].column_technical == "my_field_name"
+        assert rows[0].data_type == ""
+        assert [i for i in issues if i.issue_type == "COMMENT_PARSE_WARNING"] == []
+
+    def test_non_oracle_type_word_does_not_false_anchor(self):
+        """A non-metadata comment with one-word lines like 'Required' or
+        'FlexField' must NOT be classified as Oracle type metadata.
+        parse_data_type accepts bare alpha tokens permissively; comment
+        mining needs the Oracle-type allowlist to reject them.
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "FreeForm"
+        _make_thin_tab(ws, ["Some Field", "Other"])
+        ws.cell(row=4, column=1).comment = Comment(
+            "Notes\nRequired field\nY/N",
+            "author",
+        )
+
+        rows, issues = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        # No technical, no type — "Required" / "Notes" must not be picked
+        assert rows[0].column_technical == ""
+        assert rows[0].data_type == ""
+        assert rows[0].data_type_raw == ""
+
+    def test_mixed_case_technical_with_bare_type_in_comment(self):
+        """Real-world AutoInvoiceImportTemplate shape: mixed-case technical
+        name on line 1, bare type ('NUMBER') on the next non-blank line,
+        description below. The type line anchors the technical extraction.
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "RA_INTERFACE_DISTRIBUTIONS_ALL"
+        _make_thin_tab(ws, ["Global Attribute Number1", "Other Field"])
+        ws.cell(row=4, column=1).comment = Comment(
+            "Global_Attribute_Number1\n\nNUMBER\n\nSegment of the Receivables Line "
+            "Regional Information global descriptive flexfield...",
+            "oracle",
+        )
+
+        rows, issues = extract_tab_rows(ws, file_stem="Tpl", release="26B")
+        # Bare type "NUMBER" must not be picked as the technical name —
+        # anchor strategy preserves the mixed-case name on the line above.
+        assert rows[0].column_technical == "Global_Attribute_Number1"
+        assert rows[0].data_type == "NUMBER"
+        assert rows[0].data_type_raw == "NUMBER"
+        assert [i for i in issues if i.issue_type == "COMMENT_PARSE_WARNING"] == []
 
 
 class TestExtractTabRowsThinAsteriskColA:

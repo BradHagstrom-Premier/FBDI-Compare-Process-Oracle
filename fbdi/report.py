@@ -175,13 +175,14 @@ def _applaud_field_name(prefix: str, technical: str | None, label: str | None) -
     """Construct the Applaud field name: prefix + technical (or normalized label).
 
     Technical UPPER_SNAKE_CASE names are used verbatim when present (already
-    canonical). Otherwise the user-facing label is normalized — punctuation
-    stripped, whitespace collapsed — to keep the suffix Applaud-compatible.
+    canonical). Otherwise the user-facing label is normalized (punctuation
+    stripped, whitespace collapsed) and internal spaces are replaced with
+    underscores — Applaud column names cannot contain spaces.
     """
     if technical:
         suffix = technical
     else:
-        suffix = normalize_label(label or "")
+        suffix = "_".join(normalize_label(label or "").split())
     return f"{prefix}{suffix}"
 
 

@@ -124,6 +124,114 @@ def _read_row_values(ws: Worksheet, row_idx: int) -> list[str | None]:
     return raw[:last]
 
 
+# Single-token name shape: letters, digits, underscores, no spaces.
+# Looser than UPPER_SNAKE_PATTERN because Oracle ships mixed-case technical
+# names in some comment metadata (e.g. "Global_Attribute_Number1").
+_TECHNICAL_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Recognized Oracle data-type names — used to confirm a comment line is
+# actually a type spec, not just any bare alphabetic token like "Required"
+# or "FlexField". parse_data_type itself is permissive (accepts any bare
+# alpha token as a type for forward-compat with row-based extraction);
+# comment-mining needs a tighter check to avoid false anchoring.
+_ORACLE_TYPE_ALLOWLIST = frozenset({
+    "VARCHAR2", "NVARCHAR2", "CHAR", "NCHAR", "VARCHAR",
+    "NUMBER", "INTEGER", "FLOAT",
+    "DATE", "TIMESTAMP",
+    "BLOB", "CLOB", "NCLOB", "RAW", "LONG",
+})
+
+def _is_oracle_type_line(line: str) -> bool:
+    """True iff `line` parses to a recognized Oracle data type."""
+    parsed = parse_data_type(line)
+    return parsed.data_type in _ORACLE_TYPE_ALLOWLIST
+
+
+# Greedy prefix matcher for "VARCHAR2(N) trailing description" patterns —
+# Oracle squishes the type and a sentence onto one line in some comments.
+# Sort by length descending so 'VARCHAR2' wins over 'VARCHAR' on the same input.
+_TYPE_SPEC_PREFIX_RE = re.compile(
+    r"^\s*(?:" + "|".join(sorted(_ORACLE_TYPE_ALLOWLIST, key=lambda s: (-len(s), s))) + r")\b"
+    r"(?:\s*\(\s*\d+(?:\s*,\s*\d+)?(?:\s+(?:CHAR|BYTE))?\s*\))?",
+    re.IGNORECASE,
+)
+
+
+def _extract_type_from_line(line: str) -> str:
+    """Return the Oracle type spec embedded at the start of `line`, or ''.
+
+    Whole-line types pass through unchanged. Lines starting with a
+    recognized Oracle type followed by trailing prose (e.g.
+    'VARCHAR2(300) This column stores...') return just the type portion.
+    """
+    if _is_oracle_type_line(line):
+        return line.strip()
+    m = _TYPE_SPEC_PREFIX_RE.match(line)
+    if m:
+        candidate = m.group(0).strip()
+        if _is_oracle_type_line(candidate):
+            return candidate
+    return ""
+
+
+def _extract_metadata_from_comment(cell) -> tuple[str, str]:
+    """Parse Oracle-style metadata embedded in a cell's comment.
+
+    Oracle FBDI templates carry per-column metadata in cell comments on
+    some tabs, in several observed shapes:
+
+        LCM_ENABLED_FLAG            Global_Attribute_Number1
+        VARCHAR2(1 CHAR)            NUMBER
+        Flag which indicates...     Segment of the Receivables...
+
+        EXTERNAL_SYS_TXN_REFERENCE  bill_customer_account_number
+        VARCHAR2(300) This column   Value used to uniquely identify...
+        ...                         (no type line — prose-only)
+
+    Anchor strategy: find the first line whose start is a recognizable
+    Oracle type spec (via _extract_type_from_line, which also peels off
+    trailing prose). If one is found, the technical name is the line
+    immediately preceding it (when that line is a single word-token).
+    If no type line exists, fall back to the first line as the technical
+    name when it has an underscore or is UPPER_SNAKE_CASE.
+
+    Returns (technical, type_raw); empty strings when not found.
+    """
+    if cell is None or cell.comment is None or not cell.comment.text:
+        return "", ""
+    lines = [ln.strip() for ln in cell.comment.text.splitlines() if ln.strip()]
+    if not lines:
+        return "", ""
+
+    type_raw = ""
+    type_idx = -1
+    for i, ln in enumerate(lines):
+        extracted = _extract_type_from_line(ln)
+        if extracted:
+            type_raw = extracted
+            type_idx = i
+            break
+
+    technical = ""
+    if type_idx > 0:
+        candidate = lines[type_idx - 1]
+        if _TECHNICAL_NAME_PATTERN.match(candidate):
+            technical = candidate
+    elif type_idx < 0:
+        # No type line — accept the first line as the technical name if it
+        # is a token-shaped string with an underscore (Oracle convention) or
+        # all-UPPER_SNAKE. Requiring an underscore distinguishes real
+        # technical names ("bill_customer_account_number", "LCM_ENABLED_FLAG")
+        # from prose words like "Notes" or "Description".
+        line1 = lines[0]
+        if _TECHNICAL_NAME_PATTERN.match(line1) and (
+            "_" in line1 or UPPER_SNAKE_PATTERN.match(line1)
+        ):
+            technical = line1
+
+    return technical, type_raw
+
+
 def _is_tier1_header(values: list[str | None]) -> bool:
     """True if the row is dominated by UPPER_SNAKE_CASE technical names.
 
@@ -178,27 +286,46 @@ def _extract_thin(
     header_values: list[str | None],
 ) -> tuple[list[CatalogRow], list[IssueRow]]:
     """Thin-tab extraction: header row is a list of user-friendly labels
-    (possibly asterisk-prefixed for required). No type/length/technical info."""
+    (possibly asterisk-prefixed for required). No dedicated type/technical
+    rows — but Oracle sometimes embeds TECHNICAL_NAME + data type in each
+    header cell's comment, which we mine via _extract_metadata_from_comment.
+    """
     rows: list[CatalogRow] = []
+    issues: list[IssueRow] = []
     for idx, raw in enumerate(header_values, start=1):
         if raw is None:
             continue
         raw_str = str(raw)
         required = raw_str.lstrip().startswith("*")
+        technical = ""
+        data_type = ""
+        data_type_raw = ""
+        length: int | None = None
+        scale: int | None = None
+        cell = ws.cell(row=header_row, column=idx)
+        c_tech, c_type_raw = _extract_metadata_from_comment(cell)
+        if c_tech:
+            technical = c_tech
+        if c_type_raw:
+            parsed = parse_data_type(c_type_raw)
+            data_type = parsed.data_type
+            length = parsed.length
+            scale = parsed.scale
+            data_type_raw = c_type_raw
         rows.append(CatalogRow(
             release=release,
             file_name=file_stem,
             tab_name=ws.title,
             position=idx,
             column_label=normalize_label(raw_str),
-            column_technical="",
-            data_type="",
-            length=None,
-            scale=None,
-            data_type_raw="",
+            column_technical=technical,
+            data_type=data_type,
+            length=length,
+            scale=scale,
+            data_type_raw=data_type_raw,
             required=required,
         ))
-    return rows, []
+    return rows, issues
 
 
 def _find_metadata_rows(
@@ -282,6 +409,21 @@ def _extract_rich(
                 detail=type_raw,
             ))
 
+        # Comment fallback: when no type row supplied a type, mine the
+        # tier-1 header cell's comment AND the label-row cell's comment
+        # (Oracle sometimes embeds metadata on either, especially for
+        # fields added after the metadata-row scaffold was built).
+        if not type_raw:
+            probe_cells = [ws.cell(row=header_row, column=sheet_col)]
+            if "label" in roles:
+                probe_cells.append(ws.cell(row=roles["label"], column=sheet_col))
+            for probe in probe_cells:
+                _, c_type_raw = _extract_metadata_from_comment(probe)
+                if c_type_raw:
+                    type_raw = c_type_raw
+                    parsed = parse_data_type(c_type_raw)
+                    break
+
         rows.append(CatalogRow(
             release=release,
             file_name=file_stem,
@@ -322,7 +464,11 @@ def extract_file(
     """
     file_stem = path.stem
     try:
-        wb = load_workbook(path, read_only=True, data_only=True)
+        # Full (non-read_only) mode so cell comments load — Oracle FBDI
+        # templates carry per-column metadata in cell comments on some
+        # tabs and _extract_metadata_from_comment needs cell.comment access.
+        # Subprocess isolation in extract_tab_rows_subprocess bounds memory.
+        wb = load_workbook(path, data_only=True)
     except Exception as e:
         return [], [IssueRow(
             release=release,

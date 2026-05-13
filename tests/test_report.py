@@ -101,7 +101,11 @@ class TestApplaudFieldNameConstruction:
         added = section.changes_by_type["ADDED"]
         assert added[0].applaud_field_name == "TX1FIELD_NAME"
 
-    def test_falls_back_to_normalized_label_when_technical_is_none(self):
+    def test_falls_back_to_underscore_joined_label_when_technical_is_none(self):
+        """Applaud column names cannot contain spaces. When falling back to
+        the user-facing label (no technical name available), whitespace is
+        replaced with underscores so the suffix is Applaud-compatible.
+        """
         catalog_old = {("F", "T"): []}
         catalog_new = {("F", "T"): [_aligned(1, "Some Label!", None,
                                               None, None, True)]}
@@ -112,8 +116,23 @@ class TestApplaudFieldNameConstruction:
         )
         section = ctx.file_sections[0]
         added = section.changes_by_type["ADDED"]
-        # normalize_label strips '!' and joins → "Some Label"
-        assert added[0].applaud_field_name == "TX1Some Label"
+        # normalize_label strips '!' → "Some Label"; then space → underscore
+        assert added[0].applaud_field_name == "TX1Some_Label"
+
+    def test_landed_cost_enabled_underscore_joined(self):
+        """Regression: real-world Oracle label 'Landed Cost Enabled' must
+        produce an Applaud-safe field name when no technical name is set.
+        """
+        catalog_old = {("F", "T"): []}
+        catalog_new = {("F", "T"): [_aligned(1, "Landed Cost Enabled", None,
+                                              None, None, True)]}
+        mapping = _mapping("F", "T", prefix="TX1_")
+        ctx = build_report_context(
+            catalog_old=catalog_old, catalog_new=catalog_new,
+            mapping=mapping, old_release="26A", new_release="26B",
+        )
+        added = ctx.file_sections[0].changes_by_type["ADDED"]
+        assert added[0].applaud_field_name == "TX1_Landed_Cost_Enabled"
 
     def test_thirty_char_warning_set_when_name_exceeds_limit(self):
         catalog_old = {("F", "T"): []}
