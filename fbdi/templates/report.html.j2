@@ -38,7 +38,10 @@
     --warn: #B8860B;          /* Caution Amber — modified fields */
     --warn-bg: #FFFBF0;       /* Caution tint */
     --del: #C0392B;           /* Remove Red — removed fields */
-    --success-bg: oklch(97% 0.025 155); /* Complete state tint — progress meter only */
+    /* Faint Signal Green wash — derived from --def-green at 5% alpha; used only as
+       the complete-state tint for the progress meter. Kept inside the documented
+       palette via alpha-on-green rather than introducing a ninth color token. */
+    --def-green-tint: rgba(0, 171, 99, 0.05);
     --row-hover: rgba(13, 44, 113, 0.025);
     --action-tint: rgba(13, 44, 113, 0.03);
     --cell-border: rgba(13, 44, 113, 0.06);
@@ -126,7 +129,7 @@
   }
   .cover .meta {
     display: inline-flex;
-    gap: var(--space-lg);
+    gap: var(--space-md);
     padding: var(--space-md) var(--space-lg);
     background: rgba(255, 255, 255, 0.08);
     border-radius: var(--radius-sm);
@@ -139,6 +142,26 @@
     font-weight: var(--weight-semibold);
     opacity: var(--tint-faint);
   }
+  /* Scope strip — sentence-form summary of the quarterly delta. Lives on the cover
+     so the engagement lead can read the cover, understand the scope, and close the
+     document without scrolling to §1. Deliberately NOT four big-number cards
+     (hero-metric template is banned); a single inline sentence with the Add
+     count in Signal Green (the one cross-document brand accent) and the rest in
+     canvas white — palette-pure, no off-palette tints on the cover. */
+  .cover .scope {
+    margin-top: var(--space-md);
+    font-size: var(--type-body);
+    opacity: var(--tint-strong);
+    font-variant-numeric: tabular-nums;
+  }
+  .cover .scope .n {
+    font-weight: var(--weight-bold);
+    font-size: var(--type-title);
+    color: var(--canvas);
+    margin-right: 4px;
+  }
+  .cover .scope .n.add { color: var(--def-green); }
+  .cover .scope .sep { opacity: var(--tint-faint); margin: 0 var(--space-sm); }
 
   /* === Section base === */
   .section {
@@ -211,7 +234,7 @@
     text-transform: uppercase;
     align-self: center;
   }
-  .progress-meter.complete { border-color: var(--def-green); background: var(--success-bg); }
+  .progress-meter.complete { border-color: var(--def-green); background: var(--def-green-tint); }
   .progress-meter.complete .progress-meter-fill { background: var(--def-green); }
   .progress-meter.complete .progress-meter-eyebrow::after { content: ' \2713'; color: var(--def-green); }
 
@@ -247,9 +270,14 @@
   .module-group { margin-bottom: var(--space-xl); }
   .module-group:last-child { margin-bottom: 0; }
   .module-header {
+    /* 1px Mist Divider — not 2px Authority Blue. The blue file-head bars
+       beneath each module are the structural anchors; doubling up on blue
+       at the module-header line scatters the eye between two competing
+       blues (rule + bar) when they sit 22px apart. The eyebrow + title
+       + spacing already do the work. */
     margin: 0 0 var(--space-md);
     padding-bottom: var(--space-sm);
-    border-bottom: 2px solid var(--def-blue);
+    border-bottom: 1px solid var(--coolgray);
   }
   .module-eyebrow {
     display: block;
@@ -320,17 +348,14 @@
     font-weight: var(--weight-regular);
   }
   /* Summary-table file links: jump to the matching file-section. Inherit color
-     (no default browser blue), no underline by default; underline on hover for HTML. */
+     (no default browser blue), no underline by default; underline on hover for HTML.
+     The trailing `→` glyph is an affordance hint — present only in HTML where the
+     link is clickable. In PDF there's nothing to click, so the arrow is suppressed
+     (see @media screen block) to avoid an orphan glyph landing under the .sub span. */
   .summary-table td.tech a {
     color: inherit;
     text-decoration: none;
     cursor: pointer;
-  }
-  .summary-table td.tech a::after {
-    content: ' \2192';
-    font-family: sans-serif;
-    color: var(--coolgray);
-    font-weight: var(--weight-regular);
   }
   /* Module tag — neutral for every module, including Financials. Signal Green
      is reserved for ADDED counts and the cover wordmark; using it as a module
@@ -396,7 +421,10 @@
     background: var(--canvas);
   }
 
-  .in-base-note {
+  /* Shared warn-callout shape — used by in-base-note (per-file) and required-note
+     (global, above §2). Two semantic homes, one visual treatment. */
+  .in-base-note,
+  .required-note {
     background: var(--warn-bg);
     border: 1px solid var(--warn);
     color: var(--warn);
@@ -432,6 +460,11 @@
   .change-block.removed h4 .count { background: var(--del); }
   .change-block.modified h4 { color: var(--warn); }
   .change-block.modified h4 .count { background: var(--warn); }
+  /* MULTI shares Modified's amber palette (both surface "needs attention" signal)
+     but owns a distinct class so the filter chip can target it independently —
+     toggling "Modified" must not silently hide combined-axis rows. */
+  .change-block.multi h4 { color: var(--warn); }
+  .change-block.multi h4 .count { background: var(--warn); }
   .change-block.renamed h4 { color: var(--darkgray); }
   .change-block.renamed h4 .count { background: var(--darkgray); }
   .change-block.shifted h4 { color: var(--darkgray); }
@@ -456,6 +489,13 @@
   .ct th.num {
     text-align: right;
     padding-right: var(--space-md);
+  }
+  /* DB / IF / EF column headers are technical identifiers — render mono to match
+     the legend's `<b>` styling on the same abbreviations. Without this the
+     headers read sans while the legend reads mono; same string, two typefaces. */
+  .ct th.action-col {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+    letter-spacing: 0;
   }
   .ct td {
     padding: var(--space-sm);
@@ -530,16 +570,6 @@
     margin-top: var(--space-xs);
     font-style: italic;
   }
-  .required-note {
-    background: var(--warn-bg);
-    border: 1px solid var(--warn);
-    color: var(--warn);
-    padding: var(--space-sm) var(--space-md);
-    border-radius: var(--radius-xs);
-    font-size: var(--type-body);
-    margin-bottom: var(--space-md);
-  }
-
   /* === Shift summary + collapsible === */
   .summary-box {
     background: var(--bg-soft);
@@ -664,6 +694,23 @@
   }
 
   /* === Pending base list === */
+  /* Eyebrow that frames §3 as out-of-scope for client-install consultants.
+     The §3 heading "Tables not yet in the base install" plus "97 changes pending"
+     reads as an action list at a glance — this eyebrow short-circuits that
+     misread before the heading is parsed. */
+  .info-eyebrow {
+    display: inline-block;
+    text-transform: uppercase;
+    letter-spacing: var(--track-label);
+    font-weight: var(--weight-semibold);
+    font-size: var(--type-label);
+    color: var(--darkgray);
+    background: var(--bg-soft);
+    border: 1px solid var(--coolgray);
+    padding: 2px var(--space-sm);
+    border-radius: var(--radius-pill);
+    margin-bottom: var(--space-sm);
+  }
   .pending-list {
     list-style: none;
     padding: 0;
@@ -688,7 +735,10 @@
   }
   .pending-list .name .module-tag { margin-left: var(--space-xs); }
   .pending-list .pending-count {
+    /* Muted further than other counts — §3 is informational, the number doesn't
+       compete with §2's action signals. */
     color: var(--darkgray);
+    opacity: var(--tint-mid);
     font-size: var(--type-label);
   }
   .pending-footnote {
@@ -717,14 +767,53 @@
   @media screen {
     /* Sticky summary thead so column headers stay visible while scrolling §1 list. */
     .summary-table thead th { position: sticky; top: 0; z-index: 1; }
+    /* Affordance-hint arrow on summary-row links — screen-only; scoped here so it
+       never appears in PDF (where there's no link target to follow). */
+    .summary-table td.tech a::after {
+      content: ' \2192';
+      color: var(--coolgray);
+      font-weight: var(--weight-regular);
+    }
     .summary-table td.tech a:hover { text-decoration: underline; color: var(--def-blue); }
     .summary-table td.tech a:hover::after { color: var(--def-blue); }
     .summary-table tbody tr:hover { background: var(--row-hover); cursor: pointer; }
     .module-jump a:hover { background: var(--bg-soft); border-color: var(--def-blue); }
     .ct tbody tr:hover td { background: var(--row-hover); }
     .ct tbody tr:hover td.action-col { background: var(--action-tint); }
+    /* Completed-row retreat: when every action-check in a row is checked, the row
+       drops to ~half opacity and the field name strikes through. Lets a consultant
+       working a long ADDED table see at a glance which rows still need work
+       without re-reading every cell. */
+    .ct tbody tr.complete td { opacity: var(--tint-mid); }
+    .ct tbody tr.complete td.field { text-decoration: line-through; opacity: var(--tint-faint); }
+    .ct tbody tr.complete:hover td { opacity: 1; }
+    .ct tbody tr.complete:hover td.field { opacity: var(--tint-strong); }
+    /* Per-file progress chip — small mono "n/m" rendered inside each file-head
+       meta strip. Counts only that file's action-checks vs done. Empty by default
+       (JS populates on load); hidden when total is zero (rare; renamed-only files). */
+    .file-progress {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: var(--type-label);
+      letter-spacing: 0;
+      padding: 1px var(--space-sm);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: var(--radius-pill);
+      background: rgba(255, 255, 255, 0.08);
+      font-variant-numeric: tabular-nums;
+    }
+    .file-progress.complete {
+      background: var(--def-green-tint);
+      border-color: var(--def-green);
+      color: var(--def-green);
+    }
+    .file-progress[data-total="0"] { display: none; }
     details.shift-details > summary { user-select: none; }
-    details.shift-details > summary:hover { background: var(--coolgray); }
+    /* Hover BRIGHTENS the summary (resting is var(--bg-soft) / Cloud Surface).
+       Using Mist Divider here read as a pressed state — the bar would darken on
+       hover, which reverses the affordance signal. var(--row-hover) is the same
+       faint Authority Blue tint used by .ct row hover, so the interactive language
+       is consistent across all clickable table-like surfaces. */
+    details.shift-details > summary:hover { background: var(--row-hover); color: var(--def-blue); }
     details.shift-details > summary::-webkit-details-marker { display: none; }
     /* Sticky progress meter — fixed to bottom-right so it stays visible while scrolling. */
     .progress-meter {
@@ -753,6 +842,11 @@
       font-weight: var(--weight-semibold);
       color: var(--darkgray);
     }
+    .change-filter-hint {
+      color: var(--darkgray);
+      opacity: var(--tint-mid);
+      font-style: italic;
+    }
     .change-filter-option {
       display: inline-flex;
       align-items: center;
@@ -768,9 +862,10 @@
     .change-filter-option:has(input:checked) { background: var(--bg-soft); }
     .cf-check { cursor: pointer; accent-color: var(--def-blue); }
     .cf-label { font-weight: var(--weight-semibold); }
-    .cf-label.added   { color: var(--def-green); }
-    .cf-label.removed { color: var(--del); }
+    .cf-label.added    { color: var(--def-green); }
+    .cf-label.removed  { color: var(--del); }
     .cf-label.modified { color: var(--warn); }
+    .cf-label.multi    { color: var(--warn); }
     .cf-label.shifted  { color: var(--darkgray); }
     /* Sticky controls — legend + filter bar stack as one pinned band. */
     .sticky-controls {
@@ -877,6 +972,11 @@
     .cover { padding: var(--space-xl); }
     .section { padding: var(--space-md) var(--space-lg); }
     .file-body { padding: var(--space-sm) var(--space-md); }
+    /* file-head metadata in PDF: drop to label scale so the three meta items
+       (FBDI Tab / Applaud Table / Prefix) fit on one line on long filenames
+       like WorkDefinitionTemplate without the Prefix chip wrapping alone. */
+    .file-head .meta { font-size: var(--type-label); gap: var(--space-sm) var(--space-md); }
+    .file-head .meta code { font-size: 9.5px; }
     .ct td, .ct th { padding: var(--space-xs) var(--space-sm); }
     .table-scroll { overflow: visible; }
     /* Explicit cm widths summing to ~16.5cm (page content is 17cm with 2cm side
@@ -924,6 +1024,9 @@
     <span><b>From</b> Release {{ ctx.old_release }}</span>
     <span><b>To</b> Release {{ ctx.new_release }}</span>
     <span><b>Generated</b> {{ ctx.generated_date }}</span>
+  </div>
+  <div class="scope" aria-label="Scope summary">
+    <span class="n">{{ ctx.totals.tabs }}</span>tabs<span class="sep">·</span><span class="n add">{{ ctx.totals.add }}</span>added<span class="sep">·</span><span class="n">{{ ctx.totals.rem }}</span>removed<span class="sep">·</span><span class="n">{{ ctx.totals.mod }}</span>modified<span class="sep">·</span><span class="n">{{ ctx.totals.shift }}</span>shifted
   </div>
 </div>
 
@@ -1013,7 +1116,10 @@
       <label class="change-filter-option"><input type="checkbox" class="cf-check" data-type="added" checked> <span class="cf-label added">Added</span></label>
       <label class="change-filter-option"><input type="checkbox" class="cf-check" data-type="removed" checked> <span class="cf-label removed">Removed</span></label>
       <label class="change-filter-option"><input type="checkbox" class="cf-check" data-type="modified" checked> <span class="cf-label modified">Modified</span></label>
+      <label class="change-filter-option"><input type="checkbox" class="cf-check" data-type="multi" checked> <span class="cf-label multi">Combined</span></label>
       <label class="change-filter-option"><input type="checkbox" class="cf-check" data-type="shifted" checked> <span class="cf-label shifted">Shifted</span></label>
+      <span class="legend-divider"></span>
+      <span class="change-filter-hint">Shift+click an action box to apply to the whole row</span>
     </div>
     {% endif %}
   </div>
@@ -1047,6 +1153,7 @@
         <span><b>FBDI Tab:</b> {{ s.tab }}</span>
         <span><b>Applaud Table:</b> {{ s.applaud_table }}</span>
         <span><b>Prefix:</b> <code>{{ s.prefix }}</code></span>
+        {% if not print_mode %}<span class="file-progress" data-file-progress="{{ file_id }}" data-total="0" aria-label="File progress" title="Actions complete for this file"></span>{% endif %}
       </div>
     </div>
     <div class="file-body">
@@ -1199,11 +1306,17 @@
         <div class="summary-box">{{ s.shift_summary }}</div>
         <div class="renamed-note">Position shifts are informational — no DB or form action is required unless Oracle has explicitly changed a column dependency.</div>
         {% if print_mode %}
-        <div class="shift-grid">
-          {% for r in s.changes_by_type['SHIFTED'] %}
-          <div class="row"><span class="field-name">{{ r.applaud_field_name }}</span><span class="pos-pair"><span class="old-pos">{{ r.old_position }}</span> <span class="arrow">&rarr;</span> <span class="new-pos">{{ r.new_position }}</span></span></div>
-          {% endfor %}
-        </div>
+          {# Uniform shifts (every row has the same delta, contiguous range) are
+             fully described by the summary-box. The per-row table adds zero
+             signal and inflates the PDF; skip it. HTML keeps the disclosure
+             so users can still drill in if curious. #}
+          {% if not s.shift_is_uniform %}
+          <div class="shift-grid">
+            {% for r in s.changes_by_type['SHIFTED'] %}
+            <div class="row"><span class="field-name">{{ r.applaud_field_name }}</span><span class="pos-pair"><span class="old-pos">{{ r.old_position }}</span> <span class="arrow">&rarr;</span> <span class="new-pos">{{ r.new_position }}</span></span></div>
+            {% endfor %}
+          </div>
+          {% endif %}
         {% else %}
         <details class="shift-details">
           <summary>Show all {{ s.changes_by_type['SHIFTED'] | length }} shifted fields</summary>
@@ -1220,7 +1333,7 @@
       {% endif %}
 
       {% if s.changes_by_type.get('MULTI') %}
-      <div class="change-block modified">
+      <div class="change-block multi">
         <h4>Combined changes <span class="count">{{ s.changes_by_type['MULTI'] | length }}</span></h4>
         <table class="ct">
           <thead>
@@ -1263,8 +1376,9 @@
 <!-- Section 3: Pending base-system tables -->
 {% if ctx.pending_base %}
 <div class="section">
-  <h2>3. Pending base-system tables</h2>
-  <div class="lede">FBDI tabs mapped to an Applaud target table not yet present in the standard base install. Listed for the platform team's visibility; not actionable for client-install consultants.</div>
+  <span class="info-eyebrow">Informational</span>
+  <h2>3. Tables not yet in the base install</h2>
+  <div class="lede">FBDI tabs mapped to an Applaud target table not yet present in the standard base install. Tracked for the platform team's visibility; not actionable for client-install consultants.</div>
   <ul class="pending-list">
     {% for p in ctx.pending_base %}
     <li>
@@ -1303,6 +1417,29 @@
   } catch (e) { /* localStorage may be disabled */ }
 
   var allBoxes = document.querySelectorAll('input.action-check[data-key]');
+
+  // file_id is the first segment of data-key ({file}-{prefix}|...). Group boxes
+  // by file_id once so per-file progress + row-complete updates are O(row), not
+  // O(document) per click.
+  var boxesByFile = {};
+  var boxesByRow  = new Map();   // <tr> -> Array<input.action-check>
+  allBoxes.forEach(function (cb) {
+    var fileId = (cb.dataset.key || '').split('|')[0];
+    (boxesByFile[fileId] = boxesByFile[fileId] || []).push(cb);
+    var row = cb.closest('tr');
+    if (row) {
+      if (!boxesByRow.has(row)) boxesByRow.set(row, []);
+      boxesByRow.get(row).push(cb);
+    }
+  });
+
+  function updateRowComplete(row) {
+    var boxes = boxesByRow.get(row);
+    if (!boxes || !boxes.length) return;
+    var allChecked = boxes.every(function (b) { return b.checked; });
+    row.classList.toggle('complete', allChecked);
+  }
+
   allBoxes.forEach(function (cb) {
     var key = prefix + cb.dataset.key;
     try {
@@ -1313,9 +1450,31 @@
         if (cb.checked) localStorage.setItem(key, '1');
         else localStorage.removeItem(key);
       } catch (e) { /* swallow quota errors */ }
+      var row = cb.closest('tr');
+      if (row) updateRowComplete(row);
       updateProgress();
     });
+    // Shift+click on an action-check propagates the new state to every
+    // action-check in the same row — the per-row "mark all" affordance. The
+    // browser already toggled the clicked box before this `click` fires, so
+    // we read its post-click state and stamp it onto the row siblings.
+    cb.addEventListener('click', function (e) {
+      if (!e.shiftKey) return;
+      var row = cb.closest('tr');
+      var boxes = boxesByRow.get(row);
+      if (!boxes) return;
+      var target = cb.checked;
+      boxes.forEach(function (other) {
+        if (other === cb || other.checked === target) return;
+        other.checked = target;
+        // Replay the change pipeline so storage + UI stay in sync.
+        other.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
   });
+
+  // Initialize row-complete state on load (after stored checks are applied).
+  boxesByRow.forEach(function (_boxes, row) { updateRowComplete(row); });
 
   // Progress meter — counts checked vs total action-checkboxes.
   var doneEl  = document.getElementById('progress-done');
@@ -1323,6 +1482,7 @@
   var fillEl  = document.getElementById('progress-fill');
   var pctEl   = document.getElementById('progress-pct');
   var meter   = document.getElementById('progress-meter');
+  var fileChips = document.querySelectorAll('.file-progress[data-file-progress]');
   function updateProgress() {
     var total = allBoxes.length;
     var done = 0;
@@ -1333,6 +1493,17 @@
     if (pctEl)   pctEl.textContent = pct;
     if (fillEl)  fillEl.style.transform = 'scaleX(' + (pct / 100) + ')';
     if (meter)   meter.classList.toggle('complete', done === total && total > 0);
+    // Per-file chips
+    fileChips.forEach(function (chip) {
+      var fileId = chip.dataset.fileProgress;
+      var boxes = boxesByFile[fileId] || [];
+      var fTotal = boxes.length;
+      var fDone = 0;
+      boxes.forEach(function (b) { if (b.checked) fDone++; });
+      chip.dataset.total = fTotal;
+      chip.textContent = fTotal === 0 ? '' : (fDone + '/' + fTotal);
+      chip.classList.toggle('complete', fDone === fTotal && fTotal > 0);
+    });
   }
   updateProgress();
 
@@ -1363,10 +1534,13 @@
     var show = {};
     filterChecks.forEach(function (cb) { show[cb.dataset.type] = cb.checked; });
     document.querySelectorAll('.change-block').forEach(function (block) {
-      var type = block.classList.contains('removed') ? 'removed' :
+      // .multi must be checked BEFORE .modified — they share the amber palette,
+      // but MULTI is its own filter target and must not be hidden under Modified.
+      var type = block.classList.contains('removed')  ? 'removed'  :
                  block.classList.contains('shifted')  ? 'shifted'  :
-                 block.classList.contains('modified')  ? 'modified'  :
-                 block.classList.contains('added')     ? 'added'     : null;
+                 block.classList.contains('multi')    ? 'multi'    :
+                 block.classList.contains('modified') ? 'modified' :
+                 block.classList.contains('added')    ? 'added'    : null;
       if (type !== null) block.style.display = show[type] === false ? 'none' : '';
     });
     // Collapse empty file-sections and module-groups from view.

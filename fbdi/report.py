@@ -66,6 +66,10 @@ class FileSection:
     in_base_note: str | None       # e.g. the "Multiple mapping is possible..." string when present
     changes_by_type: dict[str, list[ChangeRow]] = field(default_factory=dict)
     shift_summary: str | None = None  # e.g. "20 fields shifted from positions 19-39 to 20-40"
+    # True when every SHIFTED row has the same (new-old) delta AND old positions form a
+    # contiguous range — in that case the summary_box already says everything and the
+    # PDF skips the per-row table to save a page of redundant signal.
+    shift_is_uniform: bool = False
 
 
 @dataclass
@@ -80,6 +84,21 @@ class PendingBaseEntry:
 
 
 @dataclass
+class ScopeTotals:
+    """Aggregate change counts across all in-scope file sections.
+
+    Surfaced on the cover so the engagement lead can read the cover, understand
+    the quarterly scope, and close the document without scrolling to §1's
+    <tfoot>. `mod` includes MULTI (combined-axis) rows — same broad category.
+    """
+    tabs: int = 0
+    add: int = 0
+    rem: int = 0
+    mod: int = 0
+    shift: int = 0
+
+
+@dataclass
 class ReportContext:
     """Top-level view-model passed to the Jinja2 template."""
     old_release: str
@@ -87,6 +106,7 @@ class ReportContext:
     generated_date: str
     file_sections: list[FileSection]
     pending_base: list[PendingBaseEntry]
+    totals: ScopeTotals = field(default_factory=ScopeTotals)
 
 
 # Public: scope filtering and view-model construction ---------------------------
@@ -154,7 +174,9 @@ def build_report_context(
             in_base_note=in_base_note,
         )
         section.changes_by_type = _bucket_changes(changes, prefix=m["prefix"])
-        section.shift_summary = _build_shift_summary(section.changes_by_type.get("SHIFTED", []))
+        shifted = section.changes_by_type.get("SHIFTED", [])
+        section.shift_summary = _build_shift_summary(shifted)
+        section.shift_is_uniform = _is_uniform_shift(shifted)
         file_sections.append(section)
 
     # Sort by (module, file, tab) for stable ordering — also drives
@@ -162,12 +184,25 @@ def build_report_context(
     file_sections.sort(key=lambda s: (s.module or "", s.file, s.tab))
     pending_base.sort(key=lambda p: (p.module or "", p.file, p.tab))
 
+    totals = ScopeTotals(
+        tabs=len(file_sections),
+        add=sum(len(s.changes_by_type.get("ADDED", [])) for s in file_sections),
+        rem=sum(len(s.changes_by_type.get("REMOVED", [])) for s in file_sections),
+        mod=sum(
+            len(s.changes_by_type.get("MODIFIED", []))
+            + len(s.changes_by_type.get("MULTI", []))
+            for s in file_sections
+        ),
+        shift=sum(len(s.changes_by_type.get("SHIFTED", [])) for s in file_sections),
+    )
+
     return ReportContext(
         old_release=old_release,
         new_release=new_release,
         generated_date=generated_date,
         file_sections=file_sections,
         pending_base=pending_base,
+        totals=totals,
     )
 
 
@@ -261,6 +296,35 @@ def _build_shift_summary(shifted_rows: list[ChangeRow]) -> str | None:
     return (
         f"{n} field{'s' if n != 1 else ''} shifted from positions "
         f"{old_positions[0]}-{old_positions[-1]} to {new_positions[0]}-{new_positions[-1]}."
+    )
+
+
+def _is_uniform_shift(shifted_rows: list[ChangeRow]) -> bool:
+    """True if every shifted row has the same delta AND old positions are contiguous.
+
+    A uniform shift is the common case where a column is inserted earlier in the tab
+    and every following column slides by the same amount (delta=+1 for one insert,
+    +N for N inserts). The summary_box already says "N fields shifted from A-B to
+    C-D", so the per-row table adds zero signal — the PDF can skip it.
+
+    Single-row "shifts" aren't really uniform-by-shape; require at least 2 rows so
+    the optimization only fires when there's actual bulk to collapse.
+    """
+    if len(shifted_rows) < 2:
+        return False
+    deltas = {
+        r.new_position - r.old_position
+        for r in shifted_rows
+        if r.old_position is not None and r.new_position is not None
+    }
+    if len(deltas) != 1:
+        return False
+    old_positions = sorted(
+        r.old_position for r in shifted_rows if r.old_position is not None
+    )
+    return all(
+        old_positions[i + 1] - old_positions[i] == 1
+        for i in range(len(old_positions) - 1)
     )
 
 
@@ -416,6 +480,12 @@ def generate_report(
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(template_dir),
         autoescape=jinja2.select_autoescape(["html", "j2"]),
+        # Strip the first newline after a block tag (trim_blocks) and any
+        # leading whitespace before a block tag (lstrip_blocks). Removes the
+        # blank-line debris that {% for %}/{% if %} otherwise leaves in the
+        # rendered output — cleaner View Source without changing visual output.
+        trim_blocks=True,
+        lstrip_blocks=True,
     )
     tpl = env.get_template("report.html.j2")
 
