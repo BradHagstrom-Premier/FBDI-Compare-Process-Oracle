@@ -39,7 +39,7 @@ python -m pytest tests/            # full suite
 python -m pytest tests/test_clear.py -v
 ```
 
-**Requirements:** Python 3.14+. Install deps via `pip install -r requirements.txt` (openpyxl, selenium, webdriver-manager, requests, pytest, jinja2, weasyprint). weasyprint requires MSYS2 mingw64 GTK (Pango ≥1.44) on Windows for PDF rendering.
+**Requirements:** Python 3.14+. Install deps via `pip install -r requirements.txt` (openpyxl, selenium, webdriver-manager, requests, pytest, jinja2, weasyprint). weasyprint requires MSYS2 mingw64 GTK (Pango ≥1.44) on Windows for PDF rendering. On Brad's Windows setup, use the `py` launcher (`py -m fbdi report ...`, `py -m pytest ...`); bare `python` invokes the Microsoft Store launcher stub.
 
 ---
 
@@ -105,6 +105,7 @@ python -m pytest tests/test_clear.py -v
 - **`openpyxl read_only=True` drops cell comments** — `cell.comment` is always None in read-only mode. `catalog.extract_file` uses full mode (`load_workbook(path, data_only=True)`) specifically so `_extract_metadata_from_comment` can see them; subprocess isolation in `_subprocess_util.run_worker` bounds memory for large files. Don't switch the catalog back to read_only without a replacement comment-loading path.
 - **`type_parser.parse_data_type` is intentionally permissive** — it accepts any bare alpha token as a type for forward-compat with row-based extraction (so `parse_data_type("Required")` returns `data_type="REQUIRED"`). When mining cell comments or other unknown-shape inputs, gate via `catalog._ORACLE_TYPE_ALLOWLIST` (and the `_TYPE_SPEC_PREFIX_RE` helper for "VARCHAR2(N) trailing prose" patterns).
 - **PDF rendering needs MSYS2 mingw64 GTK on Windows** — `fbdi/report.py` uses weasyprint, which depends on libgobject/libpango/libcairo. The standalone GtkD installer (winget id `GtkD.GtkPlusRuntime.x64`) ships Pango 1.43 and fails on weasyprint ≥53 with `pango_context_set_round_glyph_positions not found`. MSYS2 mingw64 ships Pango 1.56+ and works. Install: `winget install --id MSYS2.MSYS2 --silent`, then `C:/msys64/usr/bin/bash.exe -lc "pacman -S --needed --noconfirm mingw-w64-x86_64-pango mingw-w64-x86_64-gtk3 mingw-w64-x86_64-pkg-config"`. `_GTK_WINDOWS_BIN_CANDIDATES` in `report.py` probes MSYS2 first — keep that ordering. Do not lower the `weasyprint>=62.0` pin to work around an older GTK; weasyprint <53 lacks flexbox/grid layout entirely and the report cover collapses to white-on-white.
+- **Impeccable detector `overused-font` flags on Inter / Roboto are deliberate false positives** — `fbdi/templates/report.html.j2` declares `'Inter', -apple-system, ...` and bundles Inter via `@font-face` gated to `print_mode` so the PDF renders deterministically; the HTML falls back to the documented system stack. Roboto sits inside the standard fallback chain (`-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`). The font strategy is intentional per DESIGN.md §3 plus the template's font comment block — don't strip these names to silence the detector.
 
 ## Resolved Hazards (historical note)
 
