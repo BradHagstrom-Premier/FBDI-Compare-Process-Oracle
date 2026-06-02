@@ -10,9 +10,15 @@
 > `technical` is `None` on thin tabs — `oracle_match_key` normalizes the label via
 > `_label_to_technical` across all matching dims, with an end-to-end integration test (Tasks 7, 15);
 > **(§3.1)** `ODBCName` empty → bare-name is the effective Dim 4 key (noted, Task 10);
-> **(§3.3)** date-vs-char type-class test added (Task 7). Per pass-2 §5, route this revised plan
-> back for a **third-pass spot-check** (focused on the two blockers + the §3.2 integration check)
-> before implementation begins.
+> **(§3.3)** date-vs-char type-class test added (Task 7).
+>
+> **Pass-3 (`AUDIT_RESULTS_plan_pass3.md`): PASS — cleared to implement.** No further audit gate.
+> The one residual the auditor couldn't check (that `_label_to_technical` yields UPPER_SNAKE) was
+> **pre-validated live this session**: normalizing the real `Bank Account` catalog labels against
+> the live `I_T_BANKS_BRANCHES` bares gives **22/23 clean matches** plus the single predicted
+> divergence — Oracle "EDI ID Number" (→`EDI_ID_NUMBER`) vs Applaud `EFT_ID_NUMBER`. So the §3.2
+> normalization is confirmed correct; no `oracle_match_key` adjustment needed. The Task 15
+> integration test still stands as the permanent regression guard.
 
 **Goal:** Build an offline audit engine that compares an Applaud system (`.mdb`, via `applaud-mcp`) against the Oracle FBDI release it targets, emitting a consultant-readable Excel findings workbook of field-level misalignments.
 
