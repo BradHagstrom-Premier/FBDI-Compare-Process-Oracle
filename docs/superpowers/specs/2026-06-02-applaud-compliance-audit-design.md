@@ -102,10 +102,21 @@ engine ships. It is out of scope for this spec.
 
 | File | Role |
 |---|---|
-| `fbdi/applaud_snapshot.py` | **Step A.** Extracts the MDB via `applaud-mcp` (per-object pulls with `COUNT(*)` assertions, §4) into `baselines/applaud/applaud_snapshot.json` (gitignored). Also derives the candidate app-map. |
-| `fbdi/applaud_appmap.py` | Load / derive / merge the table↔IF/EF application map. The bridge lives here. |
-| `fbdi/audit_applaud.py` | **Step B.** Offline audit engine + Excel writer. |
-| `fbdi/cli.py` (edit) | Two new subcommands: `snapshot-applaud` and `audit-applaud`. |
+| `fbdi/applaud_snapshot.py` | **Step A (logic).** Pure-Python assembly + validation helpers that take **raw MCP query results** as input (the `COUNT(*)`-assertion guard, row parsing, snapshot JSON assembly). No MCP I/O lives here — that's agent-driven (see below). Unit-testable with synthetic inputs. |
+| `fbdi/applaud_appmap.py` | Load / derive / merge the table↔IF/EF application map. The bridge lives here (also pure-Python, fed raw `Application`/`get_application` results). |
+| `fbdi/audit_applaud.py` | **Step B.** Offline audit engine + Excel writer. Pure Python over the snapshot. |
+| `fbdi/cli.py` (edit) | One new subcommand: `audit-applaud` (Step B). Step A has no CLI — it is agent-driven. |
+
+**Step A is agent-driven (decided 2026-06-02).** `applaud-mcp` tools are callable by the agent
+(Claude), not by an arbitrary Python process, and the "MCP-only" constraint rules out direct
+`.mdb` reads. So extraction works like this: the **agent** calls the MCP tools (per-object
+`execute_query`/`get_application`, §4) and feeds the raw results to the pure-Python helpers in
+`applaud_snapshot.py`, which validate (`COUNT(*)` assertion) and write
+`applaud_snapshot.json`. The future orchestrator skill (Candidate C) automates the agent's
+role with HITL checkpoints. This keeps all risky logic unit-testable (mocked at the data
+boundary, §10) while honoring the MCP-only constraint. A headless Python MCP-stdio-client
+variant can be added later **without** changing the snapshot format or Step B, if unattended
+extraction ever becomes a hard requirement.
 
 ### Reused as-is
 
@@ -120,10 +131,11 @@ engine ships. It is out of scope for this spec.
 ### CLI
 
 ```bash
-# Step A — extract MDB snapshot + derive candidate app-map
-python -m fbdi snapshot-applaud --system ORACLE_MASTER
+# Step A — agent-driven: Claude calls applaud-mcp per-object, feeds raw results to
+# applaud_snapshot.py helpers, which validate + write applaud_snapshot.json + derive the
+# candidate app-map. No CLI (the orchestrator skill, Candidate C, automates this).
 
-# Step B — run the audit against the snapshot
+# Step B — pure-Python CLI: run the audit against the snapshot
 python -m fbdi audit-applaud --release 26B --system ORACLE_MASTER
 ```
 
@@ -341,10 +353,10 @@ Phase-2 status vocabulary: `ACCEPTED` / `DEFERRED` / `ACTIONED` (confirmed with 
 
 ## 8. Phased plan
 
-**Phase 1 — Report-only (this build).** `snapshot-applaud` (extract + derive app-map) →
-human confirms `FBDI_to_Applaud_AppMap.xlsx` → `audit-applaud` (dims 1–5 + 6b + 6c) → Excel
-findings workbook. Done when the workbook is correct and the app-map is confirmed for
-ORACLE_MASTER.
+**Phase 1 — Report-only (this build).** Agent-driven Step A (extract via `applaud-mcp` +
+derive candidate app-map → `applaud_snapshot.json`) → human confirms
+`FBDI_to_Applaud_AppMap.xlsx` → `audit-applaud` (Step B: dims 1–5 + 6b + 6c) → Excel findings
+workbook. Done when the workbook is correct and the app-map is confirmed for ORACLE_MASTER.
 
 **Phase 2 — Interactive review.** Consultant fills `Status`/`Notes` in the **Findings**
 sheet. A re-run reconciles by `finding_id`: preserves prior status, marks vanished findings
