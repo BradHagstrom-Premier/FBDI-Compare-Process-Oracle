@@ -64,7 +64,7 @@ python -m pytest tests/test_clear.py -v
   - `config.py`, `utils.py` — shared configuration and helpers.
 - **`tools/download_and_clear.py`** — standalone Selenium downloader + smart clearing entry point. Imports `fbdi.clear` but lives outside the `fbdi/` package so Selenium/webdriver dependencies stay out of the comparison engine.
 - **`.claude/skills/fbdi-compare-release/`** — orchestrator skill that chains the full download → clear → compare → catalog → populate-module pipeline with human-in-the-loop checkpoints. Triggers on phrases like "Compare 26A to 26B" or "Oracle released 26C". Bundles Python helpers (`check_env.py`, `verify_download.py`, `summarize_report.py`, `verify_run.py`, `verify_rerun.py`) under `scripts/` and reference docs under `references/`. See the skill's `SKILL.md` for the 9-stage workflow (plus Stage 6.5). Stage 9 generates the HTML/PDF compliance report via `python -m fbdi report`; also triggers on report-only phrases like "generate compliance report" or "regenerate the PDF".
-- **`tests/`** — 320 unit tests, all passing (`python -m pytest tests/`)
+- **`tests/`** — 354 unit tests, all passing (`python -m pytest tests/`)
 - **Outputs:**
   - `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column diff for VBA validation (unchanged)
   - `FBDI_Master_Catalog.xlsx` — per-release snapshots + Issues + Drift tabs (Drift now alignment-driven)
@@ -109,12 +109,12 @@ python -m pytest tests/test_clear.py -v
 
 ## Resolved Hazards (historical note)
 
-- ~~6 files >5MB are currently skipped~~ — fixed by subprocess isolation + `iter_rows` optimization. Comparison now processes all file pairs with no size limit.
-- ~~8 tabs with non-standard headers fail detection~~ — fixed in Phase 3. Diagnose reports `NO_HEADER: 0`.
-- ~~Full comparison run is ~75 minutes~~ — much faster now due to `iter_rows` streaming (74s → 0.02s per tab on wide sheets).
-- ~~`ChangeOrderImportTemplate` and `ItemImportTemplate` report bogus TIMEOUT in the catalog~~ — fixed by extracting `_subprocess_util.run_worker` with drain-before-join semantics. Catalog now fully ingests both files (~1,400 rows each per release).
-- ~~463 TYPE_PARSE_WARNING rows in the catalog Issues tab~~ — collapsed to 9 (only the genuinely-broken Oracle strings) after `type_parser.py` was extended to accept temporal format masks (`DATE(YYYY/MM/DD)`, `TimeStamp(hh24:mm:ss)`) and the stray-trailing-period typo.
-- ~~Financials URL silently scrapes 0 files (`<oj-tree-view>` race)~~ — fixed by waiting for `[role='treeitem']` to populate inside `#navigationDrawer` before iterating sections (commit 82cd568).
+All fixed — listed so they aren't reintroduced. Forward-looking guidance for the still-live constraints lives in Known Hazards above.
+
+- **>5MB files skipped / ~75min runtime** — fixed by subprocess isolation + `iter_rows` streaming; comparison is now unbounded (~0.02s per wide tab).
+- **8 tabs with non-standard headers fail detection** — fixed in Phase 3; diagnose reports `NO_HEADER: 0`.
+- **`ChangeOrderImportTemplate` / `ItemImportTemplate` bogus catalog TIMEOUT** — fixed by `_subprocess_util.run_worker` drain-before-join (~1,400 rows each ingest cleanly).
+- **463 TYPE_PARSE_WARNING rows** — collapsed to 9 (genuinely-broken strings only) after `type_parser.py` learned temporal format masks and the trailing-period typo.
 
 ---
 
@@ -138,7 +138,7 @@ Two read-only archives, distinct purposes:
 
 ## Testing
 
-- `python -m pytest tests/` — run full suite (320 tests)
+- `python -m pytest tests/` — run full suite (354 tests)
 - `python -m pytest tests/test_clear.py -v` — run one module
 - `tests/validate_against_vba.py` and `tests/vba_fieldrow_map.json` — ad-hoc validation against the legacy VBA macro's expected header rows (not pytest, kept for spot-checks against regressions)
 
