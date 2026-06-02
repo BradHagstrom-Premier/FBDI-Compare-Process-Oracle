@@ -371,7 +371,7 @@ git commit -m "feat(applaud-audit): row-count guard + IF/EF/table assembly helpe
 - Create: `fbdi/applaud_appmap.py`
 - Test: `tests/test_applaud_appmap.py`
 
-The Applaud-side prefix is read from the table description parenthetical (`"… (T32)"`). When absent (e.g. `O_BANKS` → no parenthetical), derive it from the longest common prefix of the column DDIDs and **log** that a fallback was used. (Oracle/mapping-side prefix comes from the mapping workbook's `Prefix` column, not here.)
+The Applaud-side prefix is read from the table description parenthetical (`"… (T32)"`). When absent (e.g. `O_BANKS` → no parenthetical), derive the 3-char TableId code (`^[A-Z][A-Z0-9]{2}`, e.g. `O33`) from the first business DDID and **log** that a fallback was used. (Implementation note: a longest-common-prefix fallback is **wrong** — two field names sharing a leading letter, e.g. `BANK_NAME`/`BRANCH_NUMBER`, extend the LCP past the 3-char code to `O33B`. Use the TableId-code regex.) Oracle/mapping-side prefix comes from the mapping workbook's `Prefix` column, not here.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -451,9 +451,10 @@ def derive_prefix(description: str, column_ddids: list[str]) -> tuple[str | None
     m = _PAREN_PREFIX_RE.search((description or "").strip())
     if m:
         return m.group(1), False
-    # Exclude @-audit fields — they would skew the common prefix toward "@" / "".
+    # Exclude @-audit fields; derive the 3-char TableId code from the first
+    # business DDID. (LCP is wrong: shared leading field letters over-extend it.)
     business = [d.upper() for d in column_ddids if not d.lstrip().startswith("@")]
-    lcp = _longest_common_prefix(business)
+    lcp = _longest_common_prefix(business)  # NOTE: replaced by _TABLEID_RE — see fbdi/applaud_appmap.py
     if lcp:
         _log.warning(
             "Prefix fallback for %r: no description parenthetical; derived %r "
