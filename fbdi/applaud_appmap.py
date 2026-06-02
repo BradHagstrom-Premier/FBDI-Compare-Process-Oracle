@@ -70,9 +70,19 @@ def _steps_of_type(app: dict, func_type: str) -> list[str]:
     return [s["func_name"] for s in steps if s.get("func_type") == func_type]
 
 
-def derive_appmap(applications: dict, target_tables: set[str]) -> list[AppMapRow]:
+def is_validation_file(name: str) -> bool:
+    """`*_VAL` files are Applaud validation exports, not the FBDI-fields export.
+    Excluded from the derived app-map by default (they carry a different field set
+    and would generate coverage/ordering noise). A consultant can add one back
+    manually in the confirmed workbook if a specific _VAL EF should be audited."""
+    return name.strip().upper().endswith("_VAL")
+
+
+def derive_appmap(applications: dict, target_tables: set[str],
+                  exclude_validation: bool = True) -> list[AppMapRow]:
     """One AppMapRow per target table. Apps are matched by DBID; IF/EF file names
-    come from the apps' get_application steps in execution order."""
+    come from the apps' get_application steps in execution order. By default,
+    `*_VAL` validation exports are excluded (see is_validation_file)."""
     rows: list[AppMapRow] = []
     for table in sorted(target_tables):
         imports: list[str] = []
@@ -84,6 +94,9 @@ def derive_appmap(applications: dict, target_tables: set[str]) -> list[AppMapRow
                 continue
             ifs = _steps_of_type(app, "IF")
             efs = _steps_of_type(app, "EF")
+            if exclude_validation:
+                ifs = [f for f in ifs if not is_validation_file(f)]
+                efs = [f for f in efs if not is_validation_file(f)]
             if ifs or efs:
                 sources.append(app_name)
             for f in ifs:

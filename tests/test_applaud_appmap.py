@@ -42,7 +42,8 @@ def test_derive_appmap_resolves_if_and_ef_in_order():
         "X_T_OTHER": {"dbid": "T_OTHER", "description": "",
             "steps": [{"order": 1, "func_type": "EF", "func_name": "T_OTHER"}]},
     }
-    rows = derive_appmap(applications, {"T_BANKS_BRANCHES"})
+    # exclude_validation=False to verify raw EF ordering incl. the _VAL leg
+    rows = derive_appmap(applications, {"T_BANKS_BRANCHES"}, exclude_validation=False)
     assert len(rows) == 1
     row = rows[0]
     assert row.target_table == "T_BANKS_BRANCHES"
@@ -50,6 +51,18 @@ def test_derive_appmap_resolves_if_and_ef_in_order():
     assert row.export_files == ["T_BANKS_BRANCHES", "X_T_BANKS_BRANCHES_VAL"]
     assert set(row.source_applications) == {"I_T_BANKS_BRANCHES", "X_T_BANKS_BRANCHES"}
     assert row.origin == "derived"
+
+
+def test_derive_appmap_excludes_validation_exports_by_default():
+    applications = {
+        "X_T_BANKS_BRANCHES": {"dbid": "T_BANKS_BRANCHES", "description": "",
+            "steps": [{"order": 1, "func_type": "EF", "func_name": "T_BANKS_BRANCHES"},
+                      {"order": 2, "func_type": "EF", "func_name": "X_T_BANKS_BRANCHES_VAL"}]},
+    }
+    rows = derive_appmap(applications, {"T_BANKS_BRANCHES"})           # default: exclude _VAL
+    assert rows[0].export_files == ["T_BANKS_BRANCHES"]
+    rows2 = derive_appmap(applications, {"T_BANKS_BRANCHES"}, exclude_validation=False)
+    assert rows2[0].export_files == ["T_BANKS_BRANCHES", "X_T_BANKS_BRANCHES_VAL"]
 
 
 def test_derive_appmap_table_with_no_apps_yields_empty_row():

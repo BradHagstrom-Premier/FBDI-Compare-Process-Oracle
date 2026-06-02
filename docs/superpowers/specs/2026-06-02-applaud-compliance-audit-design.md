@@ -224,7 +224,10 @@ execution steps). Derivation, per target table:
 2. Classify by name prefix: `I_*` → import application, `X_*` → export application
    (`CQ_*` = clear/CTQ application — relevant to deferred dim 6a, see §6).
 3. Read each application's steps (`get_application`) to list the **IFs/EFs in execution
-   order**.
+   order**. **`*_VAL` validation exports are excluded by default** (decided 2026-06-02 from the
+   pilot run — they carry a different field set than the FBDI-fields export and would generate
+   coverage/ordering noise; `derive_appmap(exclude_validation=True)` is the default). A consultant
+   can add a specific `_VAL` EF back manually in the confirmed workbook if needed.
 
 **Canonical worked example — `T_BANKS_BRANCHES` (validated end-to-end):**
 

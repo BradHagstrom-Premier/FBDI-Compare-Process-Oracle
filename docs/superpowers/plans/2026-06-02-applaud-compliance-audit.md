@@ -486,7 +486,7 @@ git commit -m "feat(applaud-audit): prefix derivation with logged LCP fallback"
 - Modify: `fbdi/applaud_appmap.py`
 - Test: `tests/test_applaud_appmap.py`
 
-For each target table, find apps whose `DBID` equals the table, classify by name prefix (`I_`→import, `X_`→export), and collect the IF/EF file names from each app's steps **in execution order**. EFs are resolved from `get_application` steps (func_type `EF`) — never by assuming an `X_` filename.
+For each target table, find apps whose `DBID` equals the table, classify by name prefix (`I_`→import, `X_`→export), and collect the IF/EF file names from each app's steps **in execution order**. EFs are resolved from `get_application` steps (func_type `EF`) — never by assuming an `X_` filename. **`*_VAL` validation exports are excluded by default** (`is_validation_file` / `derive_appmap(exclude_validation=True)`); confirmed during the pilot run since they carry a different field set than the FBDI-fields export.
 
 - [ ] **Step 1: Write the failing test**
 
