@@ -2025,30 +2025,31 @@ DataDictionary IS pulled in Phase 1 — sizing comes from DataDictionary, NOT Da
 skill (Candidate C) automates this with HITL checkpoints.
 ```
 
-- [ ] **Step 2: Add gitignore entries + snapshot dir keeper**
+- [ ] **Step 2: Add gitignore entry for the report output**
 
-Append to `.gitignore`:
+`baselines/` is **already fully gitignored**, so the snapshot JSON
+(`baselines/applaud/applaud_snapshot_*.json`) needs no rule, and no `.keep` is added (it would
+contradict the baselines/ ignore). `ApplaudSnapshot.write()` mkdirs `baselines/applaud/` at
+runtime. Only the report output needs a rule. Append to `.gitignore`:
 
 ```
-# Applaud audit — gitignored snapshot (the app-map workbook IS tracked)
-baselines/applaud/applaud_snapshot_*.json
+# Applaud audit findings output (FBDI_to_Applaud_AppMap.xlsx IS tracked; snapshot lives under
+# the already-ignored baselines/ tree)
 Applaud_Compliance_Report_*.xlsx
 ```
 
-Create `baselines/applaud/.keep` (empty file) so the directory exists.
+- [ ] **Step 3: Verify gitignore**
 
-- [ ] **Step 3: Verify the doc renders and gitignore works**
-
-Run: `git check-ignore baselines/applaud/applaud_snapshot_ORACLE_MASTER.json`
-Expected: prints the path (ignored). `FBDI_to_Applaud_AppMap.xlsx` must NOT be ignored.
+Run: `git check-ignore Applaud_Compliance_Report_26B_ORACLE_MASTER.xlsx; echo "exit=$?"`
+Expected: prints the path (ignored), exit 0.
 
 Run: `git check-ignore FBDI_to_Applaud_AppMap.xlsx; echo "exit=$?"`
-Expected: `exit=1` (not ignored — it is tracked source of truth)
+Expected: `exit=1` (NOT ignored — it is the tracked source of truth).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/superpowers/references/applaud-snapshot-extraction.md .gitignore baselines/applaud/.keep
+git add docs/superpowers/references/applaud-snapshot-extraction.md .gitignore
 git commit -m "docs(applaud-audit): Step A extraction reference + gitignore rules"
 ```
 

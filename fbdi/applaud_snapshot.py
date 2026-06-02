@@ -63,7 +63,9 @@ class ApplaudSnapshot:
     applications: dict[str, dict] = field(default_factory=dict)
 
     def write(self, path: Path) -> None:
-        Path(path).write_text(
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)  # baselines/applaud/ is gitignored, created at runtime
+        path.write_text(
             json.dumps(asdict(self), indent=2, ensure_ascii=False),
             encoding="utf-8",
         )

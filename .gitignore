@@ -15,6 +15,9 @@ FBDI_Compliance_Report*.html
 FBDI_Compliance_Report*.pdf
 test_output.xlsx
 applaud_table_coverage.xlsx
+# Applaud audit findings output (the app-map workbook FBDI_to_Applaud_AppMap.xlsx IS tracked;
+# the snapshot JSON lives under the already-ignored baselines/ tree)
+Applaud_Compliance_Report_*.xlsx
 __pycache__/
 *.pyc
 .pytest_cache/
