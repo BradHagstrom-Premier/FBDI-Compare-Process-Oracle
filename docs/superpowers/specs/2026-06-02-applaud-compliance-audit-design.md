@@ -13,6 +13,12 @@
 > is per-object with a `COUNT(*)` assertion, not a bulk pull; (4) prefix derivation needs a
 > logged fallback. One audit claim (§11, that the MCP has named systems configured) did **not**
 > reproduce in the Claude Code environment — see §11.
+>
+> **Pass-2 revision (2026-06-02, `AUDIT_RESULTS_plan_pass2.md`, re-verified live):** (a) Dim 1
+> sizing sources type/size from **`DataDictionary`**, not the empty `DatabaseDetail`; (b)
+> **`@`-prefixed audit fields are excluded** from all matching; (c) the catalog's `technical` is
+> `None` on thin tabs, so matching normalizes the label via `_label_to_technical` (canonical
+> example `Bank Account`); `ODBCName` is empty so bare-name is the effective key. See §2, §4, §5.
 
 ---
 
@@ -76,6 +82,17 @@ All six requested dimensions are feasible. Findings from live MCP probing:
 - **`execute_query` has no JOINs and no aggregates beyond `COUNT(*)`.** All joins happen
   client-side in Python after the per-object pulls (§4). It also **silently truncates at
   ~100 rows** — see §4's per-object + `COUNT(*)`-assertion strategy.
+- **`@`-prefixed fields are internal Definian audit/tracking columns — excluded from all
+  matching** (pass-2 audit). Verified: 26 of `T_BANKS_BRANCHES`'s 49 columns are `@T32DO_NOT_LOAD`,
+  `@T32LEGACY_HEADER1..10`, `@T32LEGACY_FIELD1..10`, etc. `_strip_prefix` would leave them mangled,
+  so they are dropped at assembly (`is_audit_field`) and excluded from the LCP prefix fallback.
+- **The FBDI catalog's `technical` is `None` on thin tabs — normalize the label (pass-2 audit).**
+  The canonical `RapidImplementationForCashManagement / Bank Account` tab exposes only labels
+  (`"Bank Name"`, `"Bank Code"`, …) with `technical=None`. The matching layer's Oracle identity
+  is therefore `technical` when present, else `audit._label_to_technical(label)`
+  (`"Bank Name"` → `BANK_NAME`), matching the Applaud bare name. Without this, every thin-tab
+  field mis-matches. `ODBCName` is likewise empty in ORACLE_MASTER, so bare-name is the
+  effective Dim 4 match key.
 - **The Application table is the table↔IF/EF bridge** (see §4).
 
 ### The one structural gap
@@ -191,11 +208,11 @@ confidently-wrong audit — release-blocking. Therefore:
 Five indexed collections, populated by the per-object pulls above. Includes extraction
 metadata (`system`, `mdb_path`, `extracted_at`, `extractor_version`).
 
-- `tables` — `{table_name → {prefix, prefix_fallback, description, key_seqs, columns:[{ddid, bare, data_type, size, dec_places, odbc_name, row}]}}` (from `get_table_definition` + `DatabaseDetail`). **Dim 1 sizing sources from these columns** (`DataType`/`Size`/`DecPlaces` are on `DatabaseDetail`), avoiding thousands of per-element `get_data_element` calls.
-- `imports` — `{if_name → [{row, ddid, bare, pic, input_type}]}` (from `Import` + `ImportDetail`)
-- `exports` — `{ef_name → [{row, ddid, bare, pic, column_header}]}` (from `Export` + `ExportDetail`)
+- `tables` — `{table_name → {prefix, prefix_fallback, description, key_seqs, columns:[{ddid, bare, data_type, size, dec_places, odbc_name, row}]}}`. Columns' `Row`/`DDID` come from `DatabaseDetail`; their **`data_type`/`size`/`dec_places` are JOINED from `DataDictionary`** (see below). **`@`-prefixed audit/tracking columns are dropped at assembly** (excluded from all Dim 1–6 matching). `ODBCName` is empty in ORACLE_MASTER (kept for completeness only).
+- `imports` — `{if_name → [{row, ddid, bare, pic, input_type}]}` (from `Import` + `ImportDetail`; `@`-fields dropped)
+- `exports` — `{ef_name → [{row, ddid, bare, pic, column_header}]}` (from `Export` + `ExportDetail`; `@`-fields dropped)
 - `applications` — `{app_name → {dbid, description, steps:[{order, func_type, func_name}]}}` (from `Application`; steps resolved via `get_application`, which cleanly labels each step `IF` / `EF` / `CS`)
-- `data_dictionary` — **optional / deferred.** Canonical element definitions (`get_data_element`) are not needed for Phase-1 dims (sizing comes from `DatabaseDetail`); pull per-DDID only if a future check needs `ReqOpt` or the canonical element size. Not extracted in Phase 1.
+- **`DataDictionary` IS pulled (corrected — pass-2 audit blocker).** `DatabaseDetail`'s `DataType`/`Size`/`DecPlaces`/`ODBCName` columns are **empty on real data** (verified: all 49 `T_BANKS_BRANCHES` columns return `""`/`0`); the canonical type/size lives on `DataDictionary`. Step A pulls a per-table slice `SELECT Name,DataType,Size,DecPlaces FROM DataDictionary WHERE Name LIKE '<prefix>%'` (with the `COUNT(*)` guard; `LIKE 'P%'` naturally excludes `@`-fields) and the assembly step joins each column's `DDID` to its DD entry.
 
 ### The bridge: deriving the table↔IF/EF map
 
@@ -253,8 +270,8 @@ Each check emits zero or more `Finding` records (§7). Severity in brackets.
 
 **Dim 1 — Data element sizing.** For each mapped Oracle field: `parse_data_type` →
 `applaud_type_for` → expected (`char 50` / `numeric 18,4`). Resolve the actual Applaud column
-from the target table's `DatabaseDetail` (`data_type` X/N → char/numeric, `size`, `dec_places`).
-Compare:
+from its **`DataDictionary`** entry (joined onto the column by `DDID` at assembly; `data_type`
+X/N → char/numeric, `size`, `dec_places`). Compare:
 - actual char `Size` < expected → **[HIGH] undersized** (truncation risk)
 - actual numeric precision/scale < expected → **[HIGH] precision loss**
 - actual type *class* ≠ expected class (Oracle `NUMBER` vs Applaud `X`) → **[HIGH] type-class mismatch**

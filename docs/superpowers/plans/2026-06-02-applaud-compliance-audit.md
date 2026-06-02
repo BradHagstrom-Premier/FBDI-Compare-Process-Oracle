@@ -2,9 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **HANDBACK GATE (from `AUDIT_RESULTS_applaud-compliance-audit.md` §6):** Do **not** begin
-> implementation until this plan has passed a second-pass technical audit by the Applaud-MCP
-> session against the live database. The plan is written; route it back to the auditor first.
+> **HANDBACK GATE:** Pass-1 audit (`AUDIT_RESULTS_applaud-compliance-audit.md`) and pass-2 audit
+> (`AUDIT_RESULTS_plan_pass2.md`) are both incorporated. Pass-2 fixes — all re-verified live this
+> session — are: **(Blocker 1)** Dim 1 sizing now sources type/size from `DataDictionary`, not
+> the empty `DatabaseDetail` (Tasks 2, 7, 16); **(Blocker 2)** `@`-prefixed audit fields excluded
+> at assembly + from the LCP prefix fallback (Tasks 2, 3); **(§3.2, promoted to required)** Oracle
+> `technical` is `None` on thin tabs — `oracle_match_key` normalizes the label via
+> `_label_to_technical` across all matching dims, with an end-to-end integration test (Tasks 7, 15);
+> **(§3.1)** `ODBCName` empty → bare-name is the effective Dim 4 key (noted, Task 10);
+> **(§3.3)** date-vs-char type-class test added (Task 7). Per pass-2 §5, route this revised plan
+> back for a **third-pass spot-check** (focused on the two blockers + the §3.2 integration check)
+> before implementation begins.
 
 **Goal:** Build an offline audit engine that compares an Applaud system (`.mdb`, via `applaud-mcp`) against the Oracle FBDI release it targets, emitting a consultant-readable Excel findings workbook of field-level misalignments.
 
@@ -184,7 +192,7 @@ git commit -m "feat(applaud-audit): snapshot data model + JSON I/O"
 
 ---
 
-## Task 2: Row-count guard + IF/EF/table assembly from raw results
+## Task 2: Row-count guard + IF/EF/table assembly (with DataDictionary type join + `@`-field exclusion)
 
 **Files:**
 - Modify: `fbdi/applaud_snapshot.py`
@@ -192,13 +200,18 @@ git commit -m "feat(applaud-audit): snapshot data model + JSON I/O"
 
 The `execute_query` API silently truncates at ~100 rows. Every per-object pull must be checked against its `COUNT(*)`. Assembly helpers take raw rows (as `applaud-mcp` returns them — `list[dict]`) plus the expected count.
 
+**Two data-layer facts confirmed live against `T_BANKS_BRANCHES` (drive this task):**
+- **`DatabaseDetail` carries NO type data** — every column returns `DataType=""`, `Size=0`, `DecPlaces=0`, `ODBCName=""`. It supplies only `Row` order + `DDID`. The real type/size lives on **`DataDictionary`** (`T32BANK_NAME` → `DataType='X', Size=100`). So `build_table` joins each column's `DDID` to a `DataDictionary` slice (`dd_by_ddid`) to populate `data_type`/`size`/`dec_places`.
+- **`@`-prefixed fields are internal Definian audit/tracking columns** (26 of `T_BANKS_BRANCHES`'s 49: `@T32DO_NOT_LOAD`, `@T32LEGACY_HEADER1..10`, `@T32LEGACY_FIELD1..10`, …) and must be **excluded from all Dim 1–6 matching**. `_strip_prefix("@T32LEGACY_HEADER1","T32")` would leave them mangled, so they are dropped at assembly via `is_audit_field()`.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_applaud_snapshot.py  (append)
 import pytest
 from fbdi.applaud_snapshot import (
-    assert_complete, build_file_fields, build_table, SnapshotIncompleteError,
+    assert_complete, build_file_fields, build_table, is_audit_field,
+    SnapshotIncompleteError,
 )
 
 
@@ -214,26 +227,37 @@ def test_assert_complete_passes_when_counts_match():
     assert_complete("ImportDetail", "I_T_BANKS_BRANCHES", rows, expected_count=23)
 
 
-def test_build_file_fields_strips_prefix_and_orders_by_row():
+def test_is_audit_field_detects_at_prefix():
+    assert is_audit_field("@T32LEGACY_HEADER1") is True
+    assert is_audit_field("T32BANK_NAME") is False
+
+
+def test_build_file_fields_strips_prefix_orders_and_drops_audit_fields():
     raw = [
         {"Row": 2, "DDID": "T32BANK_NAME", "Pic": "X(100)", "InputType": "C"},
         {"Row": 1, "DDID": "T32COUNTRY", "Pic": "X(60)", "InputType": "C"},
+        {"Row": 3, "DDID": "@T32DO_NOT_LOAD", "Pic": "X(1)", "InputType": "C"},  # audit field
     ]
     fields = build_file_fields(raw, prefix="T32", kind="IF")
-    assert [f.bare for f in fields] == ["COUNTRY", "BANK_NAME"]
+    assert [f.bare for f in fields] == ["COUNTRY", "BANK_NAME"]   # @ field dropped
     assert fields[0].row == 1 and fields[0].input_type == "C"
     assert fields[0].column_header is None
 
 
-def test_build_table_strips_prefix_on_columns():
+def test_build_table_joins_datadictionary_type_and_drops_audit_fields():
+    # DatabaseDetail carries blank type (real-data shape); DataDictionary has the type.
     raw_cols = [
-        {"Row": 1, "DDID": "T32COUNTRY", "DataType": "X", "Size": 60,
-         "DecPlaces": None, "ODBCName": "COUNTRY"},
+        {"Row": 1, "DDID": "T32COUNTRY", "DataType": "", "Size": 0,
+         "DecPlaces": 0, "ODBCName": ""},
+        {"Row": 2, "DDID": "@T32DO_NOT_LOAD", "DataType": "", "Size": 0,
+         "DecPlaces": 0, "ODBCName": ""},                          # audit field
     ]
+    dd_by_ddid = {"T32COUNTRY": {"DataType": "X", "Size": 60, "DecPlaces": 0}}
     table = build_table("T_BANKS_BRANCHES", prefix="T32", prefix_fallback=False,
-                        description="T_BANKS_BRANCHES (T32)",
-                        key_seqs=[["T32COUNTRY"]], raw_columns=raw_cols)
-    assert table.columns[0].bare == "COUNTRY"
+                        description="T_BANKS_BRANCHES (T32)", key_seqs=[["T32COUNTRY"]],
+                        raw_columns=raw_cols, dd_by_ddid=dd_by_ddid)
+    assert [c.bare for c in table.columns] == ["COUNTRY"]          # @ field dropped
+    # type/size come from DataDictionary, NOT the blank DatabaseDetail row
     assert table.columns[0].data_type == "X" and table.columns[0].size == 60
 ```
 
@@ -261,6 +285,12 @@ def assert_complete(table: str, obj_name: str, rows: list, expected_count: int) 
         )
 
 
+def is_audit_field(ddid: str) -> bool:
+    """`@`-prefixed DDIDs are internal Definian audit/tracking columns
+    (@…DO_NOT_LOAD, @…LEGACY_*). Excluded from all Dim 1-6 matching."""
+    return ddid.lstrip().startswith("@")
+
+
 def _strip_prefix(ddid: str, prefix: str | None) -> str:
     if prefix and ddid.upper().startswith(prefix.upper()):
         return ddid[len(prefix):]
@@ -268,10 +298,13 @@ def _strip_prefix(ddid: str, prefix: str | None) -> str:
 
 
 def build_file_fields(raw_rows: list[dict], prefix: str | None, kind: str) -> list[FileField]:
-    """kind is 'IF' or 'EF'. Orders by Row; strips the TableId prefix to bare name."""
+    """kind is 'IF' or 'EF'. Orders by Row; strips the TableId prefix to bare name;
+    drops `@`-audit fields."""
     out: list[FileField] = []
     for r in sorted(raw_rows, key=lambda x: x["Row"]):
         ddid = str(r["DDID"])
+        if is_audit_field(ddid):
+            continue
         out.append(FileField(
             row=int(r["Row"]),
             ddid=ddid,
@@ -285,17 +318,27 @@ def build_file_fields(raw_rows: list[dict], prefix: str | None, kind: str) -> li
 
 def build_table(name: str, prefix: str | None, prefix_fallback: bool,
                 description: str, key_seqs: list[list[str]],
-                raw_columns: list[dict]) -> SnapshotTable:
+                raw_columns: list[dict],
+                dd_by_ddid: dict[str, dict]) -> SnapshotTable:
+    """Columns: Row/DDID from DatabaseDetail (the only data it reliably carries);
+    data_type/size/dec_places JOINED from DataDictionary (DatabaseDetail's type
+    columns are empty on real data). `@`-audit fields are dropped."""
     cols: list[DataColumn] = []
     for r in sorted(raw_columns, key=lambda x: x["Row"]):
         ddid = str(r["DDID"])
+        if is_audit_field(ddid):
+            continue
+        dd = dd_by_ddid.get(ddid, {})
+        size = dd.get("Size")
+        dec = dd.get("DecPlaces")
         cols.append(DataColumn(
             ddid=ddid,
             bare=_strip_prefix(ddid, prefix),
-            data_type=(str(r["DataType"]).strip() if r.get("DataType") is not None else ""),
-            size=(int(r["Size"]) if r.get("Size") not in (None, "") else None),
-            dec_places=(int(r["DecPlaces"]) if r.get("DecPlaces") not in (None, "") else None),
-            odbc_name=(str(r["ODBCName"]) if r.get("ODBCName") is not None else None),
+            data_type=(str(dd["DataType"]).strip() if dd.get("DataType") is not None else ""),
+            size=(int(size) if size not in (None, "") else None),
+            dec_places=(int(dec) if dec not in (None, "") else None),
+            # ODBCName is empty in ORACLE_MASTER; kept for completeness only.
+            odbc_name=(str(r["ODBCName"]) if r.get("ODBCName") else None),
             row=int(r["Row"]),
         ))
     return SnapshotTable(name=name, prefix=prefix, prefix_fallback=prefix_fallback,
@@ -347,6 +390,13 @@ def test_derive_prefix_falls_back_to_lcp_and_logs(caplog):
 def test_derive_prefix_none_when_no_columns_and_no_parenthetical():
     prefix, fallback = derive_prefix("WEIRD_TABLE", [])
     assert prefix is None and fallback is True
+
+
+def test_derive_prefix_fallback_ignores_audit_fields():
+    # @-audit fields must not skew the longest-common-prefix derivation.
+    prefix, fallback = derive_prefix(
+        "O_BANKS", ["O33BANK_NAME", "@O33LEGACY_FIELD1", "O33BRANCH_NUMBER"])
+    assert prefix == "O33" and fallback is True
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -395,7 +445,9 @@ def derive_prefix(description: str, column_ddids: list[str]) -> tuple[str | None
     m = _PAREN_PREFIX_RE.search((description or "").strip())
     if m:
         return m.group(1), False
-    lcp = _longest_common_prefix([d.upper() for d in column_ddids])
+    # Exclude @-audit fields — they would skew the common prefix toward "@" / "".
+    business = [d.upper() for d in column_ddids if not d.lstrip().startswith("@")]
+    lcp = _longest_common_prefix(business)
     if lcp:
         _log.warning(
             "Prefix fallback for %r: no description parenthetical; derived %r "
@@ -752,15 +804,24 @@ git commit -m "feat(applaud-audit): Finding model + stable finding_id"
 - Modify: `fbdi/audit_applaud.py`
 - Test: `tests/test_audit_applaud.py`
 
-Compare the Oracle expected shape (from the catalog `AlignedField` via `applaud_type_for`) against the Applaud target-table column's actual shape (`DatabaseDetail` `DataType`/`Size`/`DecPlaces`). Flags: undersized, precision-loss, type-class mismatch. Oversize is INFO.
+Compare the Oracle expected shape (from the catalog `AlignedField` via `applaud_type_for`) against the Applaud column's actual shape — `data_type`/`size`/`dec_places` now sourced from **DataDictionary** (joined in `build_table`, Task 2), since `DatabaseDetail` carries no type data. Flags: undersized, precision-loss, type-class mismatch. Oversize is INFO. This task also adds `oracle_match_key()` — the **label→technical normalization** (§3.2) used by every matching dimension: the catalog's `technical` is `None` on thin tabs (e.g. the canonical `Bank Account` tab exposes only labels like "Bank Name"), so the Oracle identity is `technical` when present else `_label_to_technical(label)` (→ `BANK_NAME`), matching the Applaud bare name.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_audit_applaud.py  (append)
 from fbdi.align import AlignedField
-from fbdi.applaud_snapshot import DataColumn
-from fbdi.audit_applaud import expected_shape, actual_shape, check_sizing
+from fbdi.applaud_snapshot import DataColumn, build_table
+from fbdi.audit_applaud import expected_shape, actual_shape, check_sizing, oracle_match_key
+
+
+def test_oracle_match_key_normalizes_label_when_technical_missing():
+    # Thin tab: technical is None, only a label is present.
+    thin = AlignedField(2, "Bank Name", None, None, None, None, None)
+    assert oracle_match_key(thin) == "BANK_NAME"
+    # Technical present: used as-is (uppercased).
+    rich = AlignedField(5, "Bank Name", "BANK_NAME", "VARCHAR2", 60, None, True)
+    assert oracle_match_key(rich) == "BANK_NAME"
 
 
 def test_shapes_char_and_numeric():
@@ -770,6 +831,17 @@ def test_shapes_char_and_numeric():
     col = DataColumn(ddid="T32BANK_NAME", bare="BANK_NAME", data_type="X",
                      size=30, dec_places=None, odbc_name="BANK_NAME", row=1)
     assert actual_shape(col) == ("char", 30, None)
+
+
+def test_actual_shape_reflects_datadictionary_not_blank_databasedetail():
+    # Regression for Blocker 1: DatabaseDetail type cols are blank on real data;
+    # build_table must source type/size from DataDictionary so actual_shape is correct.
+    raw_cols = [{"Row": 1, "DDID": "T32BANK_NAME", "DataType": "", "Size": 0,
+                 "DecPlaces": 0, "ODBCName": ""}]
+    dd = {"T32BANK_NAME": {"DataType": "X", "Size": 100, "DecPlaces": 0}}
+    table = build_table("T_BANKS_BRANCHES", "T32", False, "T_BANKS_BRANCHES (T32)",
+                        [["T32COUNTRY"]], raw_cols, dd_by_ddid=dd)
+    assert actual_shape(table.columns[0]) == ("char", 100, None)   # NOT ("", 0, None)
 
 
 def test_check_sizing_flags_undersized():
@@ -795,6 +867,16 @@ def test_check_sizing_oversize_is_info_not_high():
     col = DataColumn("T32CODE", "CODE", "X", 50, None, "CODE", 1)
     findings = check_sizing("Tmpl", "Tab", "T_X", {"CODE": of}, [col])
     assert findings == [] or all(f.severity == "INFO" for f in findings)
+
+
+def test_check_sizing_date_stored_as_char_is_type_class_finding():
+    # §3.3: Oracle DATE expected ("date"); Applaud stores it as char -> real TYPE_CLASS,
+    # not silently swallowed by the exp_cls=="" guard.
+    of = AlignedField(1, "Effective Date", "EFFECTIVE_DATE", "DATE", None, None, False)
+    col = DataColumn("T32EFFECTIVE_DATE", "EFFECTIVE_DATE", "X", 30, None, "", 1)
+    findings = check_sizing("Tmpl", "Tab", "T_X", {"EFFECTIVE_DATE": of}, [col])
+    assert len(findings) == 1 and findings[0].attribute == "TYPE_CLASS"
+    assert findings[0].severity == "HIGH"
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -809,9 +891,23 @@ Expected: FAIL with `ImportError: cannot import name 'expected_shape'`
 from fbdi.align import AlignedField
 from fbdi.applaud_snapshot import DataColumn
 from fbdi.applaud_type import applaud_type_for
+from fbdi.audit import _label_to_technical
 from fbdi.type_parser import ParsedType
 
 Shape = tuple[str, int | None, int | None]   # (class, size, scale)
+
+
+def oracle_match_key(of: AlignedField) -> str:
+    """Normalized Oracle identity used by every matching dimension (§3.2).
+
+    The FBDI catalog leaves `technical` = None on thin tabs (e.g. the canonical
+    RapidImplementationForCashManagement / 'Bank Account' tab, which exposes only
+    labels like 'Bank Name'). Use technical when present; otherwise normalize the
+    label via audit._label_to_technical ('Bank Name' -> 'BANK_NAME'), matching the
+    Applaud bare name. Returns UPPER_SNAKE_CASE (or '' if neither is present)."""
+    if of.technical:
+        return of.technical.upper()
+    return _label_to_technical(of.label or "").upper()
 
 
 def _shape_from_applaud_str(s: str) -> Shape:
@@ -991,9 +1087,9 @@ def check_file_coverage(fbdi_template: str, fbdi_tab: str, object_name: str,
                         oracle_fields: list[AlignedField],
                         file_fields: list[FileField]) -> list["Finding"]:
     """Dim 2 (IF) / Dim 3 (EF): coverage (set difference) + ordering (LCS over
-    fields common to both). Identity is the bare DDID, never ColumnHeader."""
-    oracle_order = [(f.technical or f.label or "").upper()
-                    for f in oracle_fields if (f.technical or f.label)]
+    fields common to both). Identity is the bare DDID (Applaud side) vs the
+    normalized Oracle key; never ColumnHeader (empty on real EFs)."""
+    oracle_order = [oracle_match_key(f) for f in oracle_fields if oracle_match_key(f)]
     oracle_set = set(oracle_order)
     file_sorted = sorted(file_fields, key=lambda x: x.row)
     file_order = [f.bare.upper() for f in file_sorted]
@@ -1002,8 +1098,8 @@ def check_file_coverage(fbdi_template: str, fbdi_tab: str, object_name: str,
 
     # PRESENCE — Oracle field missing from the file (HIGH)
     for f in oracle_fields:
-        name = (f.technical or f.label or "")
-        if name and name.upper() not in file_set:
+        name = oracle_match_key(f)
+        if name and name not in file_set:
             findings.append(_presence_finding(
                 fbdi_template, fbdi_tab, object_type, object_name, dimension,
                 oracle_field=name, applaud_field="(missing)", severity="HIGH",
@@ -1105,7 +1201,7 @@ git commit -m "test(applaud-audit): Dim 3 EF coverage uses bare DDID (empty Colu
 - Modify: `fbdi/audit_applaud.py`
 - Test: `tests/test_audit_applaud.py`
 
-Every mapped Oracle field should have a column in the target table (match Oracle technical ↔ column bare name / `ODBCName`). Missing column = HIGH. (Name divergence is folded in: if neither bare nor ODBCName matches, it's a missing column.)
+Every mapped Oracle field should have a column in the target table (match the normalized Oracle key ↔ column bare name / `ODBCName`). Missing column = HIGH. **Note:** `ODBCName` is empty across `ORACLE_MASTER` (confirmed live), so **bare-name is the effective match key**; the `ODBCName` branch is defensive only — a future maintainer should not treat it as load-bearing.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1151,19 +1247,18 @@ def check_table_coverage(fbdi_template: str, fbdi_tab: str, table_name: str,
             present.add(c.odbc_name.upper())
     findings: list[Finding] = []
     for of in oracle_fields:
-        tech = (of.technical or of.label or "").upper()
+        tech = oracle_match_key(of)
         if not tech or tech in present:
             continue
         findings.append(Finding(
             finding_id=make_finding_id(dimension="4-TABLE", applaud_object_type="TABLE",
                 applaud_object_name=table_name, applaud_field=tech, attribute="PRESENCE"),
             dimension="4-TABLE", severity="HIGH", fbdi_template=fbdi_template,
-            fbdi_tab=fbdi_tab, oracle_field=(of.technical or of.label or ""),
+            fbdi_tab=fbdi_tab, oracle_field=tech,
             oracle_type="", applaud_object_type="TABLE", applaud_object_name=table_name,
             applaud_field="(missing)", attribute="PRESENCE",
             current_value="absent", expected_value="present",
-            message=f"Missing column: Oracle {of.technical or of.label} has no "
-                    f"column in {table_name}"))
+            message=f"Missing column: Oracle {tech} has no column in {table_name}"))
     return findings
 ```
 
@@ -1342,15 +1437,15 @@ def check_release_delta(fbdi_template: str, fbdi_tab: str, table_name: str,
     findings: list[Finding] = []
     for ch in changes:
         if ch.change_type == "ADDED" and ch.new_field is not None:
-            name = (ch.new_field.technical or ch.new_field.label or "")
-            if name and name.upper() not in present:
+            name = oracle_match_key(ch.new_field)
+            if name and name not in present:
                 findings.append(_release_finding(fbdi_template, fbdi_tab, table_name,
                     name, "HIGH", "ADDED",
                     f"Behind release: Oracle added {name} in {new_release}; "
                     f"absent from Applaud {table_name}"))
         elif ch.change_type == "REMOVED" and ch.old_field is not None:
-            name = (ch.old_field.technical or ch.old_field.label or "")
-            if name and name.upper() in present:
+            name = oracle_match_key(ch.old_field)
+            if name and name in present:
                 findings.append(_release_finding(fbdi_template, fbdi_tab, table_name,
                     name, "MED", "REMOVED",
                     f"Stale field: Oracle removed {name} in {new_release}; "
@@ -1675,6 +1770,40 @@ def test_run_audit_produces_workbook_and_sizing_finding(tmp_path):
     assert out.exists()
     assert any(f.dimension == "1-SIZING" and f.oracle_field == "BANK_NAME"
                and f.severity == "HIGH" for f in findings)
+
+
+def test_run_audit_thin_tab_label_only_no_spurious_presence(tmp_path):
+    """§3.2 integration check: the canonical Bank Account tab has technical=None
+    (labels only). With label->technical normalization wired, the IF's known-good
+    fields must produce ZERO spurious 2-IF PRESENCE findings."""
+    # Applaud IF + table use T32 bares; Oracle catalog rows are label-only (technical=None).
+    bares = ["COUNTRY", "BANK_NAME", "BANK_CODE", "ALTERNATE_BANK_NAME"]
+    labels = ["Country", "Bank Name", "Bank Code", "Alternate Bank Name"]
+    snap = ApplaudSnapshot(
+        system="ORACLE_MASTER", mdb_path="X", extracted_at="2026-06-02T00:00:00+00:00",
+        extractor_version="1",
+        tables={"T_BANKS_BRANCHES": SnapshotTable(
+            name="T_BANKS_BRANCHES", prefix="T32", prefix_fallback=False,
+            description="T_BANKS_BRANCHES (T32)", key_seqs=[["T32COUNTRY"]],
+            columns=[DataColumn(f"T32{b}", b, "X", 100, None, "", i + 1)
+                     for i, b in enumerate(bares)])},
+        imports={"I_T_BANKS_BRANCHES": [
+            FileField(i + 1, f"T32{b}", b, "X(100)", "C", None)
+            for i, b in enumerate(bares)]},
+        exports={}, applications={})
+    catalog = {("RapidImplementationForCashManagement", "Bank Account"): [
+        AlignedField(i + 1, lbl, None, None, None, None, None)   # technical=None
+        for i, lbl in enumerate(labels)]}
+    mapping = {("RapidImplementationForCashManagement", "Bank Account"): {
+        "applaud_table": "T_BANKS_BRANCHES", "prefix": "T32", "module": "Fin",
+        "status": "MAPPED", "in_base": ""}}
+    appmap = {"T_BANKS_BRANCHES": AppMapRow("T_BANKS_BRANCHES",
+              ["I_T_BANKS_BRANCHES"], [], ["I_T_BANKS_BRANCHES"], "confirmed")}
+    findings = run_audit(snap, catalog, mapping, appmap, release="26B",
+                         release_changes={}, out_path=tmp_path / "r.xlsx")
+    if_presence = [f for f in findings
+                   if f.dimension == "2-IF" and f.attribute == "PRESENCE"]
+    assert if_presence == []   # normalization matched all four label-only fields
 ```
 
 - [ ] **Step 3: Run test to verify it fails**
@@ -1715,8 +1844,8 @@ def run_audit(snapshot: ApplaudSnapshot,
         efs = row.export_files if row else []
         appmap_pairs[table_name] = (ifs, efs)
 
-        oracle_by_bare = {(f.technical or f.label or "").upper(): f
-                          for f in oracle_fields if (f.technical or f.label)}
+        oracle_by_bare = {oracle_match_key(f): f
+                          for f in oracle_fields if oracle_match_key(f)}
 
         if table is not None:
             findings += check_sizing(template, tab, table_name, oracle_by_bare, table.columns)
@@ -1858,15 +1987,23 @@ The agent runs this sequence with applaud-mcp, passing `system: 'ORACLE_MASTER'`
 
 2. For each target table T:
    a. `get_table_definition(T)` → description (prefix parenthetical) + key sequences.
-   b. `SELECT Name,Row,DataType,Size,DecPlaces,DDID,ODBCName FROM DatabaseDetail
-      WHERE Name='T' ORDER BY Row`  → assert against
-      `SELECT COUNT(*) FROM DatabaseDetail WHERE Name='T'`.
-   c. `derive_prefix(description, [col DDIDs])`; `build_table(...)`.
-   d. `SELECT Name,Description,DBID FROM Application WHERE DBID='T'` → the I_/X_/CQ_ apps.
-   e. For each I_/X_ app: `get_application(app)` → steps (IF/EF func_type + func_name + order).
+   b. `SELECT Name,Row,DDID,ODBCName FROM DatabaseDetail WHERE Name='T' ORDER BY Row`
+      → assert against `SELECT COUNT(*) FROM DatabaseDetail WHERE Name='T'`.
+      **DatabaseDetail carries Row order + DDID only — its DataType/Size/DecPlaces/
+      ODBCName columns are EMPTY on real data. Do NOT read type/size from it.**
+   c. `derive_prefix(description, [col DDIDs])` → prefix P.
+   d. **`SELECT Name,DataType,Size,DecPlaces FROM DataDictionary WHERE Name LIKE 'P%'`**
+      → assert vs `SELECT COUNT(*) FROM DataDictionary WHERE Name LIKE 'P%'`. This is
+      the real type/size source. (`LIKE 'P%'` naturally excludes `@`-audit fields, which
+      start with `@`.) Build `dd_by_ddid = {row.Name: row}`.
+   e. `build_table(T, P, fallback, description, key_seqs, raw_columns, dd_by_ddid=dd_by_ddid)`
+      — joins DD type/size onto each column; drops `@`-audit fields.
+   f. `SELECT Name,Description,DBID FROM Application WHERE DBID='T'` → the I_/X_/CQ_ apps.
+   g. For each I_/X_ app: `get_application(app)` → steps (IF/EF func_type + func_name + order).
 
 3. For each resolved IF: `SELECT Name,Row,DDID,InputType,Pic FROM ImportDetail
-   WHERE Name='if' ORDER BY Row` → assert vs `COUNT(*)`; `build_file_fields(..., kind='IF')`.
+   WHERE Name='if' ORDER BY Row` → assert vs `COUNT(*)`; `build_file_fields(..., kind='IF')`
+   (drops `@`-audit fields).
 
 4. For each resolved EF: `SELECT Name,Row,DDID,Pic,ColumnHeader FROM ExportDetail
    WHERE Name='ef' ORDER BY Row` → assert vs `COUNT(*)`; `build_file_fields(..., kind='EF')`.
@@ -1876,8 +2013,9 @@ The agent runs this sequence with applaud-mcp, passing `system: 'ORACLE_MASTER'`
 
 6. Assemble `ApplaudSnapshot(...)` and `.write(applaud_snapshot_path(system))`.
 
-DataDictionary is NOT pulled in Phase 1 (sizing comes from DatabaseDetail).
-The orchestrator skill (Candidate C) automates this with HITL checkpoints.
+DataDictionary IS pulled in Phase 1 — sizing comes from DataDictionary, NOT DatabaseDetail
+(which has no type data). `@`-prefixed fields are excluded at assembly. The orchestrator
+skill (Candidate C) automates this with HITL checkpoints.
 ```
 
 - [ ] **Step 2: Add gitignore entries + snapshot dir keeper**
@@ -1924,10 +2062,25 @@ git commit -m "docs(applaud-audit): Step A extraction reference + gitignore rule
 - §11 MCP config already applied (out of plan scope). ✓
 - §10 tests: row-count guard (Task 2), prefix fallback (Task 3), each dimension, EF bare-DDID (Task 9), Excel writer (Task 14). finding_id reconciliation is Phase 2 — finding_id is generated (Task 6) but reconciliation is out of Phase-1 scope per spec. ✓
 
+**Pass-2 audit coverage (`AUDIT_RESULTS_plan_pass2.md` §4 acceptance):**
+1. Dim 1 sources type/size from `DataDictionary`; `build_table` joins DD by DDID; regression test feeds blank-`DatabaseDetail` + populated-DD and asserts `actual_shape` (Tasks 2, 7). ✓
+2. `@`-prefixed fields excluded at assembly (`is_audit_field`, Task 2) + from LCP prefix fallback (Task 3), with tests. ✓
+3. Task 16 reference doc corrected: "DataDictionary IS pulled; DatabaseDetail has no type data." ✓
+4. `ODBCName` empty in ORACLE_MASTER → bare-name is the effective Dim 4 key (noted, Task 10). ✓
+5. Integration check on the `T_BANKS_BRANCHES` / "Bank Account" thin tab confirms label-only Oracle fields produce zero spurious 2-IF PRESENCE findings; `oracle_match_key` wires `_label_to_technical` into every matching dim (Tasks 7, 15). ✓
+6. §0 "keep as-is" items preserved unchanged. ✓
+- §3.3 date-vs-char type-class test added (Task 7). ✓
+
 **2. Placeholder scan:** No TBD/TODO; every code step has complete code; commands have expected output. ✓
 
 **3. Type consistency:** `Finding`, `DataColumn`, `FileField`, `SnapshotTable`, `ApplaudSnapshot`, `AppMapRow`, `make_finding_id` signatures are identical across all tasks that use them. `check_file_coverage` is defined once (Task 8) and reused for EFs (Task 9) and in `run_audit` (Task 15). Dims 2/3 use a local set-difference + `_lcs_sequence`; only Dim 6b (Task 12) uses `align_tabs(old, new) -> list[Change]`, whose `ADDED`/`REMOVED` carry `new_field`/`old_field` respectively (verified against `fbdi/align.py:135-168`). ✓
 
-**Notes for the second-pass auditor:**
+**Notes for the third-pass spot-check:**
+- **§3.2 normalization (the key thing to re-check):** `oracle_match_key` maps the catalog's
+  label→technical via `_label_to_technical` when `technical` is None. On the live `Bank Account`
+  tab this matched 22/23 fields; the one near-miss is catalog **"EDI ID Number"** (→`EDI_ID_NUMBER`)
+  vs Applaud **`EFT_ID_NUMBER`** — a genuine naming divergence the report *should* surface (one
+  HIGH "missing" + one INFO "extra"), not noise to suppress. Confirm the implementer's integration
+  run reproduces ~22 clean matches + that single reviewable divergence, not 23 false positives.
 - **`align_tabs` numbering-space caveat (already handled):** `align_tabs` classifies `SHIFTED` by absolute position equality (`fbdi/align.py:107`), so it is used **only** for Dim 6b (old vs new Oracle catalog rows, same numbering space). Dims 2/3 deliberately do their own presence (set) + ordering (LCS) so Oracle-position-vs-IF-row offsets don't produce spurious findings. Confirm this reasoning holds.
 - **Dim 6b is wired via `--old-release`:** when provided, the CLI loads the prior release's catalog sheet and `build_release_changes` aligns it per tab (Task 12), so 6b is live (not a silent no-op). When `--old-release` is omitted, 6b is intentionally skipped. Confirm the catalog reliably carries both release sheets at audit time (it does for 26A/26B); if a release is missing its sheet, `load_catalog_release` raises `ValueError` — the auditor should decide whether to soften that to a warning.
