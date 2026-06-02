@@ -191,11 +191,11 @@ confidently-wrong audit — release-blocking. Therefore:
 Five indexed collections, populated by the per-object pulls above. Includes extraction
 metadata (`system`, `mdb_path`, `extracted_at`, `extractor_version`).
 
-- `data_dictionary` — `{name → {data_type, size, dec_places, req_opt, table_id}}`
-- `tables` — `{table_name → {prefix, description, key_seqs, columns:[{ddid, bare, size, dec_places, odbc_name, row}]}}` (from `DatabaseTable` + `DatabaseDetail`)
+- `tables` — `{table_name → {prefix, prefix_fallback, description, key_seqs, columns:[{ddid, bare, data_type, size, dec_places, odbc_name, row}]}}` (from `get_table_definition` + `DatabaseDetail`). **Dim 1 sizing sources from these columns** (`DataType`/`Size`/`DecPlaces` are on `DatabaseDetail`), avoiding thousands of per-element `get_data_element` calls.
 - `imports` — `{if_name → [{row, ddid, bare, pic, input_type}]}` (from `Import` + `ImportDetail`)
 - `exports` — `{ef_name → [{row, ddid, bare, pic, column_header}]}` (from `Export` + `ExportDetail`)
 - `applications` — `{app_name → {dbid, description, steps:[{order, func_type, func_name}]}}` (from `Application`; steps resolved via `get_application`, which cleanly labels each step `IF` / `EF` / `CS`)
+- `data_dictionary` — **optional / deferred.** Canonical element definitions (`get_data_element`) are not needed for Phase-1 dims (sizing comes from `DatabaseDetail`); pull per-DDID only if a future check needs `ReqOpt` or the canonical element size. Not extracted in Phase 1.
 
 ### The bridge: deriving the table↔IF/EF map
 
@@ -252,8 +252,9 @@ than `SNAPSHOT_MAX_AGE_DAYS`.
 Each check emits zero or more `Finding` records (§7). Severity in brackets.
 
 **Dim 1 — Data element sizing.** For each mapped Oracle field: `parse_data_type` →
-`applaud_type_for` → expected (`char 50` / `numeric 18,4`). Resolve the actual Applaud
-element (target-table column `DDID` → `data_dictionary`). Compare:
+`applaud_type_for` → expected (`char 50` / `numeric 18,4`). Resolve the actual Applaud column
+from the target table's `DatabaseDetail` (`data_type` X/N → char/numeric, `size`, `dec_places`).
+Compare:
 - actual char `Size` < expected → **[HIGH] undersized** (truncation risk)
 - actual numeric precision/scale < expected → **[HIGH] precision loss**
 - actual type *class* ≠ expected class (Oracle `NUMBER` vs Applaud `X`) → **[HIGH] type-class mismatch**
