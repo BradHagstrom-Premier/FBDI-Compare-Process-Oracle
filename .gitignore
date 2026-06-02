@@ -22,6 +22,8 @@ __pycache__/
 handoff_*.md
 graphify-out/
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/skills/impeccable/
 .superpowers/
 *.mdb
 Archive/
