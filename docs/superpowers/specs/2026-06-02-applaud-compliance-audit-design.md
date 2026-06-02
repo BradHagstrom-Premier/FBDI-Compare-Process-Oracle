@@ -1,8 +1,18 @@
 # Applaud Compliance Audit — Design
 
 **Date:** 2026-06-02
-**Status:** Approved (brainstorming) — ready for implementation planning
+**Status:** Approved (brainstorming), revised per external technical audit — ready for implementation planning
 **Branch:** `feat/applaud-compliance-audit`
+
+> **Revision note (2026-06-02):** This spec was audited live against `ORACLE_MASTER/AP0STE.mdb`
+> by a separate Applaud-specialist session (`docs/superpowers/AUDIT_RESULTS_applaud-compliance-audit.md`).
+> Four corrections were applied and re-verified in this session: (1) scope is `T_*` target
+> tables only — the `O_*`/divergent-prefix premise was wrong; within the `T_*` family the IF,
+> EF, and table **share one TableId prefix**; (2) the canonical example is now
+> `T_BANKS_BRANCHES`; (3) `execute_query` **silently truncates at ~100 rows** — extraction
+> is per-object with a `COUNT(*)` assertion, not a bulk pull; (4) prefix derivation needs a
+> logged fallback. One audit claim (§11, that the MCP has named systems configured) did **not**
+> reproduce in the Claude Code environment — see §11.
 
 ---
 
@@ -42,24 +52,39 @@ All six requested dimensions are feasible. Findings from live MCP probing:
   real databases moved into subdirectories: `…/MDB_for_ApplaudMCP/ORACLE_MASTER/AP0STE.mdb`
   and `…/AWC_MASTER/AP0STE.mdb`. Every tool call must pass an explicit `file_path` (or a
   resolved `--system` path); the bare default errors out.
-- **Data elements are namespaced by a TableId prefix.** The same logical field appears as
-  `T31BANK_NAME` in target table `T_BANKS` (prefix `T31`) and `O33BANK_NAME` in import
-  `I_O_BANKS` (prefix `O33`). Linking IF/EF fields to table columns and to Oracle technical
-  names must therefore match on the **bare** name (prefix stripped), not the raw `DDID`.
-  Prefixes are authoritative — read from the table description `"T_BANKS (T31)"` /
-  `DatabaseTable`, never guessed. Reuse `audit.py`'s `derive_bare_name` / `extract_prefix`
-  / `_label_to_technical` machinery.
+- **Scope is `T_*` target tables only.** `FBDI_to_ApplaudTables_Mapping.xlsx` maps every FBDI
+  tab to a `T_*` Applaud table (154 MAPPED, 485 UNMAPPED, **zero** `O_*` rows). The `O_*`/`O33`
+  staging lineage (`O_BANKS`, `I_O_BANKS`, …) does **not** feed FBDIs and is **out of scope**.
+- **Within the `T_*` family, the IF, EF, and target table all share one TableId prefix.**
+  Validated live: table `T_BANKS_BRANCHES` is prefix `T32`; import `I_T_BANKS_BRANCHES` fields
+  are `T32COUNTRY`, `T32BANK_NAME`, …; the EF `T_BANKS_BRANCHES` fields are likewise `T32*`.
+  Consequences for matching:
+  - **Intra-Applaud comparisons (IF↔table, EF↔table) are exact `DDID` matches** — same prefix,
+    no reconciliation needed. Do **not** over-engineer cross-prefix matching; it doesn't exist
+    in scope. (This is why Dim 5 is re-grounded in §5.)
+  - **Bare-name matching is needed only on the Oracle↔Applaud boundary** — Oracle technical
+    name `BANK_NAME` ↔ Applaud bare name after stripping `T32`. Reuse `audit.py`'s
+    `derive_bare_name` / `extract_prefix` / `_label_to_technical` machinery here.
+- **Prefix derivation needs a documented, logged fallback.** The Applaud-side prefix is read
+  from the table description parenthetical (`"T_BANKS_BRANCHES (T32)"`) when present; some
+  objects lack it (`O_BANKS` description is just `"O_BANKS"` yet its prefix is `O33`). When the
+  parenthetical is absent, derive the prefix from the table's own column/key DDIDs
+  (`get_table_definition` key sequence, or first `DatabaseDetail.DDID`) and **log** that a
+  fallback was used (this is the "guessing" — make it explicit, never silent). For the
+  **Oracle/mapping side**, use the mapping workbook's authoritative `Prefix` column
+  (fully populated, 0 blanks across 639 rows) — not the parenthetical.
 - **`execute_query` has no JOINs and no aggregates beyond `COUNT(*)`.** All joins happen
-  client-side in Python after bulk-pulling each detail table. This is why the design
-  snapshots (§4) rather than querying live per object.
+  client-side in Python after the per-object pulls (§4). It also **silently truncates at
+  ~100 rows** — see §4's per-object + `COUNT(*)`-assertion strategy.
 - **The Application table is the table↔IF/EF bridge** (see §4).
 
 ### The one structural gap
 
 The mapping workbook (`FBDI_to_ApplaudTables_Mapping.xlsx`) maps FBDI tab → Applaud
-**target table** only. It says nothing about which Import/Export *File* serves a table, and
-the names do not transform cleanly (target `T_BANKS` is fed by import `I_O_BANKS`). That
-bridge is solved in §4 via the `Application` metadata.
+**target table** only. It says nothing about which Import/Export *File* serves a table. That
+bridge is solved in §4 via the `Application` metadata. Note the join is **not 1:1**: one FBDI
+tab can map to several `T_*` tables, and one table can have several IFs/EFs — the app-map
+schema (§4) must represent both fan-outs.
 
 ---
 
@@ -77,7 +102,7 @@ engine ships. It is out of scope for this spec.
 
 | File | Role |
 |---|---|
-| `fbdi/applaud_snapshot.py` | **Step A.** Bulk-extracts the MDB via `applaud-mcp` into `baselines/applaud/applaud_snapshot.json` (gitignored). Also derives the candidate app-map. |
+| `fbdi/applaud_snapshot.py` | **Step A.** Extracts the MDB via `applaud-mcp` (per-object pulls with `COUNT(*)` assertions, §4) into `baselines/applaud/applaud_snapshot.json` (gitignored). Also derives the candidate app-map. |
 | `fbdi/applaud_appmap.py` | Load / derive / merge the table↔IF/EF application map. The bridge lives here. |
 | `fbdi/audit_applaud.py` | **Step B.** Offline audit engine + Excel writer. |
 | `fbdi/cli.py` (edit) | Two new subcommands: `snapshot-applaud` and `audit-applaud`. |
@@ -131,11 +156,28 @@ formal executive summary is ever requested (YAGNI).
 
 ## 4. Step A — Snapshot + the app-map bridge
 
+### Extraction strategy — per-object, NOT bulk (critical)
+
+`execute_query` **silently truncates at ~100 rows with no error and no signal** (validated:
+`ImportDetail` `COUNT(*)`=10,137 but an unbounded select returned ~100 rows mid-record).
+A bulk pull would silently drop >99% of detail rows and produce a clean-looking,
+confidently-wrong audit — release-blocking. Therefore:
+
+1. **Pull detail tables per resolved object**, driven off the confirmed app-map — loop over
+   the IFs/EFs/tables it names: `SELECT … FROM ImportDetail WHERE Name='<if>' ORDER BY Row`,
+   etc. This is complete (validated: `I_T_BANKS_BRANCHES` → all 23 rows) and naturally scopes
+   the snapshot to what's actually audited.
+2. **Assert completeness after every pull**: compare returned row count to
+   `SELECT COUNT(*) FROM <table> WHERE Name='<obj>'`; **fail loud** on mismatch. Apply the
+   same guard to any per-table pull that could exceed the cap (`DataDictionary`,
+   `DatabaseDetail`).
+3. **Do not hardcode the cap** (~100 is environment-dependent) — always assert against
+   `COUNT(*)`.
+
 ### Snapshot JSON (`baselines/applaud/applaud_snapshot.json`, gitignored)
 
-Five indexed collections, each a one-shot bulk `execute_query` pull (no per-object round
-trips). Includes extraction metadata (`system`, `mdb_path`, `extracted_at`,
-`extractor_version`).
+Five indexed collections, populated by the per-object pulls above. Includes extraction
+metadata (`system`, `mdb_path`, `extracted_at`, `extractor_version`).
 
 - `data_dictionary` — `{name → {data_type, size, dec_places, req_opt, table_id}}`
 - `tables` — `{table_name → {prefix, description, key_seqs, columns:[{ddid, bare, size, dec_places, odbc_name, row}]}}` (from `DatabaseTable` + `DatabaseDetail`)
@@ -155,14 +197,27 @@ execution steps). Derivation, per target table:
 3. Read each application's steps (`get_application`) to list the **IFs/EFs in execution
    order**.
 
-Worked example (validated live): `get_application("X_T_BANKS")` (desc *"FBDI Fields for
-T_BANKS"*) returns steps `T_BANKS (EF)` → `X_T_BANKS_VAL (EF)`. So target table `T_BANKS`'s
-FBDI export resolves to those two EFs, in that order.
+**Canonical worked example — `T_BANKS_BRANCHES` (validated end-to-end):**
+
+| Link | Value | Source (verified) |
+|---|---|---|
+| FBDI template . tab | `RapidImplementationForCashManagement` . `Bank Account` | mapping workbook |
+| Applaud target table | `T_BANKS_BRANCHES` (prefix `T32`) | mapping workbook + `get_table_definition` |
+| Bridge | `Application.DBID='T_BANKS_BRANCHES'` → `CQ_T_BANKS_BRANCHES`, `I_T_BANKS_BRANCHES`, `X_T_BANKS_BRANCHES` | `Application` query |
+| Import file (IF) | `I_T_BANKS_BRANCHES` → step `I_T_BANKS_BRANCHES (IF)` | `get_application` |
+| Export app | `X_T_BANKS_BRANCHES` → steps `T_BANKS_BRANCHES (EF)`, `X_T_BANKS_BRANCHES_VAL (EF)` | `get_application` |
+
+**EF naming asymmetry — resolve EFs by reading `get_application` steps, never by assuming an
+`X_` filename.** The export *application* is `X_T_BANKS_BRANCHES`, but its first EF *step* is
+named `T_BANKS_BRANCHES` (no `X_`), plus a second `_VAL` validation EF.
 
 ### The app-map workbook (`FBDI_to_Applaud_AppMap.xlsx`, git-tracked)
 
 Step A emits derived rows: `target_table | import_files | export_files | source_application
-| origin(derived|confirmed)`. **This workbook is the source of truth for audit scope.**
+| origin(derived|confirmed)`. `import_files` / `export_files` are **lists**
+(semicolon-delimited) so a table with multiple IFs/EFs is one row; the many-tables-per-FBDI-tab
+fan-out is carried by the multiple FBDI-mapping rows that point at those tables. **This
+workbook is the source of truth for audit scope.**
 
 - On re-run, **confirmed rows win** over freshly-derived ones (NEW-derived fills only gaps;
   human confirmations/edits survive — same NEW-wins-then-OLD-fallback pattern as
@@ -200,9 +255,11 @@ bare names). Then:
   `align.py` LCS displacement — *what* moved)
 - IF field with no Oracle counterpart → **[INFO] extra field**
 
-**Dim 3 — EF coverage & ordering.** Identical logic against the FBDI export(s) (the `X_T_*`
-"FBDI Fields for …" exports). Framed as: *does our export reproduce every Oracle FBDI
-column, in order, for a clean round-trip?*
+**Dim 3 — EF coverage & ordering.** Identical logic against the FBDI export(s) resolved via
+`get_application` steps (§4 — not an `X_`-filename assumption). Framed as: *does our export
+reproduce every Oracle FBDI column, in order, for a clean round-trip?* **Derive the
+Oracle-comparison name from the bare `DDID`, not `ColumnHeader`** — `ColumnHeader` is empty on
+real EFs (validated: every `T_BANKS_BRANCHES` EF row has `ColumnHeader=""`).
 
 **Dim 4 — Target-table field coverage.** Every mapped Oracle field should have a column in
 the target table's `DatabaseDetail` (match bare name / `ODBCName` ↔ Oracle technical name):
@@ -210,9 +267,15 @@ the target table's `DatabaseDetail` (match bare name / `ODBCName` ↔ Oracle tec
 - present but not mappable to the Oracle technical name → **[MED] name divergence**
 - extra table column → **[INFO]**
 
-**Dim 5 — Data element ↔ target-table consistency.** Every `DDID` (bare name) used in a
-resolved IF/EF should also exist as a column in the target table:
-- IF/EF field absent from target table → **[MED] orphaned data element** (loads into nothing)
+**Dim 5 — Data element ↔ target-table consistency.** Within the `T_*` family the IF, EF, and
+table share one prefix, so this is an **exact `DDID` match** (no bare-name reconciliation).
+Every `DDID` used in a resolved IF/EF should also exist as a column in the target table:
+- IF/EF `DDID` absent from the target table's `DatabaseDetail` → **[MED] orphaned data element**
+  (loads into nothing)
+
+This fires only on genuine intra-Applaud orphans; with a single shared prefix it must not
+over-fire on cross-prefix noise (which is out of scope) nor degrade to a no-op. Validate the
+trigger against the single-prefix reality during implementation.
 
 ---
 
@@ -251,8 +314,8 @@ One structured, addressable delta. This shape is what makes Phase 3 mechanical.
 | `severity` | `HIGH` / `MED` / `INFO` | triage order |
 | `fbdi_template`, `fbdi_tab`, `oracle_field`, `oracle_type` | `…/BANK_NAME`, `VARCHAR2(100)` | Oracle side |
 | `applaud_object_type` | `DATA_ELEMENT` / `IMPORT` / `EXPORT` / `TABLE` | Phase-3 target kind |
-| `applaud_object_name` | `I_O_BANKS` / `T_BANKS` | Phase-3 target object |
-| `applaud_field` (DDID) | `O33BANK_NAME` | Phase-3 target field |
+| `applaud_object_name` | `I_T_BANKS_BRANCHES` / `T_BANKS_BRANCHES` | Phase-3 target object |
+| `applaud_field` (DDID) | `T32BANK_NAME` | Phase-3 target field |
 | `attribute` | `SIZE` / `SCALE` / `TYPE_CLASS` / `PRESENCE` / `ORDER` | what to change |
 | `current_value` → `expected_value` | `char 30` → `char 100` | the delta to apply |
 | `message` | "Undersized: Applaud char 30 < Oracle VARCHAR2(100)" | consultant-readable |
@@ -324,8 +387,15 @@ files), `py -m pytest tests/`. Cover:
 - **Each dimension check** — undersized vs oversized vs type-class (dim 1); missing /
   reordered / extra (dims 2/3); missing column / name divergence (dim 4); orphaned element
   (dim 5); added/removed release deltas (6b); unmapped table (6c).
-- **Bare-name matching** across TableId-prefix namespacing (`O33BANK_NAME` ↔ `T31BANK_NAME`
-  ↔ Oracle `BANK_NAME`).
+- **Bare-name matching at the Oracle↔Applaud boundary** (Oracle `BANK_NAME` ↔ Applaud
+  `T32BANK_NAME` after stripping prefix `T32`); and **exact-`DDID` matching intra-Applaud**
+  (IF/EF `DDID` ↔ table `DDID`, same prefix) for Dim 5.
+- **Row-count-assertion guard** — a per-object pull whose returned count differs from
+  `COUNT(*)` must **fail loud**, not silently proceed (guards the truncation bug).
+- **Prefix-derivation fallback** — parenthetical present → parsed; parenthetical absent →
+  DDID-derived **and logged**; never silent.
+- **EF resolution via `get_application` steps** — including the `X_`-app / no-`X_`-EF-filename
+  asymmetry; do not assume an `X_` filename.
 - **Finding reconciliation** by `finding_id` (Phase-2 readiness): stable IDs across re-runs.
 - **Excel writer** — sheet structure, severity fills, Status/Notes columns present.
 
@@ -338,12 +408,22 @@ at the data boundary so Step B audits run fully offline against synthetic snapsh
 
 The `applaud-mcp` server's default `MDB_FILE_PATH` points at a now-missing file
 (`…/MDB_for_ApplaudMCP/AP0STE.mdb`); the real databases moved into the `ORACLE_MASTER/` and
-`AWC_MASTER/` subdirectories. This is an environment/config issue independent of the audit
-design, but Step A relies on reaching the right MDB.
+`AWC_MASTER/` subdirectories. A bare call with no `system`/`file_path` errors out.
 
-**Plan task:** as part of implementation, fix the stale MCP config via the `/update-config`
-skill — either repoint `MDB_FILE_PATH` to a valid default (`ORACLE_MASTER/AP0STE.mdb`) or,
-preferably, configure named systems (`MDB_SYSTEMS`) so `ORACLE_MASTER` / `AWC_MASTER`
-resolve as MCP aliases. The latter also lets our `--system` flag (§3) delegate name→path
-resolution to the MCP server instead of duplicating the map in `config.py`. Decide between
-the two at plan time; either unblocks Step A.
+**Environment discrepancy to resolve.** The external audit (§2 of `AUDIT_RESULTS_*.md`) reports
+`list_systems` returning two configured aliases (`ORACLE_MASTER`, `AWC_MASTER`). In **this
+Claude Code session, `list_systems` returns "No named systems configured"** — the auditor's
+MCP environment had `MDB_SYSTEMS` configured; this one does not. Both observations are real;
+they're different environments. All verified calls in this session passed an explicit
+`file_path` (which works); `system: 'ORACLE_MASTER'` is unverified here because no aliases are
+configured.
+
+**Plan task:** configure `MDB_SYSTEMS` aliases in *this* environment via the `/update-config`
+skill so `ORACLE_MASTER` / `AWC_MASTER` resolve as MCP aliases — matching the auditor's setup
+and letting `--system` (§3) delegate name→path resolution to the MCP server instead of
+duplicating a map in `config.py`. This is the path that makes Step A portable across both
+environments.
+
+**Blocker status:** not a hard blocker — Step A works today by passing an explicit `file_path`
+(resolved from `config.py`, §3). Configuring `MDB_SYSTEMS` is the preferred, portable fix and
+should be done early, but implementation can proceed on `file_path` if needed.
