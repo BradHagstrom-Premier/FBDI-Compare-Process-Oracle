@@ -331,3 +331,19 @@ files), `py -m pytest tests/`. Cover:
 
 Note: `applaud-mcp` queries are not exercised in unit tests — Step A's extraction is mocked
 at the data boundary so Step B audits run fully offline against synthetic snapshots.
+
+---
+
+## 11. Environment prerequisite (plan task)
+
+The `applaud-mcp` server's default `MDB_FILE_PATH` points at a now-missing file
+(`…/MDB_for_ApplaudMCP/AP0STE.mdb`); the real databases moved into the `ORACLE_MASTER/` and
+`AWC_MASTER/` subdirectories. This is an environment/config issue independent of the audit
+design, but Step A relies on reaching the right MDB.
+
+**Plan task:** as part of implementation, fix the stale MCP config via the `/update-config`
+skill — either repoint `MDB_FILE_PATH` to a valid default (`ORACLE_MASTER/AP0STE.mdb`) or,
+preferably, configure named systems (`MDB_SYSTEMS`) so `ORACLE_MASTER` / `AWC_MASTER`
+resolve as MCP aliases. The latter also lets our `--system` flag (§3) delegate name→path
+resolution to the MCP server instead of duplicating the map in `config.py`. Decide between
+the two at plan time; either unblocks Step A.
