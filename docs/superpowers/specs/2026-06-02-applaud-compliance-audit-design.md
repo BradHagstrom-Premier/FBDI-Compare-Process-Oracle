@@ -418,12 +418,13 @@ they're different environments. All verified calls in this session passed an exp
 `file_path` (which works); `system: 'ORACLE_MASTER'` is unverified here because no aliases are
 configured.
 
-**Plan task:** configure `MDB_SYSTEMS` aliases in *this* environment via the `/update-config`
-skill so `ORACLE_MASTER` / `AWC_MASTER` resolve as MCP aliases — matching the auditor's setup
-and letting `--system` (§3) delegate name→path resolution to the MCP server instead of
-duplicating a map in `config.py`. This is the path that makes Step A portable across both
-environments.
+**Status: DONE (pending MCP restart).** `MDB_SYSTEMS` was configured via `/update-config` in
+both `applaud-mcp` server blocks in `~/.claude.json` (`ORACLE_MASTER` first → default;
+`AWC_MASTER` second; `MDB_FILE_PATH` repointed to the ORACLE_MASTER path; `MDB_PASSWORD`
+preserved). Because stdio MCP servers spawn once at session start, this takes effect only
+after the `applaud-mcp` server restarts (Claude Code restart / MCP reconnect) — `list_systems`
+will report "none" until then. Once live, `--system` (§3) can delegate name→path resolution to
+the MCP server (`system: 'ORACLE_MASTER'`) instead of duplicating a map in `config.py`.
 
-**Blocker status:** not a hard blocker — Step A works today by passing an explicit `file_path`
-(resolved from `config.py`, §3). Configuring `MDB_SYSTEMS` is the preferred, portable fix and
-should be done early, but implementation can proceed on `file_path` if needed.
+**Plan implication:** Step A should pass `system` to MCP calls (with `file_path` as a
+fallback). Not a hard blocker — explicit `file_path` works today regardless of restart.
