@@ -84,7 +84,7 @@ The mapping workbook also carries an authoritative `Prefix` column (fully popula
 
 The design (§2, §11) asserts the MCP has **no named systems** (`list_systems` returns none) and a stale default path, making the §11 `/update-config` step a Step-A prerequisite. **This is now false.** `list_systems` returns two configured aliases:
 
-```
+```text
 AWC_MASTER     — C:/Users/10193/Definian/MDB_for_ApplaudMCP/AWC_MASTER/AP0STE.mdb
 ORACLE_MASTER  — C:/Users/10193/Definian/MDB_for_ApplaudMCP/ORACLE_MASTER/AP0STE.mdb
 ```

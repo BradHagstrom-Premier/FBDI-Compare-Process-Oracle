@@ -156,17 +156,16 @@ extraction ever becomes a hard requirement.
 python -m fbdi audit-applaud --release 26B --system ORACLE_MASTER
 ```
 
-`--system` resolves an alias to its `.mdb` path (default `ORACLE_MASTER`). Because the MCP
-server has **no named systems configured** (`list_systems` returns none), this name→path map
-lives in *our* config (e.g. `config.py`: `ORACLE_MASTER` →
-`…/MDB_for_ApplaudMCP/ORACLE_MASTER/AP0STE.mdb`, `AWC_MASTER` → its path); the resolved path
-is then passed as `file_path` to every MCP call. The audit targets **one** MDB per run
+`--system` is the alias (default `ORACLE_MASTER`) **forwarded directly to `applaud-mcp`**, which
+resolves it to the `.mdb` path via its `MDB_SYSTEMS` env (configured per §11). MCP is the single
+source of truth for alias→path — no path table is duplicated in `config.py`. In Step B the alias
+is used only to name the per-system snapshot/output files. The audit targets **one** MDB per run
 (single-master, selectable model). AWC_MASTER and future client DBs are just other selectable
 targets — no reference-vs-client diff in this phase.
 
 ### Data flow
 
-```
+```text
                     ┌─ Oracle FBDI catalog (FBDI_Master_Catalog.xlsx, <release> tab)
                     ├─ FBDI→table mapping (FBDI_to_ApplaudTables_Mapping.xlsx)
  applaud-mcp ──A──► applaud_snapshot.json ─┐

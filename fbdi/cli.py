@@ -457,23 +457,34 @@ def _run_audit_applaud(args: argparse.Namespace) -> None:
     from fbdi.report import load_catalog_release, load_mapping
     from fbdi.config import applaud_snapshot_path
 
+    if not args.catalog.is_file():
+        print(f"Error: catalog file not found: {args.catalog}")
+        sys.exit(1)
+    if not args.mapping.is_file():
+        print(f"Error: mapping file not found: {args.mapping}")
+        sys.exit(1)
     snap_path = applaud_snapshot_path(args.system)
     if not snap_path.exists():
         print(f"Error: snapshot not found: {snap_path}. Run Step A (agent-driven extraction) first.")
         sys.exit(1)
+
+    # Catalog sheet names are uppercase (26A/26B) and matched exactly by load_catalog_release.
+    release = args.release.upper()
+    old_release = args.old_release.upper() if args.old_release else None
+
     snapshot = ApplaudSnapshot.load(snap_path)
-    catalog = load_catalog_release(args.catalog, args.release)
+    catalog = load_catalog_release(args.catalog, release)
     mapping = load_mapping(args.mapping)
     appmap = load_appmap_workbook(args.appmap) if args.appmap.exists() else {}
 
     release_changes = {}
-    if args.old_release:
-        old_catalog = load_catalog_release(args.catalog, args.old_release)
+    if old_release:
+        old_catalog = load_catalog_release(args.catalog, old_release)
         release_changes = build_release_changes(old_catalog, catalog)
 
-    out = args.output or Path(f"Applaud_Compliance_Report_{args.release}_{args.system}.xlsx")
+    out = args.output or Path(f"Applaud_Compliance_Report_{release}_{args.system}.xlsx")
 
-    findings = run_audit(snapshot, catalog, mapping, appmap, release=args.release,
-                         release_changes=release_changes, out_path=out)
+    findings = run_audit(snapshot, catalog, mapping, appmap, release=release,
+                         release_changes=release_changes, out_path=out, old_release=old_release)
     print(f"Findings: {len(findings)}  (HIGH={sum(1 for f in findings if f.severity=='HIGH')})")
     print(f"Output written to: {out}")

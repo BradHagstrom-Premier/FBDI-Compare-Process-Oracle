@@ -81,11 +81,11 @@ def test_check_sizing_flags_type_class_mismatch():
     assert findings[0].attribute == "TYPE_CLASS" and findings[0].severity == "HIGH"
 
 
-def test_check_sizing_oversize_is_info_not_high():
+def test_check_sizing_oversize_produces_no_findings():
     of = AlignedField(1, "Code", "CODE", "VARCHAR2", 10, None, False)
     col = DataColumn("T32CODE", "CODE", "X", 50, None, "CODE", 1)
     findings = check_sizing("Tmpl", "Tab", "T_X", {"CODE": of}, [col])
-    assert findings == [] or all(f.severity == "INFO" for f in findings)
+    assert findings == []
 
 
 def test_check_sizing_date_stored_as_char_is_type_class_finding():

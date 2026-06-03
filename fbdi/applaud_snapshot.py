@@ -63,6 +63,7 @@ class ApplaudSnapshot:
     applications: dict[str, dict] = field(default_factory=dict)
 
     def write(self, path: Path) -> None:
+        """Serialize the snapshot to JSON, creating the (gitignored) parent dir if needed."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)  # baselines/applaud/ is gitignored, created at runtime
         path.write_text(
@@ -72,6 +73,7 @@ class ApplaudSnapshot:
 
     @classmethod
     def load(cls, path: Path) -> "ApplaudSnapshot":
+        """Rehydrate a snapshot from JSON written by write()."""
         d = json.loads(Path(path).read_text(encoding="utf-8"))
         tables = {
             name: SnapshotTable(
@@ -102,6 +104,8 @@ class SnapshotIncompleteError(RuntimeError):
 
 
 def assert_complete(table: str, obj_name: str, rows: list, expected_count: int) -> None:
+    """Guard against applaud-mcp's silent ~100-row truncation: raise unless the per-object
+    pull returned exactly COUNT(*) rows."""
     if len(rows) != expected_count:
         raise SnapshotIncompleteError(
             f"{table} WHERE Name='{obj_name}': got {len(rows)} rows but "
@@ -153,7 +157,16 @@ def build_table(name: str, prefix: str | None, prefix_fallback: bool,
         ddid = str(r["DDID"])
         if is_audit_field(ddid):
             continue
-        dd = dd_by_ddid.get(ddid, {})
+        if ddid not in dd_by_ddid:
+            # A business column with no DataDictionary entry means the DD slice is
+            # incomplete (e.g. wrong prefix or a truncated pull). Fail loud rather
+            # than emit a DataColumn with empty type/size that would mis-audit Dim 1.
+            raise SnapshotIncompleteError(
+                f"Table {name!r}: no DataDictionary entry for column {ddid!r} "
+                f"(prefix {prefix!r}). The DD slice is incomplete — re-pull "
+                "SELECT Name,DataType,Size,DecPlaces FROM DataDictionary WHERE Name LIKE '<prefix>%'."
+            )
+        dd = dd_by_ddid[ddid]
         size = dd.get("Size")
         dec = dd.get("DecPlaces")
         cols.append(DataColumn(

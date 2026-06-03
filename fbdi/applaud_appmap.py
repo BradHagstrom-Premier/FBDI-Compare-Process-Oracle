@@ -67,7 +67,8 @@ class AppMapRow:
 
 def _steps_of_type(app: dict, func_type: str) -> list[str]:
     steps = sorted(app.get("steps", []), key=lambda s: s.get("order", 0))
-    return [s["func_name"] for s in steps if s.get("func_type") == func_type]
+    return [s.get("func_name") for s in steps
+            if s.get("func_type") == func_type and s.get("func_name")]
 
 
 def is_validation_file(name: str) -> bool:
@@ -130,6 +131,7 @@ def _split(cell) -> list[str]:
 
 
 def write_appmap_workbook(rows: list[AppMapRow], path: Path) -> None:
+    """Write the table<->IF/EF app-map workbook (the confirmable source of truth for scope)."""
     wb = Workbook()
     ws = wb.active
     ws.title = "App Map"
@@ -142,6 +144,7 @@ def write_appmap_workbook(rows: list[AppMapRow], path: Path) -> None:
 
 
 def load_appmap_workbook(path: Path) -> dict[str, AppMapRow]:
+    """Load a confirmed/derived app-map workbook into {target_table: AppMapRow}."""
     wb = load_workbook(path, read_only=True, data_only=True)
     ws = wb["App Map"] if "App Map" in wb.sheetnames else wb.active
     out: dict[str, AppMapRow] = {}

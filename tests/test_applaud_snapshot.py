@@ -81,3 +81,15 @@ def test_build_table_joins_datadictionary_type_and_drops_audit_fields():
     assert [c.bare for c in table.columns] == ["COUNTRY"]          # @ field dropped
     # type/size come from DataDictionary, NOT the blank DatabaseDetail row
     assert table.columns[0].data_type == "X" and table.columns[0].size == 60
+
+
+def test_build_table_raises_when_business_ddid_missing_from_datadictionary():
+    # A non-audit column with no DataDictionary entry means an incomplete DD slice;
+    # build_table must fail loud, not emit an empty-typed DataColumn.
+    raw_cols = [{"Row": 1, "DDID": "T32MISSING", "DataType": "", "Size": 0,
+                 "DecPlaces": 0, "ODBCName": ""}]
+    with pytest.raises(SnapshotIncompleteError) as exc:
+        build_table("T_BANKS_BRANCHES", prefix="T32", prefix_fallback=False,
+                    description="T_BANKS_BRANCHES (T32)", key_seqs=[["T32COUNTRY"]],
+                    raw_columns=raw_cols, dd_by_ddid={})
+    assert "T32MISSING" in str(exc.value)

@@ -40,15 +40,10 @@ REPORT_HEADERS = [
 # Mirrors COMPARE_TIMEOUT in compare.py; isolates openpyxl resource leaks.
 CATALOG_TIMEOUT = 120
 
-# Applaud system aliases -> .mdb path. Mirrors MDB_SYSTEMS in the applaud-mcp env;
-# kept here so Step B can name-qualify snapshot files / output without the MCP up.
-APPLAUD_SYSTEMS = {
-    "ORACLE_MASTER": "C:/Users/10193/Definian/MDB_for_ApplaudMCP/ORACLE_MASTER/AP0STE.mdb",
-    "AWC_MASTER":    "C:/Users/10193/Definian/MDB_for_ApplaudMCP/AWC_MASTER/AP0STE.mdb",
-}
-DEFAULT_APPLAUD_SYSTEM = "ORACLE_MASTER"
-
-
+# Applaud system alias is forwarded to applaud-mcp (which resolves the .mdb path via its
+# MDB_SYSTEMS env) — MCP is the single source of truth for alias->path, so no path table
+# is duplicated here. The alias is only used to name the per-system snapshot file.
 def applaud_snapshot_path(system: str):
+    """Per-system snapshot location, e.g. baselines/applaud/applaud_snapshot_ORACLE_MASTER.json."""
     from pathlib import Path
     return Path("baselines") / "applaud" / f"applaud_snapshot_{system}.json"

@@ -56,6 +56,8 @@ class Finding:
 def make_finding_id(*, dimension: str, applaud_object_type: str,
                     applaud_object_name: str, applaud_field: str,
                     attribute: str) -> str:
+    """Stable 12-char id for a finding, keyed on (dimension, object, field, attribute)
+    so the same delta reconciles across re-runs (Phase-2 triage continuity)."""
     key = "|".join([dimension, applaud_object_type, applaud_object_name,
                     applaud_field, attribute])
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
@@ -95,12 +97,15 @@ def _shape_from_applaud_str(s: str) -> Shape:
 
 
 def expected_shape(of: AlignedField) -> Shape:
+    """Oracle field's expected Applaud shape (class, size, scale) via applaud_type_for."""
     pt = ParsedType(data_type=(of.data_type or ""), length=of.length,
                     scale=of.scale, parse_warning=False)
     return _shape_from_applaud_str(applaud_type_for(pt))
 
 
 def actual_shape(col: DataColumn) -> Shape:
+    """Applaud column's actual shape (class, size, scale) from its DataDictionary type
+    (X->char, N->numeric, else the lowercased code)."""
     dt = (col.data_type or "").strip().upper()
     if dt == "X":
         return ("char", col.size, None)
@@ -112,6 +117,8 @@ def actual_shape(col: DataColumn) -> Shape:
 def check_sizing(fbdi_template: str, fbdi_tab: str, table_name: str,
                  oracle_by_bare: dict[str, AlignedField],
                  columns: list[DataColumn]) -> list[Finding]:
+    """Dim 1: flag undersized / precision-loss / type-class mismatches between each Oracle
+    field and its Applaud target-table column. Oversize is not a defect."""
     col_by_bare = {c.bare.upper(): c for c in columns}
     findings: list[Finding] = []
     for bare, of in oracle_by_bare.items():
@@ -255,6 +262,8 @@ def check_file_coverage(fbdi_template: str, fbdi_tab: str, object_name: str,
 def check_table_coverage(fbdi_template: str, fbdi_tab: str, table_name: str,
                          oracle_fields: list[AlignedField],
                          columns: list[DataColumn]) -> list[Finding]:
+    """Dim 4: flag each mapped Oracle field that has no column in the target table
+    (matched on bare name / ODBCName)."""
     present = set()
     for c in columns:
         present.add(c.bare.upper())
@@ -285,6 +294,8 @@ def check_orphans(fbdi_template: str, fbdi_tab: str, table_name: str,
                   object_name: str, object_type: str,
                   table_columns: list[DataColumn],
                   file_fields: list[FileField]) -> list[Finding]:
+    """Dim 5: flag IF/EF data elements (exact DDID) absent from the target table —
+    orphans that load into nothing."""
     table_ddids = {c.ddid.upper() for c in table_columns}
     findings: list[Finding] = []
     for f in file_fields:
@@ -324,6 +335,8 @@ def build_release_changes(
 def check_release_delta(fbdi_template: str, fbdi_tab: str, table_name: str,
                         changes: list[Change], applaud_bares: set[str],
                         old_release: str, new_release: str) -> list[Finding]:
+    """Dim 6b: flag Oracle fields added in the new release but absent from Applaud (behind),
+    and fields removed by Oracle that still linger in Applaud (stale)."""
     present = {b.upper() for b in applaud_bares}
     findings: list[Finding] = []
     for ch in changes:
@@ -363,6 +376,7 @@ def _release_finding(fbdi_template, fbdi_tab, table_name, name, severity,
 # ---------------------------------------------------------------------------
 
 def check_unmapped(snapshot_tables: set[str], mapped_tables: set[str]) -> list[Finding]:
+    """Dim 6c: INFO-flag T_* tables in the snapshot that have no FBDI mapping row."""
     findings: list[Finding] = []
     for t in sorted(snapshot_tables):
         if not t.upper().startswith("T_") or t in mapped_tables:
@@ -380,6 +394,8 @@ def check_unmapped(snapshot_tables: set[str], mapped_tables: set[str]) -> list[F
 
 def coverage_gaps(mapped_tables: set[str],
                   appmap: dict[str, tuple[list[str], list[str]]]) -> list[tuple[str, str]]:
+    """Mapped tables whose confirmed app-map resolved no IF/EF — what the audit could not
+    check, so silence is never mistaken for a pass (Coverage sheet)."""
     gaps: list[tuple[str, str]] = []
     for t in sorted(mapped_tables):
         ifs, efs = appmap.get(t, ([], []))
@@ -426,6 +442,8 @@ def _write_findings_sheet(ws, findings: list[Finding]) -> None:
 
 def write_findings_workbook(findings: list[Finding], coverage: list[tuple[str, str]],
                             meta: dict, path: Path) -> None:
+    """Write the 4-sheet findings workbook (Summary / Findings / High Priority / Coverage),
+    severity-sorted and colored, with empty Status/Notes columns for Phase-2 triage."""
     sev_order = {"HIGH": 0, "MED": 1, "INFO": 2}
     findings = sorted(findings, key=lambda f: (sev_order.get(f.severity, 9), f.dimension))
 
@@ -470,7 +488,10 @@ def run_audit(snapshot: ApplaudSnapshot,
               appmap: dict[str, AppMapRow],
               release: str,
               release_changes: dict[tuple[str, str], list[Change]],
-              out_path: Path) -> list[Finding]:
+              out_path: Path,
+              old_release: str | None = None) -> list[Finding]:
+    """Run all dimension checks over the mapped (template, tab)->table chain and write the
+    findings workbook. Returns the flat findings list. `old_release` (optional) enables Dim 6b."""
     findings: list[Finding] = []
     mapped_tables: set[str] = set()
     appmap_pairs: dict[str, tuple[list[str], list[str]]] = {}
@@ -515,7 +536,7 @@ def run_audit(snapshot: ApplaudSnapshot,
         if changes and table is not None:
             applaud_bares = {c.bare.upper() for c in table.columns}
             findings += check_release_delta(template, tab, table_name, changes,
-                                            applaud_bares, old_release="(prior)",
+                                            applaud_bares, old_release=(old_release or "(prior)"),
                                             new_release=release)
 
     findings += check_unmapped(set(snapshot.tables), mapped_tables)
