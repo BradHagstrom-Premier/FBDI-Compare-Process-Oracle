@@ -5,6 +5,8 @@ real exceptions (renamed/no-X_ EFs, multi-EF, cross-refs) captured explicitly.
 derive_appmap filters to the mapped T_ tables and excludes *_VAL by default.
 Not part of the package — kept for provenance / re-run.
 """
+from pathlib import Path
+
 from fbdi.report import load_mapping
 from fbdi.applaud_appmap import derive_appmap, write_appmap_workbook
 
@@ -147,7 +149,11 @@ DBID_OVERRIDES = {
     "I_T_PO_LINE_LOC_INT": "T_PO_LINE_LOCATIONS_INTERFACE",
     "I_T_POZ_ADDRESSES_INT": "T_POZ_SUP_ADDRESSES_INT",
     "I_T_POZ_SUP_BUS_CLASS": "T_POZ_SUP_BUS_CLASS_INT",
-    "I_T_POZ_SUP_CONT_ADDR": "",   # empty DBID in the MDB — import app maps to no table
+    # Asymmetry is faithful to the MDB (verified live 2026-06-03): the import app
+    # I_T_POZ_SUP_CONT_ADDR has a blank Application.DBID and maps to no table, while
+    # its export counterpart X_T_POZ_SUP_CONT_ADDR carries T_POZ_SUP_CONTACT_ADDRESS_INT
+    # (below). Do NOT copy the X_ DBID here — that would falsify against the source.
+    "I_T_POZ_SUP_CONT_ADDR": "",
     "I_T_POZ_SUP_CONTACTS": "T_POZ_SUP_CONTACTS_INT",
     "I_T_RA_CUSTOMER_PROFILES_INT_A": "T_RA_CUSTOMER_PROFILES_INT_ALL",
     "I_T_RA_INT_DIST_ALL": "T_RA_INTERFACE_DISTRIBUTIONS",
@@ -178,10 +184,14 @@ DBID_OVERRIDES = {
 
 
 def _dbid(name):
+    """Resolve an app name to its Application.DBID, using the override table when
+    the name's stripped form (``name[2:]``) doesn't match the real table."""
     return DBID_OVERRIDES.get(name, name[2:])
 
 
 def _app(dbid, steps):
+    """Build an ApplicationSpec-shaped dict: a target ``dbid`` plus ordered
+    ``steps`` of (func_type, func_name) tuples."""
     return {"dbid": dbid, "description": "",
             "steps": [{"order": i + 1, "func_type": ft, "func_name": fn}
                       for i, (ft, fn) in enumerate(steps)]}
@@ -198,12 +208,12 @@ for name, efs in X_EXC.items():
 print(f"Apps: {len(I_APPS)} import, {len(X_SIMPLE) + len(X_EXC)} export "
       f"(simple {len(X_SIMPLE)} + exceptions {len(X_EXC)})")
 
-mapping = load_mapping("FBDI_to_ApplaudTables_Mapping.xlsx")
+mapping = load_mapping(Path("FBDI_to_ApplaudTables_Mapping.xlsx"))
 mapped_tables = {info["applaud_table"] for info in mapping.values()
                  if str(info.get("applaud_table", "")).upper().startswith("T_")}
 
 rows = derive_appmap(applications, mapped_tables)   # default: exclude *_VAL
-write_appmap_workbook(rows, "FBDI_to_Applaud_AppMap.xlsx")
+write_appmap_workbook(rows, Path("FBDI_to_Applaud_AppMap.xlsx"))
 
 with_if = sum(1 for r in rows if r.import_files)
 with_ef = sum(1 for r in rows if r.export_files)
