@@ -534,7 +534,10 @@ def run_audit(snapshot: ApplaudSnapshot,
 
         changes = release_changes.get((template, tab))
         if changes and table is not None:
+            # Mirror check_table_coverage's match set (bare + ODBCName) so a field that
+            # matches via ODBCName isn't falsely flagged ADDED/REMOVED by Dim 6b.
             applaud_bares = {c.bare.upper() for c in table.columns}
+            applaud_bares |= {c.odbc_name.upper() for c in table.columns if c.odbc_name}
             findings += check_release_delta(template, tab, table_name, changes,
                                             applaud_bares, old_release=(old_release or "(prior)"),
                                             new_release=release)

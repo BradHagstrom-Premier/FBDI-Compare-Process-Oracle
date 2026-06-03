@@ -473,13 +473,21 @@ def _run_audit_applaud(args: argparse.Namespace) -> None:
     old_release = args.old_release.upper() if args.old_release else None
 
     snapshot = ApplaudSnapshot.load(snap_path)
-    catalog = load_catalog_release(args.catalog, release)
+    try:
+        catalog = load_catalog_release(args.catalog, release)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
     mapping = load_mapping(args.mapping)
     appmap = load_appmap_workbook(args.appmap) if args.appmap.exists() else {}
 
     release_changes = {}
     if old_release:
-        old_catalog = load_catalog_release(args.catalog, old_release)
+        try:
+            old_catalog = load_catalog_release(args.catalog, old_release)
+        except ValueError as exc:
+            print(f"Error: {exc}")
+            sys.exit(1)
         release_changes = build_release_changes(old_catalog, catalog)
 
     out = args.output or Path(f"Applaud_Compliance_Report_{release}_{args.system}.xlsx")
