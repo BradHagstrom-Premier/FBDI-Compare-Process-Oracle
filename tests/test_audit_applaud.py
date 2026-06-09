@@ -48,6 +48,18 @@ def test_oracle_match_key_normalizes_label_when_technical_missing():
     assert oracle_match_key(rich) == "BANK_NAME"
 
 
+def test_oracle_match_key_normalizes_dirty_technical_header():
+    # Some catalog tabs store a display header in `technical` (spaces, trailing '*')
+    # rather than a real technical name. The key must normalize it the same as a
+    # label so it matches the Applaud bare name; clean technicals pass through.
+    dirty = AlignedField(1, None, "Supplier Name*", None, None, None, None)
+    assert oracle_match_key(dirty) == "SUPPLIER_NAME"
+    spaced_star = AlignedField(2, None, "Import Action *", None, None, None, None)
+    assert oracle_match_key(spaced_star) == "IMPORT_ACTION"
+    clean = AlignedField(3, "Item Number", "ITEM_NUMBER", "VARCHAR2", 40, None, True)
+    assert oracle_match_key(clean) == "ITEM_NUMBER"
+
+
 def test_shapes_char_and_numeric():
     of = AlignedField(position=1, label="Bank Name", technical="BANK_NAME",
                       data_type="VARCHAR2", length=100, scale=None, required=True)

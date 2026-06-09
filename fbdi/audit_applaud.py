@@ -101,12 +101,14 @@ def oracle_match_key(of: AlignedField) -> str:
 
     The FBDI catalog leaves `technical` = None on thin tabs (e.g. the canonical
     RapidImplementationForCashManagement / 'Bank Account' tab, which exposes only
-    labels like 'Bank Name'). Use technical when present; otherwise normalize the
-    label via audit._label_to_technical ('Bank Name' -> 'BANK_NAME'), matching the
-    Applaud bare name. Returns UPPER_SNAKE_CASE (or '' if neither is present)."""
-    if of.technical:
-        return of.technical.upper()
-    return _label_to_technical(of.label or "").upper()
+    labels like 'Bank Name'). Prefer technical when present, else the label; either
+    way normalize via audit._label_to_technical, because some catalog tabs store a
+    display header in `technical` (e.g. 'Supplier Name*', with spaces and a trailing
+    '*'). Normalizing both paths makes 'Supplier Name*' -> 'SUPPLIER_NAME' match the
+    Applaud bare name, while a clean technical name ('ITEM_NUMBER') passes through
+    unchanged (idempotent). Returns UPPER_SNAKE_CASE (or '' if neither is present)."""
+    raw = of.technical if of.technical else (of.label or "")
+    return _label_to_technical(raw).upper()
 
 
 def _shape_from_applaud_str(s: str) -> Shape:
