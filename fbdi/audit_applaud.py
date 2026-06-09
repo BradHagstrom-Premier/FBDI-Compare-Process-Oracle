@@ -30,6 +30,32 @@ from fbdi.type_parser import ParsedType
 
 
 # ---------------------------------------------------------------------------
+# Mapping filter (--tables scope support)
+# ---------------------------------------------------------------------------
+
+class UnknownTableError(ValueError):
+    """Raised when --tables names a target table absent from the FBDI mapping —
+    so a typo fails loud instead of silently narrowing audit scope."""
+
+
+def filter_mapping_to_tables(
+    mapping: dict[tuple[str, str], dict],
+    table_names: list[str],
+) -> dict[tuple[str, str], dict]:
+    """Restrict the FBDI->table mapping to rows whose Applaud target table is in
+    `table_names` (case-insensitive). Fail loud via UnknownTableError if any
+    requested name is absent from the mapping. Returns a new dict; input untouched."""
+    requested = {t.strip().upper() for t in table_names if t and t.strip()}
+    present = {(info.get("applaud_table") or "").upper() for info in mapping.values()}
+    unknown = sorted(requested - present)
+    if unknown:
+        raise UnknownTableError(
+            "Unknown table(s) not in mapping: " + ", ".join(unknown))
+    return {key: info for key, info in mapping.items()
+            if (info.get("applaud_table") or "").upper() in requested}
+
+
+# ---------------------------------------------------------------------------
 # Finding model (Task 6)
 # ---------------------------------------------------------------------------
 

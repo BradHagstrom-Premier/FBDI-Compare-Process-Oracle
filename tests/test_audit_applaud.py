@@ -1,3 +1,5 @@
+import pytest
+
 from openpyxl import load_workbook
 
 from fbdi.align import AlignedField, Change
@@ -316,3 +318,50 @@ def test_run_audit_thin_tab_label_only_no_spurious_presence(tmp_path):
     if_presence = [f for f in findings
                    if f.dimension == "2-IF" and f.attribute == "PRESENCE"]
     assert if_presence == []
+
+
+# --- Task (first-run): --tables mapping filter --------------------------------
+
+from fbdi.audit_applaud import filter_mapping_to_tables, UnknownTableError
+
+
+def _sample_mapping():
+    # (template, tab) -> info dict, mirroring report.load_mapping's shape
+    return {
+        ("RapidImplementationForCashManagement", "Bank Account"):
+            {"applaud_table": "T_BANKS_BRANCHES"},
+        ("PayablesStandardInvoiceImportTemplate", "Invoice Header"):
+            {"applaud_table": "T_AP_INVOICE_INT"},
+        ("PayablesStandardInvoiceImportTemplate", "Invoice Lines"):
+            {"applaud_table": "T_AP_INVOICE_LINES"},
+        ("SomeOtherTemplate", "Some Tab"):
+            {"applaud_table": "T_OUT_OF_SCOPE"},
+    }
+
+
+def test_filter_mapping_keeps_only_named_tables():
+    mapping = _sample_mapping()
+    out = filter_mapping_to_tables(mapping, ["T_BANKS_BRANCHES", "T_AP_INVOICE_INT"])
+    kept_tables = {info["applaud_table"] for info in out.values()}
+    assert kept_tables == {"T_BANKS_BRANCHES", "T_AP_INVOICE_INT"}
+    assert ("SomeOtherTemplate", "Some Tab") not in out
+
+
+def test_filter_mapping_keeps_all_rows_for_a_multi_tab_table():
+    mapping = _sample_mapping()
+    mapping[("ExtraTemplate", "Extra Tab")] = {"applaud_table": "T_AP_INVOICE_INT"}
+    out = filter_mapping_to_tables(mapping, ["T_AP_INVOICE_INT"])
+    assert len(out) == 2  # both tabs that map to T_AP_INVOICE_INT survive
+
+
+def test_filter_mapping_is_case_insensitive_on_table_names():
+    mapping = _sample_mapping()
+    out = filter_mapping_to_tables(mapping, ["t_banks_branches"])
+    assert {info["applaud_table"] for info in out.values()} == {"T_BANKS_BRANCHES"}
+
+
+def test_filter_mapping_fails_loud_on_unknown_table():
+    mapping = _sample_mapping()
+    with pytest.raises(UnknownTableError) as exc:
+        filter_mapping_to_tables(mapping, ["T_BANKS_BRANCHES", "T_TYPO_NOPE"])
+    assert "T_TYPO_NOPE" in str(exc.value)
