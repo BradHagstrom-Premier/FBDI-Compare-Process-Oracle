@@ -150,6 +150,26 @@ def main(argv: list[str] | None = None) -> None:
         help="Path to the mapping spreadsheet (default: ./FBDI_to_ApplaudTables_Mapping.xlsx)",
     )
 
+    audit_applaud_parser = subparsers.add_parser(
+        "audit-applaud",
+        help="Audit an Applaud system against the Oracle FBDI release it targets",
+    )
+    audit_applaud_parser.add_argument("--release", required=True, help="Release tag, e.g. 26B")
+    audit_applaud_parser.add_argument(
+        "--old-release", default=None,
+        help="Prior release tag for Dim 6b (e.g. 26A); aligns the catalog's old sheet "
+             "against --release. Omit to skip 6b.",
+    )
+    audit_applaud_parser.add_argument("--system", default="ORACLE_MASTER",
+                                      help="Applaud system alias (default: ORACLE_MASTER)")
+    audit_applaud_parser.add_argument("--catalog", type=Path,
+                                      default=Path("FBDI_Master_Catalog.xlsx"))
+    audit_applaud_parser.add_argument("--mapping", type=Path,
+                                      default=Path("FBDI_to_ApplaudTables_Mapping.xlsx"))
+    audit_applaud_parser.add_argument("--appmap", type=Path,
+                                      default=Path("FBDI_to_Applaud_AppMap.xlsx"))
+    audit_applaud_parser.add_argument("--output", type=Path, default=None)
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -166,6 +186,8 @@ def main(argv: list[str] | None = None) -> None:
         _run_populate_module(args)
     elif args.command == "report":
         _run_report(args)
+    elif args.command == "audit-applaud":
+        _run_audit_applaud(args)
 
 
 def _run_compare(args: argparse.Namespace) -> None:
@@ -421,3 +443,56 @@ def _run_report(args: argparse.Namespace) -> None:
 
     print(f"HTML: {html_path}")
     print(f"PDF : {pdf_path}")
+
+
+def _run_audit_applaud(args: argparse.Namespace) -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(name)s: %(message)s",
+    )
+
+    from fbdi.applaud_snapshot import ApplaudSnapshot
+    from fbdi.applaud_appmap import load_appmap_workbook
+    from fbdi.audit_applaud import run_audit, build_release_changes
+    from fbdi.report import load_catalog_release, load_mapping
+    from fbdi.config import applaud_snapshot_path
+
+    if not args.catalog.is_file():
+        print(f"Error: catalog file not found: {args.catalog}")
+        sys.exit(1)
+    if not args.mapping.is_file():
+        print(f"Error: mapping file not found: {args.mapping}")
+        sys.exit(1)
+    snap_path = applaud_snapshot_path(args.system)
+    if not snap_path.exists():
+        print(f"Error: snapshot not found: {snap_path}. Run Step A (agent-driven extraction) first.")
+        sys.exit(1)
+
+    # Catalog sheet names are uppercase (26A/26B) and matched exactly by load_catalog_release.
+    release = args.release.upper()
+    old_release = args.old_release.upper() if args.old_release else None
+
+    snapshot = ApplaudSnapshot.load(snap_path)
+    try:
+        catalog = load_catalog_release(args.catalog, release)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+    mapping = load_mapping(args.mapping)
+    appmap = load_appmap_workbook(args.appmap) if args.appmap.exists() else {}
+
+    release_changes = {}
+    if old_release:
+        try:
+            old_catalog = load_catalog_release(args.catalog, old_release)
+        except ValueError as exc:
+            print(f"Error: {exc}")
+            sys.exit(1)
+        release_changes = build_release_changes(old_catalog, catalog)
+
+    out = args.output or Path(f"Applaud_Compliance_Report_{release}_{args.system}.xlsx")
+
+    findings = run_audit(snapshot, catalog, mapping, appmap, release=release,
+                         release_changes=release_changes, out_path=out, old_release=old_release)
+    print(f"Findings: {len(findings)}  (HIGH={sum(1 for f in findings if f.severity=='HIGH')})")
+    print(f"Output written to: {out}")
