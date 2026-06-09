@@ -12,6 +12,7 @@ from fbdi.audit_applaud import (
     check_sizing, check_file_coverage, check_table_coverage, check_orphans,
     build_release_changes, check_release_delta, check_unmapped, coverage_gaps,
     write_findings_workbook, run_audit,
+    filter_mapping_to_tables, UnknownTableError,
 )
 
 
@@ -322,9 +323,6 @@ def test_run_audit_thin_tab_label_only_no_spurious_presence(tmp_path):
 
 # --- Task (first-run): --tables mapping filter --------------------------------
 
-from fbdi.audit_applaud import filter_mapping_to_tables, UnknownTableError
-
-
 def _sample_mapping():
     # (template, tab) -> info dict, mirroring report.load_mapping's shape
     return {
@@ -365,3 +363,11 @@ def test_filter_mapping_fails_loud_on_unknown_table():
     with pytest.raises(UnknownTableError) as exc:
         filter_mapping_to_tables(mapping, ["T_BANKS_BRANCHES", "T_TYPO_NOPE"])
     assert "T_TYPO_NOPE" in str(exc.value)
+
+
+def test_filter_mapping_empty_list_returns_empty_not_all():
+    # Contract: an empty table list selects nothing (the CLI guards against this by
+    # skipping the filter entirely when --tables is omitted). Documented so no one
+    # assumes empty == all.
+    mapping = _sample_mapping()
+    assert filter_mapping_to_tables(mapping, []) == {}
