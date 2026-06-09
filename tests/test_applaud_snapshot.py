@@ -86,6 +86,8 @@ def test_build_table_joins_datadictionary_type_and_drops_audit_fields():
 def test_build_table_raises_when_business_ddid_missing_from_datadictionary():
     # A non-audit column with no DataDictionary entry means an incomplete DD slice;
     # build_table must fail loud, not emit an empty-typed DataColumn.
+    # NB: T32MISSING carries the table prefix, so it is a genuine data element —
+    # its absence from the DD slice signals truncation and must still fail loud.
     raw_cols = [{"Row": 1, "DDID": "T32MISSING", "DataType": "", "Size": 0,
                  "DecPlaces": 0, "ODBCName": ""}]
     with pytest.raises(SnapshotIncompleteError) as exc:
@@ -93,3 +95,22 @@ def test_build_table_raises_when_business_ddid_missing_from_datadictionary():
                     description="T_BANKS_BRANCHES (T32)", key_seqs=[["T32COUNTRY"]],
                     raw_columns=raw_cols, dd_by_ddid={})
     assert "T32MISSING" in str(exc.value)
+
+
+def test_build_table_excludes_non_prefix_phantom_column():
+    # A column whose DDID lacks the table prefix (e.g. Applaud's X_PHANTOM system
+    # field, "Phantom Run?") is not one of the table's data elements — within the
+    # T_* family every real data element shares the table's TableId prefix. So it
+    # is excluded (not failed-loud), while a prefix-matching DDID missing from the
+    # DD slice still raises (truncation guard, asserted in the test above).
+    raw_cols = [
+        {"Row": 1, "DDID": "T91ASSEMBLY_ITEM_NUMBER", "DataType": "", "Size": 0,
+         "DecPlaces": 0, "ODBCName": ""},
+        {"Row": 126, "DDID": "X_PHANTOM", "DataType": "", "Size": 0,
+         "DecPlaces": 0, "ODBCName": ""},   # phantom: no T91 prefix, not in DD slice
+    ]
+    dd_by_ddid = {"T91ASSEMBLY_ITEM_NUMBER": {"DataType": "X", "Size": 40, "DecPlaces": 0}}
+    table = build_table("T_EGP_COMPONENTS_INTERFACE", prefix="T91", prefix_fallback=False,
+                        description="T_EGP_COMPONENTS_INTF (T91)", key_seqs=[],
+                        raw_columns=raw_cols, dd_by_ddid=dd_by_ddid)
+    assert [c.bare for c in table.columns] == ["ASSEMBLY_ITEM_NUMBER"]   # X_PHANTOM excluded

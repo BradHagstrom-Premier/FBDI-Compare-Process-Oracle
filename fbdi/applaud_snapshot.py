@@ -16,8 +16,11 @@ helpers:
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -158,9 +161,17 @@ def build_table(name: str, prefix: str | None, prefix_fallback: bool,
         if is_audit_field(ddid):
             continue
         if ddid not in dd_by_ddid:
-            # A business column with no DataDictionary entry means the DD slice is
-            # incomplete (e.g. wrong prefix or a truncated pull). Fail loud rather
-            # than emit a DataColumn with empty type/size that would mis-audit Dim 1.
+            # A DDID that does NOT carry this table's prefix is not one of the
+            # table's data elements — within the T_* family every real data element
+            # shares the table's TableId prefix. These are Applaud system/phantom
+            # columns (e.g. X_PHANTOM, "Phantom Run?"); exclude them with a log.
+            if prefix and not ddid.upper().startswith(prefix.upper()):
+                logger.info("build_table %s: excluding non-prefix system/phantom "
+                            "column %r (not a %s data element)", name, ddid, prefix)
+                continue
+            # A prefix-matching DDID missing from the DD slice means the slice is
+            # incomplete (e.g. a truncated pull). Fail loud rather than emit a
+            # DataColumn with empty type/size that would mis-audit Dim 1.
             raise SnapshotIncompleteError(
                 f"Table {name!r}: no DataDictionary entry for column {ddid!r} "
                 f"(prefix {prefix!r}). The DD slice is incomplete — re-pull "
