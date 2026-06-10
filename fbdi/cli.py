@@ -169,6 +169,11 @@ def main(argv: list[str] | None = None) -> None:
     audit_applaud_parser.add_argument("--appmap", type=Path,
                                       default=Path("FBDI_to_Applaud_AppMap.xlsx"))
     audit_applaud_parser.add_argument("--output", type=Path, default=None)
+    audit_applaud_parser.add_argument(
+        "--tables", default=None,
+        help="Comma-separated Applaud target tables to scope the audit to "
+             "(e.g. T_BANKS_BRANCHES,T_AP_INVOICE_INT). Omit to audit the full mapping. "
+             "An unknown table name fails loud.")
 
     args = parser.parse_args(argv)
 
@@ -479,6 +484,20 @@ def _run_audit_applaud(args: argparse.Namespace) -> None:
         print(f"Error: {exc}")
         sys.exit(1)
     mapping = load_mapping(args.mapping)
+    if args.tables:
+        from fbdi.audit_applaud import filter_mapping_to_tables, UnknownTableError
+        names = [t for t in args.tables.split(",") if t.strip()]
+        if not names:
+            print("Error: --tables must list at least one table name "
+                  "(got empty/whitespace-only input).")
+            sys.exit(1)
+        try:
+            mapping = filter_mapping_to_tables(mapping, names)
+        except UnknownTableError as exc:
+            print(f"Error: {exc}")
+            sys.exit(1)
+        print(f"Scoped audit to {len({i['applaud_table'] for i in mapping.values()})} "
+              f"table(s) via --tables.")
     appmap = load_appmap_workbook(args.appmap) if args.appmap.exists() else {}
 
     release_changes = {}

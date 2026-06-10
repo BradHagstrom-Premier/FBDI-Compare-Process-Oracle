@@ -1,3 +1,5 @@
+import pytest
+
 from openpyxl import load_workbook
 
 from fbdi.align import AlignedField, Change
@@ -10,6 +12,7 @@ from fbdi.audit_applaud import (
     check_sizing, check_file_coverage, check_table_coverage, check_orphans,
     build_release_changes, check_release_delta, check_unmapped, coverage_gaps,
     write_findings_workbook, run_audit,
+    filter_mapping_to_tables, UnknownTableError,
 )
 
 
@@ -43,6 +46,18 @@ def test_oracle_match_key_normalizes_label_when_technical_missing():
     assert oracle_match_key(thin) == "BANK_NAME"
     rich = AlignedField(5, "Bank Name", "BANK_NAME", "VARCHAR2", 60, None, True)
     assert oracle_match_key(rich) == "BANK_NAME"
+
+
+def test_oracle_match_key_normalizes_dirty_technical_header():
+    # Some catalog tabs store a display header in `technical` (spaces, trailing '*')
+    # rather than a real technical name. The key must normalize it the same as a
+    # label so it matches the Applaud bare name; clean technicals pass through.
+    dirty = AlignedField(1, None, "Supplier Name*", None, None, None, None)
+    assert oracle_match_key(dirty) == "SUPPLIER_NAME"
+    spaced_star = AlignedField(2, None, "Import Action *", None, None, None, None)
+    assert oracle_match_key(spaced_star) == "IMPORT_ACTION"
+    clean = AlignedField(3, "Item Number", "ITEM_NUMBER", "VARCHAR2", 40, None, True)
+    assert oracle_match_key(clean) == "ITEM_NUMBER"
 
 
 def test_shapes_char_and_numeric():
@@ -316,3 +331,55 @@ def test_run_audit_thin_tab_label_only_no_spurious_presence(tmp_path):
     if_presence = [f for f in findings
                    if f.dimension == "2-IF" and f.attribute == "PRESENCE"]
     assert if_presence == []
+
+
+# --- Task (first-run): --tables mapping filter --------------------------------
+
+def _sample_mapping():
+    # (template, tab) -> info dict, mirroring report.load_mapping's shape
+    return {
+        ("RapidImplementationForCashManagement", "Bank Account"):
+            {"applaud_table": "T_BANKS_BRANCHES"},
+        ("PayablesStandardInvoiceImportTemplate", "Invoice Header"):
+            {"applaud_table": "T_AP_INVOICE_INT"},
+        ("PayablesStandardInvoiceImportTemplate", "Invoice Lines"):
+            {"applaud_table": "T_AP_INVOICE_LINES"},
+        ("SomeOtherTemplate", "Some Tab"):
+            {"applaud_table": "T_OUT_OF_SCOPE"},
+    }
+
+
+def test_filter_mapping_keeps_only_named_tables():
+    mapping = _sample_mapping()
+    out = filter_mapping_to_tables(mapping, ["T_BANKS_BRANCHES", "T_AP_INVOICE_INT"])
+    kept_tables = {info["applaud_table"] for info in out.values()}
+    assert kept_tables == {"T_BANKS_BRANCHES", "T_AP_INVOICE_INT"}
+    assert ("SomeOtherTemplate", "Some Tab") not in out
+
+
+def test_filter_mapping_keeps_all_rows_for_a_multi_tab_table():
+    mapping = _sample_mapping()
+    mapping[("ExtraTemplate", "Extra Tab")] = {"applaud_table": "T_AP_INVOICE_INT"}
+    out = filter_mapping_to_tables(mapping, ["T_AP_INVOICE_INT"])
+    assert len(out) == 2  # both tabs that map to T_AP_INVOICE_INT survive
+
+
+def test_filter_mapping_is_case_insensitive_on_table_names():
+    mapping = _sample_mapping()
+    out = filter_mapping_to_tables(mapping, ["t_banks_branches"])
+    assert {info["applaud_table"] for info in out.values()} == {"T_BANKS_BRANCHES"}
+
+
+def test_filter_mapping_fails_loud_on_unknown_table():
+    mapping = _sample_mapping()
+    with pytest.raises(UnknownTableError) as exc:
+        filter_mapping_to_tables(mapping, ["T_BANKS_BRANCHES", "T_TYPO_NOPE"])
+    assert "T_TYPO_NOPE" in str(exc.value)
+
+
+def test_filter_mapping_empty_list_returns_empty_not_all():
+    # Contract: an empty table list selects nothing (the CLI guards against this by
+    # skipping the filter entirely when --tables is omitted). Documented so no one
+    # assumes empty == all.
+    mapping = _sample_mapping()
+    assert filter_mapping_to_tables(mapping, []) == {}

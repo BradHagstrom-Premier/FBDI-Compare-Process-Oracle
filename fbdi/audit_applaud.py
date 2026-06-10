@@ -30,6 +30,32 @@ from fbdi.type_parser import ParsedType
 
 
 # ---------------------------------------------------------------------------
+# Mapping filter (--tables scope support)
+# ---------------------------------------------------------------------------
+
+class UnknownTableError(ValueError):
+    """Raised when --tables names a target table absent from the FBDI mapping —
+    so a typo fails loud instead of silently narrowing audit scope."""
+
+
+def filter_mapping_to_tables(
+    mapping: dict[tuple[str, str], dict],
+    table_names: list[str],
+) -> dict[tuple[str, str], dict]:
+    """Restrict the FBDI->table mapping to rows whose Applaud target table is in
+    `table_names` (case-insensitive). Fail loud via UnknownTableError if any
+    requested name is absent from the mapping. Returns a new dict; input untouched."""
+    requested = {t.strip().upper() for t in table_names if t and t.strip()}
+    present = {(info.get("applaud_table") or "").upper() for info in mapping.values()}
+    unknown = sorted(requested - present)
+    if unknown:
+        raise UnknownTableError(
+            "Unknown table(s) not in mapping: " + ", ".join(unknown))
+    return {key: info for key, info in mapping.items()
+            if (info.get("applaud_table") or "").upper() in requested}
+
+
+# ---------------------------------------------------------------------------
 # Finding model (Task 6)
 # ---------------------------------------------------------------------------
 
@@ -75,12 +101,14 @@ def oracle_match_key(of: AlignedField) -> str:
 
     The FBDI catalog leaves `technical` = None on thin tabs (e.g. the canonical
     RapidImplementationForCashManagement / 'Bank Account' tab, which exposes only
-    labels like 'Bank Name'). Use technical when present; otherwise normalize the
-    label via audit._label_to_technical ('Bank Name' -> 'BANK_NAME'), matching the
-    Applaud bare name. Returns UPPER_SNAKE_CASE (or '' if neither is present)."""
-    if of.technical:
-        return of.technical.upper()
-    return _label_to_technical(of.label or "").upper()
+    labels like 'Bank Name'). Prefer technical when present, else the label; either
+    way normalize via audit._label_to_technical, because some catalog tabs store a
+    display header in `technical` (e.g. 'Supplier Name*', with spaces and a trailing
+    '*'). Normalizing both paths makes 'Supplier Name*' -> 'SUPPLIER_NAME' match the
+    Applaud bare name, while a clean technical name ('ITEM_NUMBER') passes through
+    unchanged (idempotent). Returns UPPER_SNAKE_CASE (or '' if neither is present)."""
+    raw = of.technical if of.technical else (of.label or "")
+    return _label_to_technical(raw).upper()
 
 
 def _shape_from_applaud_str(s: str) -> Shape:
