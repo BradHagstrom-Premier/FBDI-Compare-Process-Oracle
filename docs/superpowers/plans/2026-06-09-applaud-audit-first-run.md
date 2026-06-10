@@ -175,7 +175,7 @@ In `fbdi/cli.py`, the current line `mapping = load_mapping(args.mapping)` (line 
 - [ ] **Step 3: Verify the full test suite still passes**
 
 Run: `py -m pytest tests/`
-Expected: PASS — all prior tests plus the 4 new filter tests (393 total).
+Expected: PASS — all prior tests plus the new filter tests (398 passed, 2 skipped).
 
 - [ ] **Step 4: Smoke-test the CLI help shows the new flag**
 
@@ -265,9 +265,11 @@ Feed the raw results to `fbdi/applaud_snapshot.py` assembly helpers to write `ba
 - [ ] **Step 4: Verify the snapshot contains exactly the 10 tables**
 
 Run:
+
 ```bash
 py -c "from fbdi.applaud_snapshot import ApplaudSnapshot; from fbdi.config import applaud_snapshot_path; s=ApplaudSnapshot.load(applaud_snapshot_path('ORACLE_MASTER')); print(sorted(s.tables)); print('tables=',len(s.tables),'imports=',len(s.imports),'exports=',len(s.exports))"
 ```
+
 Expected: the 10 pilot table names, `tables=10`, imports ≥ 10, exports ≥ 10 (T_AP_INVOICE_INT contributes 2 EFs).
 
 ---
@@ -283,14 +285,17 @@ Expected: the 10 pilot table names, `tables=10`, imports ≥ 10, exports ≥ 10 
 py -m fbdi audit-applaud --release 26B --old-release 26A --system ORACLE_MASTER \
    --tables T_AP_INVOICE_INT,T_AP_INVOICE_LINES,T_BANKS_BRANCHES,T_BPA_PO_LINES_INTERFACE,T_EGP_COMPONENTS_INTERFACE,T_EGP_ITEM_CATEGORIES_INT,T_EGO_ITEM_INTF_EFF_B,T_MSC_ST_ASSIGNMENT_SETS,T_POZ_SUPPLIERS_INT,T_POZ_SUPPLIER_SITES_INT
 ```
+
 Expected: prints `Scoped audit to 10 table(s) via --tables.`, a `Findings: N (HIGH=M)` line, and `Output written to: Applaud_Compliance_Report_26B_ORACLE_MASTER.xlsx`.
 
 - [ ] **Step 2: Verify the Coverage sheet is clean (the whole point of `--tables`)**
 
 Run:
+
 ```bash
 py -c "from openpyxl import load_workbook; wb=load_workbook('Applaud_Compliance_Report_26B_ORACLE_MASTER.xlsx'); ws=wb['Coverage']; rows=[r[0].value for r in ws.iter_rows(min_row=2)]; print('coverage rows:',len(rows)); print(rows)"
 ```
+
 Expected: only pilot-scoped tables appear — **no** flood of ~137 out-of-scope tables. (Ideally 0 gap rows if every pilot table resolved an IF/EF.)
 
 ---
@@ -335,7 +340,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - [ ] **Step 3: Final full-suite regression check**
 
 Run: `py -m pytest tests/`
-Expected: PASS (393 tests). Confirms the code change is green after the operational run.
+Expected: PASS (398 passed, 2 skipped). Confirms the code change is green after the operational run.
 
 ---
 

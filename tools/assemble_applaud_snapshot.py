@@ -12,7 +12,7 @@ config from the confirmed app-map + a prefix source; embedded here for the pilot
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fbdi.applaud_snapshot import ApplaudSnapshot, build_table, build_file_fields
@@ -36,6 +36,7 @@ PILOT = [
 
 
 def main() -> None:
+    """Read the raw extract JSON, assemble the pilot ApplaudSnapshot, and write it."""
     raw = json.loads(RAW.read_text(encoding="utf-8"))
     db = raw["database_detail"]
     dd = raw["data_dictionary"]
@@ -57,7 +58,7 @@ def main() -> None:
     snap = ApplaudSnapshot(
         system=raw["_meta"]["system"],
         mdb_path=raw["_meta"]["mdb_path"],
-        extracted_at=datetime.now().isoformat(timespec="seconds"),
+        extracted_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         extractor_version="first-run-pilot-1-mdbreader",
         tables=tables, imports=imports, exports=exports, applications={},
     )

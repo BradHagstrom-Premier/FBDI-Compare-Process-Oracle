@@ -77,6 +77,7 @@ EDI/EFT_ID divergence). So the engine is sound; the **matching model** is the pr
      (date forms, char-keyed numerics) and possibly tolerance on generous Oracle maxima.
 
 ### Verdict
+
 Findings are **not yet trustworthy/actionable at scale.** Do not hand this workbook to a
 consultant as-is. The engine is mechanically correct; it needs (a) a field-correspondence layer
 and (b) Dim-1 type-equivalence rules before its output is meaningful beyond cleanly-named tables.
@@ -127,6 +128,7 @@ Ordered by impact:
    zero out-of-scope coverage noise. No change needed.
 
 ### Engine changes already landed on this branch (feat/applaud-audit-first-run)
+
 - `--tables` scope filter (`filter_mapping_to_tables` + CLI).
 - Programmatic extractor (`tools/extract_applaud_snapshot.mjs` + `tools/assemble_applaud_snapshot.py`).
 - `build_table` excludes non-prefix phantom/system columns (truncation guard preserved).

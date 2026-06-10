@@ -15,17 +15,34 @@
 // is faithful with zero transcription.
 //
 // Usage (from repo root):
+//   $env:APPLAUD_MDB_PASSWORD = '<password>'   # required — never hardcode in source
 //   node tools/extract_applaud_snapshot.mjs
-// Requires the ApplaudMCP node_modules (for mdb-reader) at APPLAUD_MCP_DIR below.
+//
+// Config is read from the environment (all optional except the password):
+//   APPLAUD_MDB_PASSWORD  (required) — the .mdb password; kept out of source control
+//   APPLAUD_MCP_DIR       — dir whose node_modules provides mdb-reader (default below)
+//   APPLAUD_MDB_PATH      — path to the .mdb to read (default below)
+//   APPLAUD_EXTRACT_OUT   — output JSON path (default baselines/applaud/raw/extract.json)
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
-const APPLAUD_MCP_DIR = 'C:/Users/10193/Definian/ApplaudMCP';
-const MDB_PATH = 'C:/Users/10193/Definian/MDB_for_ApplaudMCP/ORACLE_MASTER/AP0STE.mdb';
-const MDB_PASSWORD = 'sailboat';
-const OUT_PATH = 'baselines/applaud/raw/extract.json';
+const APPLAUD_MCP_DIR = process.env.APPLAUD_MCP_DIR
+  || 'C:/Users/10193/Definian/ApplaudMCP';
+const MDB_PATH = process.env.APPLAUD_MDB_PATH
+  || 'C:/Users/10193/Definian/MDB_for_ApplaudMCP/ORACLE_MASTER/AP0STE.mdb';
+const OUT_PATH = process.env.APPLAUD_EXTRACT_OUT
+  || 'baselines/applaud/raw/extract.json';
+
+// The password is a secret: required from the environment, never defaulted in source.
+const MDB_PASSWORD = process.env.APPLAUD_MDB_PASSWORD;
+if (!MDB_PASSWORD) {
+  console.error('Error: APPLAUD_MDB_PASSWORD is not set. Export it before running, e.g.:');
+  console.error("  $env:APPLAUD_MDB_PASSWORD = '<password>'   # PowerShell");
+  console.error("  export APPLAUD_MDB_PASSWORD='<password>'   # bash");
+  process.exit(2);
+}
 
 // Resolve mdb-reader from ApplaudMCP's node_modules (it is not a dep of this repo).
 const require = createRequire(APPLAUD_MCP_DIR + '/index.js');

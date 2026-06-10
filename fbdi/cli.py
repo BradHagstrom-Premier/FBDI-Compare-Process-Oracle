@@ -487,6 +487,10 @@ def _run_audit_applaud(args: argparse.Namespace) -> None:
     if args.tables:
         from fbdi.audit_applaud import filter_mapping_to_tables, UnknownTableError
         names = [t for t in args.tables.split(",") if t.strip()]
+        if not names:
+            print("Error: --tables must list at least one table name "
+                  "(got empty/whitespace-only input).")
+            sys.exit(1)
         try:
             mapping = filter_mapping_to_tables(mapping, names)
         except UnknownTableError as exc:
