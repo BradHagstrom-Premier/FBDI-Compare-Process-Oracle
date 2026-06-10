@@ -25,6 +25,7 @@
 //   APPLAUD_EXTRACT_OUT   — output JSON path (default baselines/applaud/raw/extract.json)
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
@@ -104,7 +105,7 @@ for (const t of TABLES) {
   }
 }
 
-mkdirSync('baselines/applaud/raw', { recursive: true });
+mkdirSync(dirname(OUT_PATH), { recursive: true });
 writeFileSync(OUT_PATH, JSON.stringify(out, null, 0), 'utf-8');
 
 console.log(`\nWrote ${OUT_PATH}`);
