@@ -14,6 +14,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from fbdi.align import AlignedField
+from fbdi.applaud_snapshot import DataColumn
+from fbdi.audit_applaud import expected_shape, actual_shape
+
 # Applaud's application-level name cap (NOT the DataDictionary.Name TEXT(60)
 # schema). Longest observed bare is 27 with a 3-char prefix (audit §2.1).
 APPLAUD_NAME_CAP = 30
@@ -70,3 +74,194 @@ def normalize_name(name: str) -> str:
 def truncation_window(prefix: str | None) -> int:
     """Per-table truncation window = 30 - len(prefix) (audit §2.1)."""
     return APPLAUD_NAME_CAP - len(prefix or "")
+
+
+# Score weights (audit §2.4 keeps position weak — DO NOT raise the 0.15).
+_W_NAME, _W_TYPE, _W_POSITION = 0.6, 0.25, 0.15
+
+# Confidence bands on the single weighted score, highest first. EXACT is handled
+# in the pre-pass and never persisted, so it is not a band here.
+TIER_BANDS: list[tuple[str, float]] = [("HIGH", 0.85), ("PROBABLE", 0.55), ("WEAK", 0.0)]
+
+
+@dataclass
+class FieldCorrespondence:
+    applaud_table: str
+    oracle_key: str
+    applaud_bare: str
+    applaud_ddid: str
+    confidence: str               # HIGH | PROBABLE | WEAK  (or "confirmed"/"rejected" origin)
+    origin: str = "derived"       # derived | confirmed | rejected
+    score: float = 0.0
+    signals: str = ""
+    notes: str = ""
+
+
+def names_correspond(oracle_norm: str, applaud_norm: str, applaud_bare_len: int,
+                     window: int) -> bool:
+    """True if the two normalized names plausibly denote the same field.
+
+    Implements audit §1.1 (digit-run preservation), §2.1 (derived window) and
+    §2.2 (truncation-aware prefix-of-other). `applaud_bare_len` is the RAW stored
+    bare length (truncation happened on the stored name)."""
+    # Digit-run preservation (audit §1.1): equal trailing digits, stem-match the rest.
+    o_stem, o_dig = _split_trailing_digits(oracle_norm)
+    a_stem, a_dig = _split_trailing_digits(applaud_norm)
+    if o_dig or a_dig:
+        if o_dig != a_dig:
+            return False
+        oracle_norm, applaud_norm = o_stem, a_stem
+
+    if oracle_norm == applaud_norm:
+        return True
+
+    # Applaud right-truncated from a longer Oracle logical name.
+    if oracle_norm.startswith(applaud_norm):
+        delta = len(oracle_norm) - len(applaud_norm)
+        # Valid if only a short suffix was lost, OR Applaud was cut at the cap
+        # (a hard truncation legitimately drops many trailing chars).
+        return delta <= MAX_SUFFIX_SLACK or applaud_bare_len >= window - 1
+
+    # Applaud appended a suffix (NAME/FLAG/...) then possibly truncated it.
+    if applaud_norm.startswith(oracle_norm):
+        return len(applaud_norm) - len(oracle_norm) <= MAX_SUFFIX_SLACK
+
+    return False
+
+
+def _name_score(oracle_key: str, applaud_bare: str, applaud_bare_len: int,
+                window: int) -> float:
+    """1.0 if normalized-equal (a non-truncation divergence, e.g. abbreviation or
+    underscore-only), 0.8 if a truncation/suffix match, 0.0 if no correspondence."""
+    o, a = normalize_name(oracle_key), normalize_name(applaud_bare)
+    if o == a:
+        return 1.0
+    if names_correspond(o, a, applaud_bare_len, window):
+        return 0.8
+    return 0.0
+
+
+def _type_class_conflict(of: AlignedField, col: DataColumn) -> bool:
+    """Char-vs-numeric clash only (audit §1.2) — never date-vs-char."""
+    return {expected_shape(of)[0], actual_shape(col)[0]} == {"char", "numeric"}
+
+
+def _type_score(of: AlignedField, col: DataColumn) -> float:
+    exp_cls, act_cls = expected_shape(of)[0], actual_shape(col)[0]
+    if exp_cls and act_cls and exp_cls == act_cls:
+        return 1.0
+    return 0.5
+
+
+def _tier(score: float) -> str:
+    for name, floor in TIER_BANDS:
+        if score >= floor:
+            return name
+    return "WEAK"
+
+
+def score_candidate(oracle_key: str, of: AlignedField, col: DataColumn, window: int,
+                    position_score: float) -> tuple[float, str]:
+    """Weighted score + a human-readable signals string.
+
+    The name score is computed from `oracle_key` (= oracle_match_key(of)) — NEVER
+    re-derived from of.technical, which is empty on the label-derived-key path and
+    would mis-score name=0.00 (audit §2.1). Caller has already confirmed a non-zero
+    name correspondence and a passing type veto."""
+    ns = _name_score(oracle_key, col.bare, len(col.bare), window)
+    ts = _type_score(of, col)
+    score = _W_NAME * ns + _W_TYPE * ts + _W_POSITION * position_score
+    signals = f"name={ns:.2f} type={ts:.2f} pos={position_score:.2f}"
+    return round(score, 4), signals
+
+
+def _candidate_excluded(col: DataColumn, prefix: str | None) -> bool:
+    """Audit §1.3/§1.4: @-audit fields and non-prefix working columns (X_PHANTOM)
+    never enter the candidate pool. Defensive — build_table already drops them."""
+    if col.bare.lstrip().startswith("@") or col.ddid.lstrip().startswith("@"):
+        return True
+    if prefix and not col.ddid.upper().startswith(prefix.upper()):
+        return True
+    return False
+
+
+def derive_table_correspondences(
+    applaud_table: str, prefix: str | None,
+    oracle_by_key: dict[str, AlignedField],
+    applaud_columns: list[DataColumn],
+    decided: set[tuple[str, str]],
+) -> list[FieldCorrespondence]:
+    """Propose one-to-one correspondences for the residual after the exact pre-pass.
+
+    `oracle_by_key` maps oracle_match_key -> AlignedField. `decided` is the set of
+    (table, oracle_key) pairs already in the committed map (confirmed/rejected) —
+    never re-proposed."""
+    window = truncation_window(prefix)
+    cols = [c for c in applaud_columns if not _candidate_excluded(c, prefix)]
+
+    # 1. Exact pre-pass: keys present verbatim on both sides need no map entry.
+    # oracle_match_key always returns UPPER_SNAKE_CASE (audit LOW #3), but normalize
+    # the key set once so the pre-pass is correct even on mixed-case input.
+    oracle_keys_upper = {k.upper() for k in oracle_by_key}
+    applaud_bares = {c.bare.upper() for c in cols}
+    residual_oracle = {k: of for k, of in oracle_by_key.items()
+                       if k.upper() not in applaud_bares
+                       and (applaud_table, k) not in decided}
+    residual_cols = [c for c in cols if c.bare.upper() not in oracle_keys_upper]
+
+    # Position is a WEAK tiebreak only (audit §2.4): a gentle order-agreement gradient
+    # over Oracle position vs Applaud ROW order. Row-sort the residual columns once so
+    # a_idx genuinely means row order, not raw list order (audit §2.4 — the prior code
+    # built a row-sorted list but then scored over the unsorted list).
+    residual_cols_by_row = sorted(residual_cols, key=lambda c: c.row)
+    n_oracle = len(residual_oracle)
+    n_applaud = len(residual_cols_by_row)
+
+    # 2. Build candidate pairs (name-match + passing type veto), scored.
+    candidates: list[tuple[float, str, str, DataColumn, str]] = []  # (score, tier, okey, col, signals)
+    for o_idx, (okey, of) in enumerate(residual_oracle.items()):
+        for a_idx, col in enumerate(residual_cols_by_row):
+            if _name_score(okey, col.bare, len(col.bare), window) == 0.0:
+                continue
+            if _type_class_conflict(of, col):
+                continue   # char-vs-numeric veto (audit §1.2)
+            pos = _position_score(o_idx, a_idx, n_oracle, n_applaud)
+            score, signals = score_candidate(okey, of, col, window, pos)
+            candidates.append((score, _tier(score), okey, col, signals))
+
+    # 3. Greedy one-to-one bijection: best score first, both sides must be free.
+    candidates.sort(key=lambda t: t[0], reverse=True)
+    used_oracle: set[str] = set()
+    used_bare: set[str] = set()
+    out: list[FieldCorrespondence] = []
+    for score, tier, okey, col, signals in candidates:
+        if okey in used_oracle or col.bare.upper() in used_bare:
+            continue
+        used_oracle.add(okey)
+        used_bare.add(col.bare.upper())
+        out.append(FieldCorrespondence(
+            applaud_table=applaud_table, oracle_key=okey, applaud_bare=col.bare,
+            applaud_ddid=col.ddid, confidence=tier, origin="derived",
+            score=score, signals=signals))
+    return out
+
+
+def _position_score(o_idx: int, a_idx: int, n_oracle: int, n_applaud: int) -> float:
+    """Gentle order-agreement gradient in [0,1]; a weak tiebreak only (audit §2.4)."""
+    span = max(n_oracle, n_applaud, 1)
+    return max(0.0, 1.0 - abs(o_idx - a_idx) / span)
+
+
+def derive_correspondences(
+    tables: dict[str, tuple[str | None, dict[str, AlignedField], list[DataColumn]]],
+    decided: set[tuple[str, str]],
+) -> list[FieldCorrespondence]:
+    """Derive across many tables. `tables` maps applaud_table ->
+    (prefix, oracle_by_key, applaud_columns). Output sorted table -> tier -> score."""
+    out: list[FieldCorrespondence] = []
+    for table in sorted(tables):
+        prefix, oracle_by_key, cols = tables[table]
+        out.extend(derive_table_correspondences(table, prefix, oracle_by_key, cols, decided))
+    tier_rank = {name: i for i, (name, _) in enumerate(TIER_BANDS)}
+    out.sort(key=lambda fc: (fc.applaud_table, tier_rank.get(fc.confidence, 9), -fc.score))
+    return out
