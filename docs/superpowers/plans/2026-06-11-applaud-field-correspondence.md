@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.14+, openpyxl, pytest. Pure functions over `ApplaudSnapshot` / `AlignedField` / `DataColumn` — no MCP or live I/O in the module (same discipline as `applaud_appmap.py`).
 
-**Authoritative inputs:** spec `docs/superpowers/specs/2026-06-10-applaud-field-correspondence-design.md` as amended by two audits — the design audit `docs/superpowers/AUDIT_RESULTS_field-correspondence.md` and the plan audit (Pass 1) `docs/superpowers/AUDIT_RESULTS_field-correspondence_plan_pass1.md`. Where they conflict, the later audit wins. The Pass-1 audit's two blockers (§1.1 confirm-time merge precedence, §1.2 rejected-provenance reaching the written workbook) and four mediums (§2.1–§2.4) are folded into the tasks below; its LOW/cleanup items are folded into the relevant tasks without new task numbers.
+**Authoritative inputs:** spec `docs/superpowers/specs/2026-06-10-applaud-field-correspondence-design.md` as amended by three audits — the design audit `docs/superpowers/AUDIT_RESULTS_field-correspondence.md`, the plan audit Pass 1 `docs/superpowers/AUDIT_RESULTS_field-correspondence_plan_pass1.md`, and the plan audit Pass 2 (clearance) `docs/superpowers/AUDIT_RESULTS_field-correspondence_plan_pass2_CLEARED.md`. Where they conflict, the later audit wins. The Pass-1 audit's two blockers (§1.1 confirm-time merge precedence, §1.2 rejected-provenance reaching the written workbook) and four mediums (§2.1–§2.4) are folded into the tasks below; its LOW/cleanup items are folded into the relevant tasks without new task numbers. **Pass 2 CLEARED the plan for implementation** — no blockers or mediums remain; its four non-blocking residuals are recorded under "Carried residuals" below.
 
 ---
 
@@ -1603,8 +1603,22 @@ Add the `audit-applaud` flags after line 171 (`--output`):
                                       help="Committed Oracle<->Applaud field map (loaded if present)")
     audit_applaud_parser.add_argument("--accept-confidence", default="confirmed",
                                       choices=["confirmed", "HIGH", "PROBABLE", "WEAK"],
-                                      help="Minimum acceptance for aliasing (default: confirmed)")
+                                      help="Minimum acceptance for aliasing (default: confirmed). "
+                                           "NOTE: the tier gates (HIGH/PROBABLE/WEAK) are "
+                                           "not-yet-operational through this CLI — see the note below")
 ```
+
+> **Pass-2 clearance residual #1 — `--accept-confidence` tier gates are inert through the CLI (by
+> design, for the pilot):** `build_alias` supports admitting `derived` rows at a tier, but
+> `audit-applaud` only ever loads the **committed** map, which the confirm flow populates
+> exclusively with `confirmed`/`rejected` rows (and which `load_fieldmap_workbook` actively strips
+> of `derived` rows). So no CLI invocation can exercise the HIGH/PROBABLE/WEAK gates — the
+> "pre-review noise-reduction pass" exists at the library level only. This is correct for the pilot
+> (the real workflow is the `confirmed` default). The flag and choices are kept so the library
+> capability is reachable and tested; making the gates CLI-operational (e.g. an optional in-memory
+> derive or a review-workbook input to `audit-applaud`) is a **post-pilot** decision — do not block
+> on it. The help text above flags this so an operator isn't surprised that `--accept-confidence HIGH`
+> changes nothing today.
 
 Add the dispatch arms after the `audit-applaud` arm (line 195):
 
@@ -1799,7 +1813,29 @@ listed for the operator, not the implementing agent:
 5. `git add FBDI_to_Applaud_FieldMap.xlsx && git commit` the curated map.
 6. Re-run `py -m fbdi audit-applaud --release 26B --old-release 26A` and confirm HIGH
    "missing field" counts collapse from 957 toward the genuine residual (spec §11), comparing
-   against the first-run notes distribution.
+   against the first-run notes distribution. Success measure (Pass-2 §4): the ten pilot tables'
+   HIGH "missing field" counts drop toward the genuine residual, `T_BANKS_BRANCHES` retains only
+   its real EDI/EFT divergence, and new Dim-1 sizing findings (e.g. `T09PROCUREMENT_BUSINESSUNITNAM`
+   X(25) vs Oracle 40) appear as the intended side benefit — not as regressions.
+
+---
+
+## Carried residuals (Pass-2 clearance §3 — non-blocking, no further plan revision required)
+
+The Pass-2 clearance audit (`AUDIT_RESULTS_field-correspondence_plan_pass2_CLEARED.md`) cleared the
+plan for implementation. Four residuals are carried for the implementer/operator — none blocks:
+
+1. **`--accept-confidence` tier gates are inert through the CLI** (by design for the pilot). Folded
+   into Task 9 with a help-text note and an inline explanation block. Post-pilot decision.
+2. **`_label_to_technical()` first-live-run verification** (carried from the design audit). The §2.1
+   fix scores label-derived keys correctly, but the keys themselves still depend on that helper
+   against the real catalog — the first operational derive (follow-up step 2) is the verification
+   point: eyeball the review workbook for label-shaped Oracle keys.
+3. **Workbook header literals in the Task 7 test** (`"Notes"`, `"Oracle Field"`, sheet `"Findings"`)
+   are taken from the verified-facts reading. If any literal differs in the real writer the test
+   fails loudly at implementation time — fix the test's lookup, not the writer. Self-correcting.
+4. **Trivial:** `test_truncated_bool_suffix_fla` passes `applaud_bare_len=26`; the append path never
+   reads that parameter, so it is harmless. Leave or tidy opportunistically.
 
 ---
 
