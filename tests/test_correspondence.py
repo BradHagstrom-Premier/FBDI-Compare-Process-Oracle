@@ -286,3 +286,64 @@ def test_load_fieldmap_drops_stray_derived_rows(tmp_path):
     loaded = load_fieldmap_workbook(path)
     keys = {fc.oracle_key for fc in loaded.get("T_POZ", [])}
     assert keys == {"GOOD_KEY"}
+
+
+# ---------------------------------------------------------------------------
+# Task 5: review workbook emit + load + apply_review_decisions
+# ---------------------------------------------------------------------------
+
+import pytest
+from fbdi.correspondence import (
+    ReviewRow, write_review_workbook, load_review_workbook,
+    apply_review_decisions, InvalidCorrectedBareError,
+)
+
+
+def _review(table, okey, cand, confirm="", corrected=""):
+    return ReviewRow(applaud_table=table, oracle_key=okey, oracle_type="char 100",
+                     candidate_bare=cand, applaud_ddid=table[:3] + cand,
+                     applaud_type="char 25", confidence="HIGH", score=0.88,
+                     signals="name=0.80", alternatives="", confirm=confirm,
+                     corrected_bare=corrected)
+
+
+def test_review_workbook_roundtrip(tmp_path):
+    rows = [_review("T_POZ", "PROCUREMENT_BU", "PROCUREMENT_BUSINESSUNITNAM")]
+    path = tmp_path / "review.xlsx"
+    write_review_workbook(rows, path, exact_counts={"T_POZ": (212, 226)})
+    loaded = load_review_workbook(path)
+    assert loaded[0].oracle_key == "PROCUREMENT_BU"
+    assert loaded[0].candidate_bare == "PROCUREMENT_BUSINESSUNITNAM"
+
+
+def test_apply_confirm_yes_becomes_confirmed():
+    rows = [_review("T_POZ", "PROCUREMENT_BU", "PROCUREMENT_BUSINESSUNITNAM", confirm="Y")]
+    valid = {"T_POZ": {"PROCUREMENT_BUSINESSUNITNAM"}}
+    out = apply_review_decisions(rows, valid)
+    assert out[0].origin == "confirmed"
+    assert out[0].applaud_bare == "PROCUREMENT_BUSINESSUNITNAM"
+
+
+def test_apply_confirm_no_becomes_rejected():
+    rows = [_review("T_POZ", "PROCUREMENT_BU", "PROCUREMENT_BUSINESSUNITNAM", confirm="N")]
+    out = apply_review_decisions(rows, {"T_POZ": {"PROCUREMENT_BUSINESSUNITNAM"}})
+    assert out[0].origin == "rejected"
+
+
+def test_apply_corrected_bare_overrides_candidate():
+    rows = [_review("T_POZ", "PROCUREMENT_BU", "WRONG_GUESS", corrected="REAL_BARE")]
+    out = apply_review_decisions(rows, {"T_POZ": {"REAL_BARE", "WRONG_GUESS"}})
+    assert out[0].origin == "confirmed" and out[0].applaud_bare == "REAL_BARE"
+
+
+def test_apply_corrected_bare_not_in_table_fails_loud():
+    # Audit §4.1: a typo'd Corrected Bare must abort the merge, not commit a dead alias.
+    rows = [_review("T_POZ", "PROCUREMENT_BU", "WRONG_GUESS", corrected="TYPOO_BARE")]
+    with pytest.raises(InvalidCorrectedBareError):
+        apply_review_decisions(rows, {"T_POZ": {"PROCUREMENT_BUSINESSUNITNAM"}})
+
+
+def test_apply_skips_undecided_rows():
+    rows = [_review("T_POZ", "PROCUREMENT_BU", "PROCUREMENT_BUSINESSUNITNAM")]  # no Y/N
+    out = apply_review_decisions(rows, {"T_POZ": {"PROCUREMENT_BUSINESSUNITNAM"}})
+    assert out == []

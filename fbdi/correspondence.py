@@ -354,3 +354,114 @@ def merge_decisions(
     for r in decisions:
         out.setdefault(r.applaud_table, {})[r.oracle_key] = r   # incoming overrides
     return {table: [bucket[k] for k in sorted(bucket)] for table, bucket in sorted(out.items())}
+
+
+# ---------------------------------------------------------------------------
+# Review workbook I/O + apply_review_decisions
+# ---------------------------------------------------------------------------
+
+_REVIEW_HEADERS = ["Applaud Table", "Oracle Key", "Oracle Type", "Candidate Applaud Bare",
+                   "Applaud DDID", "Applaud Type", "Confidence", "Score", "Signals",
+                   "Conflicts/Alternatives", "Confirm?", "Corrected Bare"]
+
+
+@dataclass
+class ReviewRow:
+    applaud_table: str
+    oracle_key: str
+    oracle_type: str
+    candidate_bare: str
+    applaud_ddid: str
+    applaud_type: str
+    confidence: str
+    score: float
+    signals: str
+    alternatives: str
+    confirm: str = ""          # reviewer input: 'Y' | 'N' | ''
+    corrected_bare: str = ""   # reviewer input: substitute bare
+
+
+class InvalidCorrectedBareError(ValueError):
+    """Raised when a reviewer-entered Corrected Bare is not an actual bare in the
+    table (audit §4.1) — fail loud rather than commit an alias that maps to nothing."""
+
+
+def write_review_workbook(rows: list[ReviewRow], path: Path,
+                          exact_counts: dict[str, tuple[int, int]] | None = None) -> None:
+    """Write the disposable HITL review workbook. `exact_counts` maps table ->
+    (exact_matched, total) so the reviewer sees denominator context (audit §6)."""
+    exact_counts = exact_counts or {}
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Review"
+    ws.append(_REVIEW_HEADERS)
+    current_table = None
+    for r in rows:
+        if r.applaud_table != current_table:
+            current_table = r.applaud_table
+            matched, total = exact_counts.get(current_table, (0, 0))
+            ws.append([f"--- {current_table}: {matched} of {total} matched exactly; "
+                       f"deciding the residual {max(total - matched, 0)} ---"])
+        ws.append([r.applaud_table, r.oracle_key, r.oracle_type, r.candidate_bare,
+                   r.applaud_ddid, r.applaud_type, r.confidence, r.score, r.signals,
+                   r.alternatives, r.confirm, r.corrected_bare])
+    ws.freeze_panes = "A2"
+    wb.save(path)
+
+
+def load_review_workbook(path: Path) -> list[ReviewRow]:
+    """Load reviewer decisions. Header-separator rows (a single '--- ...' cell) are skipped."""
+    wb = load_workbook(path, read_only=True, data_only=True)
+    ws = wb["Review"] if "Review" in wb.sheetnames else wb.active
+    out: list[ReviewRow] = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        cells = (list(row) + [None] * 12)[:12]
+        table, okey = cells[0], cells[1]
+        if not table or not okey:
+            continue   # blank row or a "--- table header ---" separator
+        out.append(ReviewRow(
+            applaud_table=str(table), oracle_key=str(okey),
+            oracle_type=str(cells[2] or ""), candidate_bare=str(cells[3] or ""),
+            applaud_ddid=str(cells[4] or ""), applaud_type=str(cells[5] or ""),
+            confidence=str(cells[6] or ""), score=float(cells[7] or 0.0),
+            signals=str(cells[8] or ""), alternatives=str(cells[9] or ""),
+            confirm=str(cells[10] or "").strip(), corrected_bare=str(cells[11] or "").strip()))
+    wb.close()
+    return out
+
+
+def apply_review_decisions(
+    rows: list[ReviewRow],
+    valid_bares_by_table: dict[str, set[str]],
+) -> list[FieldCorrespondence]:
+    """Turn reviewer input into FieldCorrespondence rows.
+
+    Corrected Bare (if present) wins -> confirmed with the substitute, VALIDATED
+    against the table's bare set (audit §4.1, fail loud). Else Confirm? 'Y' ->
+    confirmed; 'N' -> rejected; blank -> skipped (undecided)."""
+    out: list[FieldCorrespondence] = []
+    for r in rows:
+        valid = {b.upper() for b in valid_bares_by_table.get(r.applaud_table, set())}
+        if r.corrected_bare:
+            if r.corrected_bare.upper() not in valid:
+                raise InvalidCorrectedBareError(
+                    f"{r.applaud_table}: Corrected Bare {r.corrected_bare!r} for Oracle "
+                    f"key {r.oracle_key!r} is not a column in that table. Fix the typo "
+                    "or clear the cell; refusing to commit an alias that maps to nothing.")
+            out.append(FieldCorrespondence(
+                applaud_table=r.applaud_table, oracle_key=r.oracle_key,
+                applaud_bare=r.corrected_bare, applaud_ddid=r.applaud_ddid,
+                confidence="HIGH", origin="confirmed", notes="reviewer-corrected"))
+        elif r.confirm.upper() == "Y":
+            out.append(FieldCorrespondence(
+                applaud_table=r.applaud_table, oracle_key=r.oracle_key,
+                applaud_bare=r.candidate_bare, applaud_ddid=r.applaud_ddid,
+                confidence=r.confidence, origin="confirmed", score=r.score,
+                signals=r.signals))
+        elif r.confirm.upper() == "N":
+            out.append(FieldCorrespondence(
+                applaud_table=r.applaud_table, oracle_key=r.oracle_key,
+                applaud_bare="", applaud_ddid="", confidence=r.confidence,
+                origin="rejected", notes="reviewer-rejected"))
+        # blank Confirm? + no Corrected Bare -> undecided, skip
+    return out
