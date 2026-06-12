@@ -132,10 +132,11 @@ def expected_shape(of: AlignedField) -> Shape:
 
 
 def actual_shape(col: DataColumn) -> Shape:
-    """Applaud column's actual shape (class, size, scale) from its DataDictionary type
-    (X->char, N->numeric, else the lowercased code)."""
+    """Applaud column's actual shape (class, size, scale) from its DataDictionary type.
+    X and U (Unicode text, audit §1.2) -> char; N -> numeric; else the lowercased code
+    (e.g. D -> 'd' for DATE columns)."""
     dt = (col.data_type or "").strip().upper()
-    if dt == "X":
+    if dt in ("X", "U"):
         return ("char", col.size, None)
     if dt == "N":
         return ("numeric", col.size, col.dec_places)

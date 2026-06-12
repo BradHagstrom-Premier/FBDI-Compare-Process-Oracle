@@ -383,3 +383,19 @@ def test_filter_mapping_empty_list_returns_empty_not_all():
     # assumes empty == all.
     mapping = _sample_mapping()
     assert filter_mapping_to_tables(mapping, []) == {}
+
+
+# --- Task 1: actual_shape maps DataType U -> char (audit §1.2) --------------
+
+def test_actual_shape_maps_u_to_char():
+    # Audit §1.2: DataType 'U' (Unicode text) is character class, same bucket as 'X'.
+    col = DataColumn(ddid="T07VENDOR_NAME", bare="VENDOR_NAME", data_type="U",
+                     size=100, dec_places=None, odbc_name=None, row=1)
+    assert actual_shape(col) == ("char", 100, None)
+
+
+def test_actual_shape_keeps_x_and_n():
+    x = DataColumn("T_X", "X1", "X", 50, None, None, 1)
+    n = DataColumn("T_N", "N1", "N", 18, 4, None, 2)
+    assert actual_shape(x) == ("char", 50, None)
+    assert actual_shape(n) == ("numeric", 18, 4)
