@@ -11,12 +11,18 @@ truncation/abbreviation/type rules.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
+
+from openpyxl import Workbook, load_workbook
 
 from fbdi.align import AlignedField
 from fbdi.applaud_snapshot import DataColumn
 from fbdi.audit_applaud import expected_shape, actual_shape
+
+logger = logging.getLogger(__name__)
 
 # Applaud's application-level name cap (NOT the DataDictionary.Name TEXT(60)
 # schema). Longest observed bare is 27 with a 3-char prefix (audit §2.1).
@@ -265,3 +271,86 @@ def derive_correspondences(
     tier_rank = {name: i for i, (name, _) in enumerate(TIER_BANDS)}
     out.sort(key=lambda fc: (fc.applaud_table, tier_rank.get(fc.confidence, 9), -fc.score))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Fieldmap workbook I/O
+# ---------------------------------------------------------------------------
+
+_FIELDMAP_HEADERS = ["Applaud Table", "Oracle Key", "Applaud Bare", "Applaud DDID",
+                     "Confidence", "Origin", "Notes"]
+
+
+def write_fieldmap_workbook(rows: list[FieldCorrespondence], path: Path) -> None:
+    """Write the committed Oracle<->Applaud field map (sheet 'Field Map')."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Field Map"
+    ws.append(_FIELDMAP_HEADERS)
+    for r in sorted(rows, key=lambda fc: (fc.applaud_table, fc.oracle_key)):
+        ws.append([r.applaud_table, r.oracle_key, r.applaud_bare, r.applaud_ddid,
+                   r.confidence, r.origin, r.notes])
+    ws.freeze_panes = "A2"
+    wb.save(path)
+
+
+def load_fieldmap_workbook(path: Path) -> dict[str, list[FieldCorrespondence]]:
+    """Load the committed field map into {applaud_table: [FieldCorrespondence, ...]}.
+
+    Precedence invariant (audit §1.1): the committed map holds only confirmed/rejected
+    rows. Any stray `derived` row (hand-edited, or written by a future flow) is dropped
+    with a WARNING so it can never silently block a future decision."""
+    wb = load_workbook(path, read_only=True, data_only=True)
+    ws = wb["Field Map"] if "Field Map" in wb.sheetnames else wb.active
+    out: dict[str, list[FieldCorrespondence]] = {}
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        table, okey, bare, ddid, conf, origin, notes = (list(row) + [None] * 7)[:7]
+        if not table or not okey:
+            continue
+        origin_s = str(origin).strip().lower() if origin else "derived"
+        if origin_s not in ("confirmed", "rejected"):
+            logger.warning("Dropping non-decision (origin=%r) row from committed field map: "
+                           "%s / %s — only confirmed/rejected persist.", origin_s, table, okey)
+            continue
+        out.setdefault(str(table), []).append(FieldCorrespondence(
+            applaud_table=str(table), oracle_key=str(okey),
+            applaud_bare=(str(bare) if bare else ""), applaud_ddid=(str(ddid) if ddid else ""),
+            confidence=(str(conf) if conf else ""), origin=origin_s,
+            notes=(str(notes) if notes else "")))
+    wb.close()
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Merge functions (opposite precedence — audit §1.1)
+# ---------------------------------------------------------------------------
+
+def merge_fieldmap(
+    derived: list[FieldCorrespondence],
+    committed: dict[str, list[FieldCorrespondence]],
+) -> dict[str, list[FieldCorrespondence]]:
+    """Confirmed/rejected rows win; derived rows fill only undecided (table, oracle_key).
+    Clones merge_appmap semantics (applaud_appmap.py:165). Idempotent across re-derives."""
+    out: dict[str, dict[str, FieldCorrespondence]] = {}
+    for table, rows in committed.items():
+        out[table] = {r.oracle_key: r for r in rows}
+    for r in derived:
+        bucket = out.setdefault(r.applaud_table, {})
+        if r.oracle_key not in bucket:
+            bucket[r.oracle_key] = r
+    return {table: [bucket[k] for k in sorted(bucket)] for table, bucket in sorted(out.items())}
+
+
+def merge_decisions(
+    decisions: list[FieldCorrespondence],
+    committed: dict[str, list[FieldCorrespondence]],
+) -> dict[str, list[FieldCorrespondence]]:
+    """Confirm-time merge (audit §1.1): incoming human DECISIONS WIN, untouched committed
+    rows carry forward. The inverse precedence of merge_fieldmap — a reviewer can revise a
+    prior confirmation/rejection through the tooling instead of hand-editing the xlsx."""
+    out: dict[str, dict[str, FieldCorrespondence]] = {}
+    for table, rows in committed.items():
+        out[table] = {r.oracle_key: r for r in rows}
+    for r in decisions:
+        out.setdefault(r.applaud_table, {})[r.oracle_key] = r   # incoming overrides
+    return {table: [bucket[k] for k in sorted(bucket)] for table, bucket in sorted(out.items())}

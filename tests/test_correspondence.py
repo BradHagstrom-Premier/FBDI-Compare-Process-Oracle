@@ -200,3 +200,89 @@ def test_tiers_are_ordered_high_probable_weak():
                          _col("T09PROCUREMENT_BUSINESSUNITNAM", "PROCUREMENT_BUSINESSUNITNAM"),
                          window=27, position_score=1.0)
     assert pc[0] > 0.0 and pc[1]  # (score, signals) — signals non-empty
+
+
+# ---------------------------------------------------------------------------
+# Task 4: fieldmap workbook I/O + merge_fieldmap / merge_decisions
+# ---------------------------------------------------------------------------
+
+from fbdi.correspondence import (
+    write_fieldmap_workbook, load_fieldmap_workbook, merge_fieldmap, merge_decisions,
+)
+
+
+def _fc(table, okey, bare, origin="derived", conf="HIGH"):
+    return FieldCorrespondence(applaud_table=table, oracle_key=okey, applaud_bare=bare,
+                               applaud_ddid=table[:3] + bare, confidence=conf, origin=origin)
+
+
+def test_fieldmap_workbook_roundtrip(tmp_path):
+    rows = [_fc("T_POZ", "PROCUREMENT_BU", "PROCUREMENT_BUSINESSUNITNAM",
+                origin="confirmed", conf="HIGH")]
+    path = tmp_path / "fieldmap.xlsx"
+    write_fieldmap_workbook(rows, path)
+    loaded = load_fieldmap_workbook(path)
+    assert loaded["T_POZ"][0].oracle_key == "PROCUREMENT_BU"
+    assert loaded["T_POZ"][0].applaud_bare == "PROCUREMENT_BUSINESSUNITNAM"
+    assert loaded["T_POZ"][0].origin == "confirmed"
+
+
+def test_merge_confirmed_wins_over_rederive():
+    committed = {"T_POZ": [_fc("T_POZ", "PROCUREMENT_BU", "HAND_PICKED_BARE",
+                               origin="confirmed")]}
+    derived = [_fc("T_POZ", "PROCUREMENT_BU", "AUTO_BARE", origin="derived"),  # must NOT win
+               _fc("T_POZ", "NEW_KEY", "NEW_BARE", origin="derived")]          # undecided -> added
+    merged = merge_fieldmap(derived, committed)
+    by = {(fc.oracle_key): fc for fc in merged["T_POZ"]}
+    assert by["PROCUREMENT_BU"].applaud_bare == "HAND_PICKED_BARE"
+    assert by["PROCUREMENT_BU"].origin == "confirmed"
+    assert by["NEW_KEY"].origin == "derived"
+
+
+def test_merge_rejected_also_wins_and_suppresses_reproposal():
+    committed = {"T_POZ": [_fc("T_POZ", "PROCUREMENT_BU", "", origin="rejected")]}
+    derived = [_fc("T_POZ", "PROCUREMENT_BU", "AUTO_BARE", origin="derived")]
+    merged = merge_fieldmap(derived, committed)
+    assert merged["T_POZ"][0].origin == "rejected"
+
+
+def test_rederive_idempotence_across_releases():
+    # 26B decision survives a fresh 26B->next derive that re-proposes the same key.
+    committed = {"T_POZ": [_fc("T_POZ", "PROCUREMENT_BU", "CONFIRMED_BARE",
+                               origin="confirmed")]}
+    rederived = [_fc("T_POZ", "PROCUREMENT_BU", "AUTO_BARE", origin="derived")]
+    once = merge_fieldmap(rederived, committed)
+    twice = merge_fieldmap(rederived, once)
+    assert twice["T_POZ"][0].applaud_bare == "CONFIRMED_BARE"
+    assert len(twice["T_POZ"]) == 1
+
+
+def test_confirm_overrides_prior_decision():
+    # Pass-1 audit §1.1 (BLOCKER): at confirm time, a NEW human decision must win so a
+    # wrong confirmation can be revised through the tooling.
+    committed = {"T_POZ": [_fc("T_POZ", "PROCUREMENT_BU", "OLD_BARE", origin="confirmed")]}
+    new = [_fc("T_POZ", "PROCUREMENT_BU", "NEW_BARE", origin="confirmed")]
+    merged = merge_decisions(new, committed)
+    assert merged["T_POZ"][0].applaud_bare == "NEW_BARE"
+
+
+def test_merge_decisions_carries_forward_untouched_committed():
+    # A decision for one key must not disturb an unrelated committed row.
+    committed = {"T_POZ": [_fc("T_POZ", "KEEP_KEY", "KEEP_BARE", origin="confirmed")]}
+    new = [_fc("T_POZ", "NEW_KEY", "NEW_BARE", origin="rejected")]
+    merged = merge_decisions(new, committed)
+    by = {fc.oracle_key: fc for fc in merged["T_POZ"]}
+    assert by["KEEP_KEY"].applaud_bare == "KEEP_BARE"
+    assert by["NEW_KEY"].origin == "rejected"
+
+
+def test_load_fieldmap_drops_stray_derived_rows(tmp_path):
+    # Precedence invariant (§1.1): a hand-edited 'derived' row must not survive load and
+    # silently block a future decision. Only confirmed/rejected persist.
+    rows = [_fc("T_POZ", "GOOD_KEY", "GOOD_BARE", origin="confirmed"),
+            _fc("T_POZ", "STRAY_KEY", "STRAY_BARE", origin="derived")]
+    path = tmp_path / "fieldmap.xlsx"
+    write_fieldmap_workbook(rows, path)
+    loaded = load_fieldmap_workbook(path)
+    keys = {fc.oracle_key for fc in loaded.get("T_POZ", [])}
+    assert keys == {"GOOD_KEY"}
