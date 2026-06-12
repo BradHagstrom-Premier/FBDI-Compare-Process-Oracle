@@ -299,10 +299,16 @@ def load_fieldmap_workbook(path: Path) -> dict[str, list[FieldCorrespondence]]:
 
     Precedence invariant (audit §1.1): the committed map holds only confirmed/rejected
     rows. Any stray `derived` row (hand-edited, or written by a future flow) is dropped
-    with a WARNING so it can never silently block a future decision."""
+    with a WARNING so it can never silently block a future decision.
+
+    Duplicate (table, oracle_key) rows: the last row wins (matching dict-collapse
+    behaviour downstream) and a WARNING is emitted so hand-edits that create
+    duplicates are never silent."""
     wb = load_workbook(path, read_only=True, data_only=True)
     ws = wb["Field Map"] if "Field Map" in wb.sheetnames else wb.active
-    out: dict[str, list[FieldCorrespondence]] = {}
+    # Use an ordered dict keyed by (table, oracle_key) so duplicate detection and
+    # last-wins collapse happen in a single pass.
+    seen: dict[tuple[str, str], FieldCorrespondence] = {}
     for row in ws.iter_rows(min_row=2, values_only=True):
         table, okey, bare, ddid, conf, origin, notes = (list(row) + [None] * 7)[:7]
         if not table or not okey:
@@ -312,12 +318,20 @@ def load_fieldmap_workbook(path: Path) -> dict[str, list[FieldCorrespondence]]:
             logger.warning("Dropping non-decision (origin=%r) row from committed field map: "
                            "%s / %s — only confirmed/rejected persist.", origin_s, table, okey)
             continue
-        out.setdefault(str(table), []).append(FieldCorrespondence(
+        key = (str(table), str(okey))
+        if key in seen:
+            logger.warning("Duplicate (table, oracle_key) in committed field map: "
+                           "%s / %s — keeping last row.", str(table), str(okey))
+        seen[key] = FieldCorrespondence(
             applaud_table=str(table), oracle_key=str(okey),
             applaud_bare=(str(bare) if bare else ""), applaud_ddid=(str(ddid) if ddid else ""),
             confidence=(str(conf) if conf else ""), origin=origin_s,
-            notes=(str(notes) if notes else "")))
+            notes=(str(notes) if notes else ""))
     wb.close()
+    # Rebuild the {table: [rows]} structure preserving insertion order within each table.
+    out: dict[str, list[FieldCorrespondence]] = {}
+    for fc in seen.values():
+        out.setdefault(fc.applaud_table, []).append(fc)
     return out
 
 
@@ -437,20 +451,33 @@ def apply_review_decisions(
     """Turn reviewer input into FieldCorrespondence rows.
 
     Corrected Bare (if present) wins -> confirmed with the substitute, VALIDATED
-    against the table's bare set (audit §4.1, fail loud). Else Confirm? 'Y' ->
-    confirmed; 'N' -> rejected; blank -> skipped (undecided)."""
+    against the table's bare set (audit §4.1, fail loud). The stored bare is the
+    *canonical* casing from the table's valid set (not the reviewer's literal typing)
+    to keep the committed map self-consistent. The DDID of the *rejected candidate*
+    is NOT carried forward — it would be misleading in a human-auditable artifact;
+    applaud_ddid is stored as "" (consistent with the rejected branch).
+
+    Else Confirm? 'Y' -> confirmed; 'N' -> rejected; blank -> skipped (undecided).
+    A non-blank Confirm? value that is neither 'Y' nor 'N' (case-insensitive) is
+    warned loudly (audit §4.1 fail-loud philosophy) and the row is skipped."""
     out: list[FieldCorrespondence] = []
     for r in rows:
-        valid = {b.upper() for b in valid_bares_by_table.get(r.applaud_table, set())}
+        raw_valid = valid_bares_by_table.get(r.applaud_table, set())
+        # upper-to-canonical map for case-insensitive lookup while preserving stored casing
+        canonical_map: dict[str, str] = {b.upper(): b for b in raw_valid}
         if r.corrected_bare:
-            if r.corrected_bare.upper() not in valid:
+            upper_corrected = r.corrected_bare.upper()
+            if upper_corrected not in canonical_map:
                 raise InvalidCorrectedBareError(
                     f"{r.applaud_table}: Corrected Bare {r.corrected_bare!r} for Oracle "
                     f"key {r.oracle_key!r} is not a column in that table. Fix the typo "
                     "or clear the cell; refusing to commit an alias that maps to nothing.")
+            # Use canonical casing from the table's valid set (not as-typed by reviewer).
+            # DDID of the rejected candidate must not be stored — it is misleading for the
+            # corrected target bare; store "" consistent with the rejected branch.
             out.append(FieldCorrespondence(
                 applaud_table=r.applaud_table, oracle_key=r.oracle_key,
-                applaud_bare=r.corrected_bare, applaud_ddid=r.applaud_ddid,
+                applaud_bare=canonical_map[upper_corrected], applaud_ddid="",
                 confidence="HIGH", origin="confirmed", notes="reviewer-corrected"))
         elif r.confirm.upper() == "Y":
             out.append(FieldCorrespondence(
@@ -463,5 +490,12 @@ def apply_review_decisions(
                 applaud_table=r.applaud_table, oracle_key=r.oracle_key,
                 applaud_bare="", applaud_ddid="", confidence=r.confidence,
                 origin="rejected", notes="reviewer-rejected"))
-        # blank Confirm? + no Corrected Bare -> undecided, skip
+        elif r.confirm:
+            # Non-blank value that is not Y/N — warn loudly (audit §4.1 fail-loud philosophy)
+            # and skip the row so an accidental "YES" / "TRUE" / "X" never vanishes silently.
+            logger.warning(
+                "Unrecognized Confirm? value %r for %s / %s — expected 'Y', 'N', or blank. "
+                "Row skipped; correct the workbook cell to proceed.",
+                r.confirm, r.applaud_table, r.oracle_key)
+        # blank Confirm? + no Corrected Bare -> undecided, skip silently
     return out

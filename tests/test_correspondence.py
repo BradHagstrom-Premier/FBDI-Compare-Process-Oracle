@@ -347,3 +347,49 @@ def test_apply_skips_undecided_rows():
     rows = [_review("T_POZ", "PROCUREMENT_BU", "PROCUREMENT_BUSINESSUNITNAM")]  # no Y/N
     out = apply_review_decisions(rows, {"T_POZ": {"PROCUREMENT_BUSINESSUNITNAM"}})
     assert out == []
+
+
+# ---------------------------------------------------------------------------
+# Code-review fixes (Fix 1, Fix 2, Fix 3)
+# ---------------------------------------------------------------------------
+
+def test_apply_warns_on_unrecognized_confirm_value(caplog):
+    import logging
+    rows = [_review("T_POZ", "PROCUREMENT_BU", "PROCUREMENT_BUSINESSUNITNAM", confirm="YES")]
+    with caplog.at_level(logging.WARNING, logger="fbdi.correspondence"):
+        out = apply_review_decisions(rows, {"T_POZ": {"PROCUREMENT_BUSINESSUNITNAM"}})
+    assert out == []                                  # still skipped, but...
+    assert any("PROCUREMENT_BU" in r.message and "YES" in r.message
+               for r in caplog.records)               # ...loudly
+
+
+def test_apply_corrected_bare_stores_canonical_casing_and_empty_ddid():
+    rows = [_review("T_POZ", "PROCUREMENT_BU", "WRONG_GUESS", corrected="real_bare")]
+    out = apply_review_decisions(rows, {"T_POZ": {"REAL_BARE", "WRONG_GUESS"}})
+    assert out[0].applaud_bare == "REAL_BARE"   # canonical from the table, not as-typed
+    assert out[0].applaud_ddid == ""            # candidate's DDID must not leak in
+
+
+def test_load_fieldmap_warns_on_duplicate_key_last_wins(tmp_path, caplog):
+    import logging
+    rows = [_fc("T_POZ", "DUP_KEY", "FIRST_BARE", origin="confirmed"),
+            _fc("T_POZ", "DUP_KEY", "SECOND_BARE", origin="confirmed")]
+    path = tmp_path / "fieldmap.xlsx"
+    write_fieldmap_workbook(rows, path)
+    with caplog.at_level(logging.WARNING, logger="fbdi.correspondence"):
+        loaded = load_fieldmap_workbook(path)
+    assert [fc.applaud_bare for fc in loaded["T_POZ"]] == ["SECOND_BARE"]
+    assert any("DUP_KEY" in r.message for r in caplog.records)
+
+
+def test_load_fieldmap_warns_on_stray_derived_rows(tmp_path, caplog):
+    import logging
+    rows = [_fc("T_POZ", "GOOD_KEY", "GOOD_BARE", origin="confirmed"),
+            _fc("T_POZ", "STRAY_KEY", "STRAY_BARE", origin="derived")]
+    path = tmp_path / "fieldmap.xlsx"
+    write_fieldmap_workbook(rows, path)
+    with caplog.at_level(logging.WARNING, logger="fbdi.correspondence"):
+        loaded = load_fieldmap_workbook(path)
+    keys = {fc.oracle_key for fc in loaded.get("T_POZ", [])}
+    assert keys == {"GOOD_KEY"}
+    assert any("STRAY_KEY" in r.message for r in caplog.records)
