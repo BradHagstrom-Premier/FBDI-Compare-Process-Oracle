@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.14+, openpyxl, pytest. Pure functions over `ApplaudSnapshot` / `AlignedField` / `DataColumn` — no MCP or live I/O in the module (same discipline as `applaud_appmap.py`).
 
-**Authoritative inputs:** spec `docs/superpowers/specs/2026-06-10-applaud-field-correspondence-design.md` as amended by the audit `docs/superpowers/AUDIT_RESULTS_field-correspondence.md`. Where they conflict, the audit wins.
+**Authoritative inputs:** spec `docs/superpowers/specs/2026-06-10-applaud-field-correspondence-design.md` as amended by two audits — the design audit `docs/superpowers/AUDIT_RESULTS_field-correspondence.md` and the plan audit (Pass 1) `docs/superpowers/AUDIT_RESULTS_field-correspondence_plan_pass1.md`. Where they conflict, the later audit wins. The Pass-1 audit's two blockers (§1.1 confirm-time merge precedence, §1.2 rejected-provenance reaching the written workbook) and four mediums (§2.1–§2.4) are folded into the tasks below; its LOW/cleanup items are folded into the relevant tasks without new task numbers.
 
 ---
 
@@ -20,6 +20,11 @@
 4. **`X_PHANTOM` is already handled at the snapshot layer — VERIFIED, not a new bug (audit §1.4, corrected).** `applaud_snapshot.build_table` (lines 163-179) already excludes non-prefix phantom columns, and `_strip_prefix` (line 126) is prefix-aware (it returns `X_PHANTOM` unchanged, never `HANTOM`). A live scan of the PR #3 workbook (`Applaud_Compliance_Report_26B_ORACLE_MASTER.xlsx`) found **zero** `HANTOM` findings. Task 8 therefore writes a *lock-in regression test* for the existing behavior — it does **not** "fix" a non-existent mis-strip.
 
 **Confirmed assumptions (no code needed):** `bare` is the resolution key, ODBCName is empty in ORACLE_MASTER (audit §5/§8.4); one-to-one per table holds (§8.5); `Oracle Key == oracle_match_key(of)` (§8.6).
+
+**Verified codebase facts (Pass-1 audit §1.2 / §2.1 / LOW #3, #7 — read against live code, stated so no task asserts an unestablished attribute):**
+- `Finding` (`fbdi/audit_applaud.py:62-79`) is a plain (mutable, non-frozen) `@dataclass` with a `notes: str = ""` field, and the findings-sheet writer already emits a **"Notes"** column (`_FINDINGS_HEADERS` line 448, `_finding_row` line 456). So the rejected-provenance feature (audit §4.2) needs **no model/writer change** — only that Task 7 set `f.notes` and prove it reaches the written cell.
+- `oracle_match_key(of)` (`fbdi/audit_applaud.py:99-111`) always returns `UPPER_SNAKE_CASE` (it ends in `.upper()`), and falls back to the **label** when `of.technical` is `None`. Therefore (a) the residual key set is uppercase by construction (LOW #3 invariant), and (b) the score must be computed from the **match key**, never re-derived from `of.technical` (§2.1).
+- `build_table(name, prefix, prefix_fallback, description, key_seqs, raw_columns, dd_by_ddid)` (`fbdi/applaud_snapshot.py:151-154`) takes 7 positional args — the Task 8 snippet's call matches the real signature (LOW #7 resolved: verified, not assumed).
 
 ---
 
@@ -39,9 +44,13 @@
 `FieldCorrespondence(applaud_table, oracle_key, applaud_bare, applaud_ddid, confidence, origin="derived", score=0.0, signals="", notes="")`;
 `normalize_name`, `expand_abbreviations`, `truncation_window`, `names_correspond`, `score_candidate`,
 `derive_table_correspondences`, `derive_correspondences`,
-`write_fieldmap_workbook`, `load_fieldmap_workbook`, `merge_fieldmap`,
+`write_fieldmap_workbook`, `load_fieldmap_workbook`, `merge_fieldmap`, `merge_decisions`,
 `write_review_workbook`, `load_review_workbook`, `apply_review_decisions`, `InvalidCorrectedBareError`,
-`build_alias`. Constants: `ABBREVIATIONS`, `APPLAUD_NAME_CAP=30`, `MAX_SUFFIX_SLACK=6`, `TIER_BANDS`.
+`build_alias`, `assemble_derivation_inputs`. Constants: `ABBREVIATIONS`, `APPLAUD_NAME_CAP=30`, `MAX_SUFFIX_SLACK=6`, `TIER_BANDS`.
+
+**Two distinct merge functions — do not conflate (Pass-1 audit §1.1):**
+- `merge_fieldmap(derived, committed)` — **derive-time** precedence: committed rows win; derived fills only undecided `(table, oracle_key)`. Used by `correspondence-derive`'s `decided` skip and idempotence across releases.
+- `merge_decisions(decisions, committed)` — **confirm-time** precedence: incoming human decisions win; untouched committed rows carry forward. Used by `correspondence-confirm` so a reviewer can revise a prior decision through the tooling.
 
 ---
 
@@ -319,6 +328,13 @@ def test_digit_run_truncation():
                             "GLOBALATTRIBUTETIMESTAM10", applaud_bare_len=25, window=27)
 
 
+def test_truncated_bool_suffix_fla():
+    # Pass-1 audit LOW #2: ALLOW_SUBSTITUTE_RECEIPTS -> Applaud appended FLAG, truncated to FLA.
+    # Matches via the append path (append-delta 3 <= MAX_SUFFIX_SLACK).
+    assert names_correspond("ALLOWSUBSTITUTERECEIPTS",
+                            "ALLOWSUBSTITUTERECEIPTSFLA", applaud_bare_len=26, window=27)
+
+
 def test_digit_run_must_be_equal():
     # TIMESTAMP10 must NOT match TIMESTAMP1 just because stems share a prefix.
     assert not names_correspond("GLOBALATTRIBUTETIMESTAMP10",
@@ -390,18 +406,42 @@ def test_decided_pairs_are_skipped():
 
 
 def test_bijection_one_to_one_per_table():
-    # Two Oracle keys both plausibly match one Applaud column; only the best wins.
-    oracle = {"PROCUREMENT_BU": _of("PROCUREMENT_BU", position=1),
-              "PROCUREMENT_BUS": _of("PROCUREMENT_BUS", position=2)}
+    # Pass-1 audit LOW #1: use two Oracle keys that BOTH genuinely match the one column,
+    # so the greedy bijection is actually exercised (the prior PROCUREMENT_BUS case had a
+    # >MAX_SUFFIX_SLACK delta and matched nothing, so the test passed even with bijection
+    # deleted). The one column normalizes to PROCUREMENTBUSINESSUNITNAM:
+    #   PROCUREMENT_BUSINESSUNIT_NAM -> normalize -> PROCUREMENTBUSINESSUNITNAM == column
+    #       -> name=1.00 (exact after squash); listed FIRST so its position score is also top.
+    #   PROCUREMENT_BU               -> expand -> PROCUREMENTBUSINESSUNIT (append NAM, delta 3)
+    #       -> name=0.80 (truncation). Strictly lower combined score -> loses the column.
+    oracle = {"PROCUREMENT_BUSINESSUNIT_NAM": _of("PROCUREMENT_BUSINESSUNIT_NAM"),
+              "PROCUREMENT_BU": _of("PROCUREMENT_BU")}
     cols = [_col("T09PROCUREMENT_BUSINESSUNITNAM", "PROCUREMENT_BUSINESSUNITNAM", size=25)]
     out = derive_table_correspondences("T_POZ", "T09", oracle, cols, decided=set())
-    assert len(out) == 1   # the single Applaud column is assigned once
+    assert len(out) == 1                                          # the one column assigned once
+    assert out[0].oracle_key == "PROCUREMENT_BUSINESSUNIT_NAM"    # the higher-scoring key wins
+    assert all(c.oracle_key != "PROCUREMENT_BU" for c in out)     # the loser is absent
+
+
+def test_score_uses_match_key_not_technical():
+    # Pass-1 audit §2.1: when of.technical is None the match key comes from the label;
+    # the name score must be computed from that key, not re-derived from of.technical
+    # (which would score name=0.00 and mis-tier a correct correspondence into WEAK).
+    of = AlignedField(position=1, label="Procurement BU", technical=None,
+                      data_type="VARCHAR2", length=100, scale=None, required=None)
+    score, signals = score_candidate("PROCUREMENT_BU", of,
+                                     _col("T09PROCUREMENT_BUSINESSUNITNAM",
+                                          "PROCUREMENT_BUSINESSUNITNAM", size=25),
+                                     window=27, position_score=1.0)
+    assert score > 0.0
+    assert "name=0.00" not in signals
 
 
 def test_tiers_are_ordered_high_probable_weak():
     names = [b for b, _ in TIER_BANDS]
     assert names == ["HIGH", "PROBABLE", "WEAK"]
-    pc = score_candidate(_of("PROCUREMENT_BU"),
+    # New signature (§2.1): score_candidate(oracle_key, of, col, window, position_score).
+    pc = score_candidate("PROCUREMENT_BU", _of("PROCUREMENT_BU"),
                          _col("T09PROCUREMENT_BUSINESSUNITNAM", "PROCUREMENT_BUSINESSUNITNAM"),
                          window=27, position_score=1.0)
     assert pc[0] > 0.0 and pc[1]  # (score, signals) — signals non-empty
@@ -409,7 +449,7 @@ def test_tiers_are_ordered_high_probable_weak():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `py -m pytest tests/test_correspondence.py -k "names_correspond or veto or exact or bijection or tiers or derivation or decided or right_trunc or appended or digit or coincid or u_column or date_vs" -v`
+Run: `py -m pytest tests/test_correspondence.py -k "names_correspond or veto or exact or bijection or tiers or derivation or decided or right_trunc or appended or digit or coincid or u_column or date_vs or fla or score_uses" -v`
 Expected: FAIL — `ImportError: cannot import name 'FieldCorrespondence'`.
 
 - [ ] **Step 3: Implement matching, scoring, tiers, and derivation**
@@ -417,7 +457,7 @@ Expected: FAIL — `ImportError: cannot import name 'FieldCorrespondence'`.
 Append to `fbdi/correspondence.py`:
 
 ```python
-from fbdi.align import AlignedField, _lcs_match
+from fbdi.align import AlignedField
 from fbdi.applaud_snapshot import DataColumn
 from fbdi.audit_applaud import expected_shape, actual_shape
 
@@ -505,11 +545,15 @@ def _tier(score: float) -> str:
     return "WEAK"
 
 
-def score_candidate(of: AlignedField, col: DataColumn, window: int,
+def score_candidate(oracle_key: str, of: AlignedField, col: DataColumn, window: int,
                     position_score: float) -> tuple[float, str]:
-    """Weighted score + a human-readable signals string. Caller has already
-    confirmed a non-zero name correspondence and a passing type veto."""
-    ns = _name_score(of.technical or "", col.bare, len(col.bare), window)
+    """Weighted score + a human-readable signals string.
+
+    The name score is computed from `oracle_key` (= oracle_match_key(of)) — NEVER
+    re-derived from of.technical, which is empty on the label-derived-key path and
+    would mis-score name=0.00 (audit §2.1). Caller has already confirmed a non-zero
+    name correspondence and a passing type veto."""
+    ns = _name_score(oracle_key, col.bare, len(col.bare), window)
     ts = _type_score(of, col)
     score = _W_NAME * ns + _W_TYPE * ts + _W_POSITION * position_score
     signals = f"name={ns:.2f} type={ts:.2f} pos={position_score:.2f}"
@@ -541,26 +585,33 @@ def derive_table_correspondences(
     cols = [c for c in applaud_columns if not _candidate_excluded(c, prefix)]
 
     # 1. Exact pre-pass: keys present verbatim on both sides need no map entry.
+    # oracle_match_key always returns UPPER_SNAKE_CASE (audit LOW #3), but normalize
+    # the key set once so the pre-pass is correct even on mixed-case input.
+    oracle_keys_upper = {k.upper() for k in oracle_by_key}
     applaud_bares = {c.bare.upper() for c in cols}
     residual_oracle = {k: of for k, of in oracle_by_key.items()
                        if k.upper() not in applaud_bares
                        and (applaud_table, k) not in decided}
-    residual_cols = [c for c in cols if c.bare.upper() not in oracle_by_key]
+    residual_cols = [c for c in cols if c.bare.upper() not in oracle_keys_upper]
 
-    # Position support: LCS over the residual order (Oracle position vs Applaud row).
-    o_order = [k for k in residual_oracle]
-    a_order = [c.bare for c in sorted(residual_cols, key=lambda c: c.row)]
+    # Position is a WEAK tiebreak only (audit §2.4): a gentle order-agreement gradient
+    # over Oracle position vs Applaud ROW order. Row-sort the residual columns once so
+    # a_idx genuinely means row order, not raw list order (audit §2.4 — the prior code
+    # built a row-sorted list but then scored over the unsorted list).
+    residual_cols_by_row = sorted(residual_cols, key=lambda c: c.row)
+    n_oracle = len(residual_oracle)
+    n_applaud = len(residual_cols_by_row)
 
     # 2. Build candidate pairs (name-match + passing type veto), scored.
     candidates: list[tuple[float, str, str, DataColumn, str]] = []  # (score, tier, okey, col, signals)
     for o_idx, (okey, of) in enumerate(residual_oracle.items()):
-        for a_idx, col in enumerate(residual_cols):
+        for a_idx, col in enumerate(residual_cols_by_row):
             if _name_score(okey, col.bare, len(col.bare), window) == 0.0:
                 continue
             if _type_class_conflict(of, col):
                 continue   # char-vs-numeric veto (audit §1.2)
-            pos = _position_score(o_idx, a_idx, len(o_order), len(a_order))
-            score, signals = score_candidate(of, col, window, pos)
+            pos = _position_score(o_idx, a_idx, n_oracle, n_applaud)
+            score, signals = score_candidate(okey, of, col, window, pos)
             candidates.append((score, _tier(score), okey, col, signals))
 
     # 3. Greedy one-to-one bijection: best score first, both sides must be free.
@@ -623,7 +674,20 @@ git commit -m "feat(correspondence): truncation/digit-run matching, type veto, b
 
 Clones `applaud_appmap`'s workbook helpers. Committed map sheet `"Field Map"`, columns
 `Applaud Table | Oracle Key | Applaud Bare | Applaud DDID | Confidence | Origin | Notes`.
-Merge keys on `(table, oracle_key)`: confirmed/rejected win; a fresh derive fills only undecided pairs.
+
+**Two merges with opposite precedence (Pass-1 audit §1.1 — do not conflate):**
+- `merge_fieldmap(derived, committed)` — **derive-time**: committed wins, derived fills only
+  undecided `(table, oracle_key)`. Models the cross-release idempotence guarantee (a confirmed
+  decision survives a fresh re-derive that re-proposes the same key).
+- `merge_decisions(decisions, committed)` — **confirm-time**: incoming human decisions win;
+  untouched committed rows carry forward. This is what `correspondence-confirm` wires in
+  (Task 9), so a reviewer can **revise** a prior decision through the tooling instead of
+  hand-editing the xlsx.
+
+**Precedence invariant:** the committed map only ever holds `confirmed`/`rejected` rows (the
+confirm flow guarantees it; `apply_review_decisions` emits nothing else). `load_fieldmap_workbook`
+defensively drops any stray `derived` row (with a WARNING) so a hand-edited or future-flow
+`derived` row can never silently become a decision-blocker.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -631,7 +695,7 @@ Append to `tests/test_correspondence.py`:
 
 ```python
 from fbdi.correspondence import (
-    write_fieldmap_workbook, load_fieldmap_workbook, merge_fieldmap,
+    write_fieldmap_workbook, load_fieldmap_workbook, merge_fieldmap, merge_decisions,
 )
 
 
@@ -679,17 +743,49 @@ def test_rederive_idempotence_across_releases():
     twice = merge_fieldmap(rederived, once)
     assert twice["T_POZ"][0].applaud_bare == "CONFIRMED_BARE"
     assert len(twice["T_POZ"]) == 1
+
+
+def test_confirm_overrides_prior_decision():
+    # Pass-1 audit §1.1 (BLOCKER): at confirm time, a NEW human decision must win so a
+    # wrong confirmation can be revised through the tooling.
+    committed = {"T_POZ": [_fc("T_POZ", "PROCUREMENT_BU", "OLD_BARE", origin="confirmed")]}
+    new = [_fc("T_POZ", "PROCUREMENT_BU", "NEW_BARE", origin="confirmed")]
+    merged = merge_decisions(new, committed)
+    assert merged["T_POZ"][0].applaud_bare == "NEW_BARE"
+
+
+def test_merge_decisions_carries_forward_untouched_committed():
+    # A decision for one key must not disturb an unrelated committed row.
+    committed = {"T_POZ": [_fc("T_POZ", "KEEP_KEY", "KEEP_BARE", origin="confirmed")]}
+    new = [_fc("T_POZ", "NEW_KEY", "NEW_BARE", origin="rejected")]
+    merged = merge_decisions(new, committed)
+    by = {fc.oracle_key: fc for fc in merged["T_POZ"]}
+    assert by["KEEP_KEY"].applaud_bare == "KEEP_BARE"
+    assert by["NEW_KEY"].origin == "rejected"
+
+
+def test_load_fieldmap_drops_stray_derived_rows(tmp_path):
+    # Precedence invariant (§1.1): a hand-edited 'derived' row must not survive load and
+    # silently block a future decision. Only confirmed/rejected persist.
+    rows = [_fc("T_POZ", "GOOD_KEY", "GOOD_BARE", origin="confirmed"),
+            _fc("T_POZ", "STRAY_KEY", "STRAY_BARE", origin="derived")]
+    path = tmp_path / "fieldmap.xlsx"
+    write_fieldmap_workbook(rows, path)
+    loaded = load_fieldmap_workbook(path)
+    keys = {fc.oracle_key for fc in loaded.get("T_POZ", [])}
+    assert keys == {"GOOD_KEY"}
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `py -m pytest tests/test_correspondence.py -k "fieldmap or merge or rederive" -v`
+Run: `py -m pytest tests/test_correspondence.py -k "fieldmap or merge or rederive or confirm_overrides" -v`
 Expected: FAIL — `ImportError: cannot import name 'write_fieldmap_workbook'`.
 
 - [ ] **Step 3: Implement workbook I/O + merge**
 
-Append to `fbdi/correspondence.py` (add `from pathlib import Path` and
-`from openpyxl import Workbook, load_workbook` to the import block at the top of the file):
+Append to `fbdi/correspondence.py` (add `import logging`, `from pathlib import Path`, and
+`from openpyxl import Workbook, load_workbook` to the import block at the top of the file, and
+define a module logger `logger = logging.getLogger(__name__)` near the top):
 
 ```python
 _FIELDMAP_HEADERS = ["Applaud Table", "Oracle Key", "Applaud Bare", "Applaud DDID",
@@ -710,7 +806,11 @@ def write_fieldmap_workbook(rows: list[FieldCorrespondence], path: Path) -> None
 
 
 def load_fieldmap_workbook(path: Path) -> dict[str, list[FieldCorrespondence]]:
-    """Load the committed field map into {applaud_table: [FieldCorrespondence, ...]}."""
+    """Load the committed field map into {applaud_table: [FieldCorrespondence, ...]}.
+
+    Precedence invariant (audit §1.1): the committed map holds only confirmed/rejected
+    rows. Any stray `derived` row (hand-edited, or written by a future flow) is dropped
+    with a WARNING so it can never silently block a future decision."""
     wb = load_workbook(path, read_only=True, data_only=True)
     ws = wb["Field Map"] if "Field Map" in wb.sheetnames else wb.active
     out: dict[str, list[FieldCorrespondence]] = {}
@@ -718,10 +818,15 @@ def load_fieldmap_workbook(path: Path) -> dict[str, list[FieldCorrespondence]]:
         table, okey, bare, ddid, conf, origin, notes = (list(row) + [None] * 7)[:7]
         if not table or not okey:
             continue
+        origin_s = str(origin).strip().lower() if origin else "derived"
+        if origin_s not in ("confirmed", "rejected"):
+            logger.warning("Dropping non-decision (origin=%r) row from committed field map: "
+                           "%s / %s — only confirmed/rejected persist.", origin_s, table, okey)
+            continue
         out.setdefault(str(table), []).append(FieldCorrespondence(
             applaud_table=str(table), oracle_key=str(okey),
             applaud_bare=(str(bare) if bare else ""), applaud_ddid=(str(ddid) if ddid else ""),
-            confidence=(str(conf) if conf else ""), origin=(str(origin) if origin else "derived"),
+            confidence=(str(conf) if conf else ""), origin=origin_s,
             notes=(str(notes) if notes else "")))
     wb.close()
     return out
@@ -741,18 +846,33 @@ def merge_fieldmap(
         if r.oracle_key not in bucket:
             bucket[r.oracle_key] = r
     return {table: [bucket[k] for k in sorted(bucket)] for table, bucket in sorted(out.items())}
+
+
+def merge_decisions(
+    decisions: list[FieldCorrespondence],
+    committed: dict[str, list[FieldCorrespondence]],
+) -> dict[str, list[FieldCorrespondence]]:
+    """Confirm-time merge (audit §1.1): incoming human DECISIONS WIN, untouched committed
+    rows carry forward. The inverse precedence of merge_fieldmap — a reviewer can revise a
+    prior confirmation/rejection through the tooling instead of hand-editing the xlsx."""
+    out: dict[str, dict[str, FieldCorrespondence]] = {}
+    for table, rows in committed.items():
+        out[table] = {r.oracle_key: r for r in rows}
+    for r in decisions:
+        out.setdefault(r.applaud_table, {})[r.oracle_key] = r   # incoming overrides
+    return {table: [bucket[k] for k in sorted(bucket)] for table, bucket in sorted(out.items())}
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `py -m pytest tests/test_correspondence.py -k "fieldmap or merge or rederive" -v`
-Expected: PASS (5 tests).
+Run: `py -m pytest tests/test_correspondence.py -k "fieldmap or merge or rederive or confirm_overrides" -v`
+Expected: PASS (7 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add fbdi/correspondence.py tests/test_correspondence.py
-git commit -m "feat(correspondence): committed fieldmap workbook I/O + merge precedence"
+git commit -m "feat(correspondence): committed fieldmap I/O + merge_fieldmap (derive) + merge_decisions (confirm) precedence (audit §1.1)"
 ```
 
 ---
@@ -969,6 +1089,11 @@ git commit -m "feat(correspondence): review workbook + fail-loud Corrected Bare 
 `build_alias(fieldmap_for_table, accept_confidence)` → `{applaud_bare_upper: oracle_key_upper}`.
 Default gate `confirmed` (only `origin=confirmed`). A tier name (`HIGH`/`PROBABLE`/`WEAK`) additionally admits `origin=derived` rows at or above that tier — a pre-review noise-reduction pass. `rejected` rows are never aliased.
 
+> **Deferred (Pass-1 audit LOW #5, not required for the pilot):** if a confirmed row's
+> `oracle_key` also exists verbatim as another column's bare in the same table (only possible via a
+> stale map after a rename), aliasing yields two columns with the same bare. A cheap future guard
+> is to have `build_alias` warn on such a collision. Out of scope here; recorded so it isn't lost.
+
 - [ ] **Step 1: Write the failing tests**
 
 Append to `tests/test_correspondence.py`:
@@ -1132,7 +1257,20 @@ def test_rejected_key_annotates_finding_without_changing_severity(tmp_path):
             and f.oracle_field == "PROCUREMENT_BU" and f.current_value == "absent"]
     assert len(miss) == 1
     assert miss[0].severity == "HIGH"                  # unchanged
-    assert "Reviewed" in miss[0].notes                 # provenance note added
+    assert "Reviewed" in miss[0].notes                 # provenance note on the in-memory finding
+
+    # Pass-1 audit §1.2 (BLOCKER): the provenance must reach the WRITTEN workbook, not just
+    # live in memory. Re-open out.xlsx and confirm the note lands in the 'Notes' column.
+    from openpyxl import load_workbook
+    wb = load_workbook(out)
+    ws = wb["Findings"] if "Findings" in wb.sheetnames else wb.active
+    header = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    notes_idx = header.index("Notes")
+    oracle_idx = header.index("Oracle Field")
+    written = [row[notes_idx] for row in ws.iter_rows(min_row=2, values_only=True)
+               if row[oracle_idx] == "PROCUREMENT_BU"]
+    wb.close()
+    assert any(n and "Reviewed" in n for n in written)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1214,13 +1352,19 @@ loop ends, after the Dim 6b `findings += check_release_delta(...)` call), annota
 findings added during this table's iteration:
 
 ```python
-        # Provenance for reviewer-rejected keys (audit §4.2): note, don't suppress.
+        # Provenance for reviewer-rejected keys (audit §4.2 + §2.3): annotate EVERY
+        # missing-field finding produced during this table's iteration — Dim 4-TABLE AND
+        # the Dim 2-IF / 3-EF coverage findings (which carry the IF/EF object name, not
+        # table_name), so the same key is never shown as both reviewed and unreviewed
+        # across dimensions. APPEND to any existing note rather than discarding it.
+        # `Finding` is a mutable dataclass with a `notes` field and the writer emits a
+        # 'Notes' column (verified — audit_applaud.py:62-79, 445-456), so this reaches
+        # the written workbook (asserted by test_rejected_key_annotates...).
         if rejected_keys:
+            _note = "Reviewed — confirmed no Applaud counterpart"
             for f in findings[n_before:]:
-                if (f.applaud_object_name == table_name and f.current_value == "absent"
-                        and f.oracle_field.upper() in rejected_keys):
-                    f.notes = ("Reviewed — confirmed no Applaud counterpart"
-                               if not f.notes else f.notes)
+                if f.current_value == "absent" and f.oracle_field.upper() in rejected_keys:
+                    f.notes = f"{f.notes}; {_note}" if f.notes else _note
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1256,8 +1400,12 @@ candidate pool inherits a clean column set.
 
 Append to `tests/test_applaud_snapshot.py` (match the existing import style in that file):
 
+`build_table`'s signature is verified — `build_table(name, prefix, prefix_fallback, description,
+key_seqs, raw_columns, dd_by_ddid)` at `fbdi/applaud_snapshot.py:151-154` (7 positional args, audit
+LOW #7); the calls below match it.
+
 ```python
-from fbdi.applaud_snapshot import build_table, build_file_fields, _strip_prefix
+from fbdi.applaud_snapshot import build_table, _strip_prefix
 
 
 def test_strip_prefix_is_prefix_aware_never_mangles_nonprefix():
@@ -1344,6 +1492,20 @@ def _snapshot_with_procurement_sites():
     t = SnapshotTable("T_POZ_SUPPLIER_SITES_INT", "T09", False, "(T09)", [], [col])
     return ApplaudSnapshot("ORACLE_MASTER", "x", "2026-06-11", "t",
                            tables={"T_POZ_SUPPLIER_SITES_INT": t})
+
+
+def test_assemble_merges_multiple_tabs_to_one_table():
+    # Pass-1 audit §2.2: two (template, tab) rows mapping to ONE Applaud table must MERGE
+    # their Oracle keys, not overwrite — both tabs' divergent fields enter the pool.
+    snap = _snapshot_with_procurement_sites()
+    catalog = {("PO_TPL", "Suppliers"): [_of("PROCUREMENT_BU")],
+               ("PO_TPL", "Addresses"): [_of("REMIT_ADVICE_DELIVERY")]}
+    mapping = {("PO_TPL", "Suppliers"): {"applaud_table": "T_POZ_SUPPLIER_SITES_INT"},
+               ("PO_TPL", "Addresses"): {"applaud_table": "T_POZ_SUPPLIER_SITES_INT"}}
+    inputs = assemble_derivation_inputs(snap, catalog, mapping)
+    _prefix, oracle_by_key, _cols = inputs["T_POZ_SUPPLIER_SITES_INT"]
+    assert "PROCUREMENT_BU" in oracle_by_key      # from the Suppliers tab
+    assert "REMIT_ADVICE_DELIVERY" in oracle_by_key  # from the Addresses tab — NOT dropped
 ```
 
 (`_of` is already defined in the test file from Task 3.)
@@ -1364,7 +1526,14 @@ def assemble_derivation_inputs(
 ) -> dict[str, tuple[str | None, dict[str, AlignedField], list[DataColumn]]]:
     """Group the audit's (template, tab)->table chain into per-table derivation inputs:
     {applaud_table: (prefix, {oracle_match_key: AlignedField}, [DataColumn, ...])}.
-    Mirrors run_audit's loop so derivation sees exactly the audit's column set."""
+    Mirrors run_audit's loop so derivation sees exactly the audit's column set.
+
+    When several (template, tab) rows map to ONE Applaud table (the known multi-mapping
+    rows from the first-pass mapping audit), MERGE their Oracle keys rather than
+    overwrite (audit §2.2) — otherwise only the last tab's divergent fields would ever
+    get correspondence candidates, so the derivation would be lossier than the audit it
+    serves. Tables with no catalog fields or no snapshot entry are skipped with an INFO
+    log (audit LOW #6) so an empty review workbook is explainable."""
     from fbdi.audit_applaud import oracle_match_key
     out: dict[str, tuple[str | None, dict[str, AlignedField], list[DataColumn]]] = {}
     for (template, tab), info in mapping.items():
@@ -1374,10 +1543,20 @@ def assemble_derivation_inputs(
         oracle_fields = catalog.get((template, tab), [])
         table = snapshot.tables.get(table_name)
         if not oracle_fields or table is None:
+            logger.info("correspondence: skipping (%s, %s) -> %s — %s.",
+                        template, tab, table_name,
+                        "no catalog fields" if not oracle_fields else "no snapshot table")
             continue
         oracle_by_key = {oracle_match_key(f): f for f in oracle_fields if oracle_match_key(f)}
-        prefix = table.prefix
-        out[table_name] = (prefix, oracle_by_key, list(table.columns))
+        if table_name in out:
+            prev_prefix, prev_keys, prev_cols = out[table_name]
+            if prev_prefix != table.prefix:
+                logger.warning("correspondence: prefix disagreement for %s (%r vs %r); "
+                               "keeping first.", table_name, prev_prefix, table.prefix)
+            prev_keys.update(oracle_by_key)             # merge this tab's keys (audit §2.2)
+            out[table_name] = (prev_prefix, prev_keys, prev_cols)
+        else:
+            out[table_name] = (table.prefix, oracle_by_key, list(table.columns))
     return out
 ```
 
@@ -1465,7 +1644,7 @@ def _run_correspondence_derive(args: argparse.Namespace) -> None:
     from fbdi.config import applaud_snapshot_path
     from fbdi.correspondence import (
         assemble_derivation_inputs, derive_correspondences, load_fieldmap_workbook,
-        write_review_workbook, ReviewRow, normalize_name,
+        write_review_workbook, ReviewRow,
     )
     from fbdi.audit_applaud import expected_shape, actual_shape
 
@@ -1528,7 +1707,7 @@ def _run_correspondence_confirm(args: argparse.Namespace) -> None:
     from fbdi.config import applaud_snapshot_path
     from fbdi.correspondence import (
         load_review_workbook, apply_review_decisions, InvalidCorrectedBareError,
-        load_fieldmap_workbook, merge_fieldmap, write_fieldmap_workbook,
+        load_fieldmap_workbook, merge_decisions, write_fieldmap_workbook,
     )
     if not args.review.is_file():
         print(f"Error: review workbook not found: {args.review}"); sys.exit(1)
@@ -1546,7 +1725,7 @@ def _run_correspondence_confirm(args: argparse.Namespace) -> None:
         print(f"Error: {exc}"); sys.exit(1)
 
     committed = load_fieldmap_workbook(args.fieldmap) if args.fieldmap.exists() else {}
-    merged = merge_fieldmap(decisions, committed)
+    merged = merge_decisions(decisions, committed)   # confirm-time: new decisions win (audit §1.1)
     flat = [fc for rows in merged.values() for fc in rows]
     write_fieldmap_workbook(flat, args.fieldmap)
     n_conf = sum(1 for fc in flat if fc.origin == "confirmed")
@@ -1628,7 +1807,7 @@ listed for the operator, not the implementing agent:
 
 **Spec coverage (spec §§1-11 as amended by the audit):**
 - §3 three-phase command model → Task 9 (`correspondence-derive` / `-confirm`; `audit-applaud --fieldmap`). ✓
-- §4 module + reuse of `expected_shape`/`actual_shape`/`_lcs_match`; no top-level import cycle (build_alias imported inside `run_audit`) → Tasks 2-6, 7. ✓
+- §4 module + reuse of `expected_shape`/`actual_shape`; no top-level import cycle (build_alias imported inside `run_audit`) → Tasks 2-6, 7. (Position is a simple weak order-agreement gradient, not `_lcs_match` — the unused import was removed per Pass-1 audit §2.4.) ✓
 - §5 derivation ladder: exact pre-pass, full squash (§2.3), truncation window `30-len(prefix)` (§2.1), digit-run (§1.1), abbreviation seed (§8.3), char-vs-numeric veto + `U→char` (§1.2), weak position (§2.4), tiers, bijection (§8.5) → Tasks 1-3. ✓
 - §6 committed map + review workbook + merge precedence + Corrected-Bare fail-loud (§4.1) → Tasks 4-5. ✓
 - §7 audit integration: alias bare only, DDID untouched, default gate confirmed, sizing side-benefit, rejected provenance (§4.2) → Task 7. ✓
@@ -1647,3 +1826,14 @@ verification (PR #3 workbook scan + reading `applaud_snapshot.py:126,163-179`) s
 already excludes it correctly — zero `HANTOM` findings. Task 8 therefore locks in the existing
 behavior rather than fixing a non-existent bug, and `derive_table_correspondences` adds a
 defensive `_candidate_excluded` guard so the candidate pool is clean even if fed raw columns.
+
+**Pass-1 plan-audit resolutions (`AUDIT_RESULTS_field-correspondence_plan_pass1.md`):**
+- §1.1 BLOCKER — confirm-time merge precedence: added `merge_decisions` (incoming decisions win) wired into `correspondence-confirm`; kept `merge_fieldmap` (committed wins) for derive-time idempotence; `load_fieldmap_workbook` drops stray `derived` rows. Tests `test_confirm_overrides_prior_decision`, `test_merge_decisions_carries_forward_untouched_committed`, `test_load_fieldmap_drops_stray_derived_rows` → Task 4. ✓
+- §1.2 BLOCKER — rejected provenance to the written workbook: verified `Finding.notes` + the writer's `Notes` column already exist; Task 7 test re-opens `out.xlsx` and asserts the note in the `Notes` cell. ✓
+- §2.1 — score from the match key, not `of.technical`: `score_candidate` now takes `oracle_key`; `test_score_uses_match_key_not_technical` → Task 3. ✓
+- §2.2 — multi-tab→one-table merge in `assemble_derivation_inputs`; `test_assemble_merges_multiple_tabs_to_one_table` → Task 9. ✓
+- §2.3 — rejected-annotation drops the object-name condition (covers Dim 2-IF/3-EF) and appends notes → Task 7. ✓
+- §2.4 — removed the unused `_lcs_match` import + dead `o_order`/`a_order`; position gradient now scores over the row-sorted residual columns → Task 3. ✓
+- LOW #1 bijection test now exercises a real two-way contest; #2 truncated-`FLA` test added; #3 oracle-key uppercase invariant stated + key set normalized once; #4 unused imports trimmed; #5 collision guard recorded as deferred; #6 INFO log on skipped tables; #7 `build_table` signature verified (7 positional args). ✓
+
+**Re-verified type consistency after Pass-1 edits:** `score_candidate(oracle_key, of, col, window, position_score)` — the new signature — is used identically at its definition (Task 3), the derive loop (Task 3), and both tests (`test_tiers_are_ordered_high_probable_weak`, `test_score_uses_match_key_not_technical`). `merge_decisions(decisions, committed)` matches between definition (Task 4) and use (`_run_correspondence_confirm`, Task 9). ✓
