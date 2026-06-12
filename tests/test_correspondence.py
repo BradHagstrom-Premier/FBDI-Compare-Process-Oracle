@@ -420,3 +420,11 @@ def test_build_alias_admits_derived_at_or_above_tier():
 def test_build_alias_never_aliases_rejected():
     rows = [_fc("T_POZ", "K1", "BARE", origin="rejected", conf="HIGH")]
     assert build_alias(rows, accept_confidence="WEAK") == {}
+
+
+def test_build_alias_tier_gate_extends_confirmed_not_replaces():
+    # A tier gate ADDS derived rows on top of confirmed rows — confirmed always aliases.
+    rows = [_fc("T_POZ", "K_CONF", "BARE_CONF", origin="confirmed", conf="WEAK"),
+            _fc("T_POZ", "K_DER", "BARE_DER", origin="derived", conf="HIGH")]
+    alias = build_alias(rows, accept_confidence="HIGH")
+    assert alias == {"BARE_CONF": "K_CONF", "BARE_DER": "K_DER"}
