@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from fbdi.applaud_snapshot import (
@@ -128,24 +130,37 @@ def test_strip_prefix_is_prefix_aware_never_mangles_nonprefix():
 
 
 def test_build_table_excludes_nonprefix_phantom_column(caplog):
+    # Audit §1.4 lock-in — near-twin of test_build_table_excludes_non_prefix_phantom_column
+    # (~line 100, one underscore different in name). That test confirms exclusion silently;
+    # this one additionally asserts that the X_PHANTOM exclusion is logged (and that no
+    # 'HANTOM' mis-strip appears), pinning both the exclusion and the log-emission path.
     raw_columns = [
         {"Row": 1, "DDID": "T91COMP_NAME", "ODBCName": None},
         {"Row": 2, "DDID": "X_PHANTOM", "ODBCName": None},   # non-prefix working column
     ]
     dd = {"T91COMP_NAME": {"DataType": "X", "Size": 100, "DecPlaces": None}}
-    table = build_table("T_EGP_COMPONENTS_INTERFACE", "T91", False,
-                        "(T91)", [], raw_columns, dd)
+    with caplog.at_level(logging.INFO, logger="fbdi.applaud_snapshot"):
+        table = build_table("T_EGP_COMPONENTS_INTERFACE", "T91", False,
+                            "(T91)", [], raw_columns, dd)
     bares = {c.bare for c in table.columns}
     assert bares == {"COMP_NAME"}                 # X_PHANTOM dropped, no 'HANTOM'
     assert all("HANTOM" not in c.bare for c in table.columns)
+    assert any("X_PHANTOM" in r.message for r in caplog.records), (
+        "Expected build_table to log exclusion of X_PHANTOM"
+    )
 
 
 def test_build_table_excludes_audit_fields():
     raw_columns = [
         {"Row": 1, "DDID": "T91COMP_NAME", "ODBCName": None},
+        # @T91LEGACY_AUDIT is in dd so it would pass the non-prefix phantom check;
+        # the ONLY thing excluding it is the is_audit_field(@) gate.
         {"Row": 2, "DDID": "@T91LEGACY_AUDIT", "ODBCName": None},
     ]
-    dd = {"T91COMP_NAME": {"DataType": "X", "Size": 100, "DecPlaces": None}}
+    dd = {
+        "T91COMP_NAME": {"DataType": "X", "Size": 100, "DecPlaces": None},
+        "@T91LEGACY_AUDIT": {"DataType": "X", "Size": 1, "DecPlaces": None},
+    }
     table = build_table("T_EGP_COMPONENTS_INTERFACE", "T91", False,
                         "(T91)", [], raw_columns, dd)
     assert [c.ddid for c in table.columns] == ["T91COMP_NAME"]
