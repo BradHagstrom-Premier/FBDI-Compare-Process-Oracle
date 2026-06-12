@@ -393,3 +393,30 @@ def test_load_fieldmap_warns_on_stray_derived_rows(tmp_path, caplog):
     keys = {fc.oracle_key for fc in loaded.get("T_POZ", [])}
     assert keys == {"GOOD_KEY"}
     assert any("STRAY_KEY" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Task 6: build_alias resolver + confidence gate
+# ---------------------------------------------------------------------------
+
+from fbdi.correspondence import build_alias
+
+
+def test_build_alias_confirmed_only_by_default():
+    rows = [_fc("T_POZ", "PROCUREMENT_BU", "PROCUREMENT_BUSINESSUNITNAM",
+                origin="confirmed"),
+            _fc("T_POZ", "OTHER_KEY", "OTHER_BARE", origin="derived", conf="HIGH")]
+    alias = build_alias(rows, accept_confidence="confirmed")
+    assert alias == {"PROCUREMENT_BUSINESSUNITNAM": "PROCUREMENT_BU"}
+
+
+def test_build_alias_admits_derived_at_or_above_tier():
+    rows = [_fc("T_POZ", "K1", "BARE_HIGH", origin="derived", conf="HIGH"),
+            _fc("T_POZ", "K2", "BARE_WEAK", origin="derived", conf="WEAK")]
+    alias = build_alias(rows, accept_confidence="HIGH")
+    assert alias == {"BARE_HIGH": "K1"}   # WEAK excluded
+
+
+def test_build_alias_never_aliases_rejected():
+    rows = [_fc("T_POZ", "K1", "BARE", origin="rejected", conf="HIGH")]
+    assert build_alias(rows, accept_confidence="WEAK") == {}

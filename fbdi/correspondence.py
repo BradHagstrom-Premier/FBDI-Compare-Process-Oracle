@@ -499,3 +499,31 @@ def apply_review_decisions(
                 r.confirm, r.applaud_table, r.oracle_key)
         # blank Confirm? + no Corrected Bare -> undecided, skip silently
     return out
+
+
+# ---------------------------------------------------------------------------
+# Alias resolver
+# ---------------------------------------------------------------------------
+
+def build_alias(fieldmap_for_table: list[FieldCorrespondence],
+                accept_confidence: str = "confirmed") -> dict[str, str]:
+    """Resolve a table's field map into {applaud_bare_upper: oracle_key_upper}.
+
+    'confirmed' (default): only origin=confirmed rows. A tier name ('HIGH' /
+    'PROBABLE' / 'WEAK') additionally admits origin=derived rows at or above that
+    tier (pre-review pass). origin=rejected is never aliased."""
+    tier_rank = {name: i for i, (name, _) in enumerate(TIER_BANDS)}  # HIGH=0 best
+    gate = (accept_confidence or "confirmed").strip()
+    alias: dict[str, str] = {}
+    for fc in fieldmap_for_table:
+        if fc.origin == "rejected" or not fc.applaud_bare:
+            continue
+        if fc.origin == "confirmed":
+            admit = True
+        elif gate == "confirmed":
+            admit = False
+        else:
+            admit = tier_rank.get(fc.confidence, 99) <= tier_rank.get(gate, -1)
+        if admit:
+            alias[fc.applaud_bare.upper()] = fc.oracle_key.upper()
+    return alias
