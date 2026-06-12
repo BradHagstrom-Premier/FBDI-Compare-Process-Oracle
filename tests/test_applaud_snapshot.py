@@ -3,7 +3,7 @@ import pytest
 from fbdi.applaud_snapshot import (
     DataColumn, FileField, SnapshotTable, ApplaudSnapshot,
     assert_complete, build_file_fields, build_table, is_audit_field,
-    SnapshotIncompleteError,
+    SnapshotIncompleteError, _strip_prefix,
 )
 
 
@@ -114,3 +114,38 @@ def test_build_table_excludes_non_prefix_phantom_column():
                         description="T_EGP_COMPONENTS_INTF (T91)", key_seqs=[],
                         raw_columns=raw_cols, dd_by_ddid=dd_by_ddid)
     assert [c.bare for c in table.columns] == ["ASSEMBLY_ITEM_NUMBER"]   # X_PHANTOM excluded
+
+
+# ---------------------------------------------------------------------------
+# Audit §1.4 (corrected) lock-in tests — pin already-correct behavior so a
+# future refactor cannot reintroduce the HANTOM mis-strip regression.
+# ---------------------------------------------------------------------------
+
+def test_strip_prefix_is_prefix_aware_never_mangles_nonprefix():
+    # Audit §1.4 (corrected): a non-prefix name is returned unchanged, NOT 'HANTOM'.
+    assert _strip_prefix("X_PHANTOM", "T91") == "X_PHANTOM"
+    assert _strip_prefix("T91COMP_NAME", "T91") == "COMP_NAME"
+
+
+def test_build_table_excludes_nonprefix_phantom_column(caplog):
+    raw_columns = [
+        {"Row": 1, "DDID": "T91COMP_NAME", "ODBCName": None},
+        {"Row": 2, "DDID": "X_PHANTOM", "ODBCName": None},   # non-prefix working column
+    ]
+    dd = {"T91COMP_NAME": {"DataType": "X", "Size": 100, "DecPlaces": None}}
+    table = build_table("T_EGP_COMPONENTS_INTERFACE", "T91", False,
+                        "(T91)", [], raw_columns, dd)
+    bares = {c.bare for c in table.columns}
+    assert bares == {"COMP_NAME"}                 # X_PHANTOM dropped, no 'HANTOM'
+    assert all("HANTOM" not in c.bare for c in table.columns)
+
+
+def test_build_table_excludes_audit_fields():
+    raw_columns = [
+        {"Row": 1, "DDID": "T91COMP_NAME", "ODBCName": None},
+        {"Row": 2, "DDID": "@T91LEGACY_AUDIT", "ODBCName": None},
+    ]
+    dd = {"T91COMP_NAME": {"DataType": "X", "Size": 100, "DecPlaces": None}}
+    table = build_table("T_EGP_COMPONENTS_INTERFACE", "T91", False,
+                        "(T91)", [], raw_columns, dd)
+    assert [c.ddid for c in table.columns] == ["T91COMP_NAME"]
