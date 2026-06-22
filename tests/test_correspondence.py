@@ -428,3 +428,25 @@ def test_build_alias_tier_gate_extends_confirmed_not_replaces():
             _fc("T_POZ", "K_DER", "BARE_DER", origin="derived", conf="HIGH")]
     alias = build_alias(rows, accept_confidence="HIGH")
     assert alias == {"BARE_CONF": "K_CONF", "BARE_DER": "K_DER"}
+
+
+# ---------------------------------------------------------------------------
+# Review note #1: Y-confirmed rows fold provenance into notes
+# ---------------------------------------------------------------------------
+
+def test_apply_confirm_yes_folds_provenance_into_notes(tmp_path):
+    # Carried review note #1: Y-confirmed FieldCorrespondence must carry provenance in
+    # .notes so write_fieldmap_workbook can persist it (Notes column). The score/signals
+    # live in memory only; the workbook has no Score/Signals columns.
+    rows = [_review("T_POZ", "PROCUREMENT_BU", "PROCUREMENT_BUSINESSUNITNAM", confirm="Y")]
+    valid = {"T_POZ": {"PROCUREMENT_BUSINESSUNITNAM"}}
+    out = apply_review_decisions(rows, valid)
+    assert "HIGH" in out[0].notes
+    assert "name=0.80" in out[0].notes
+
+    # Round-trip persistence: write -> reload -> notes survives.
+    write_fieldmap_workbook(out, tmp_path / "fm.xlsx")
+    reloaded = load_fieldmap_workbook(tmp_path / "fm.xlsx")
+    reloaded_row = reloaded["T_POZ"][0]
+    assert "HIGH" in reloaded_row.notes
+    assert "name=0.80" in reloaded_row.notes

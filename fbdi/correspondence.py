@@ -480,11 +480,12 @@ def apply_review_decisions(
                 applaud_bare=canonical_map[upper_corrected], applaud_ddid="",
                 confidence="HIGH", origin="confirmed", notes="reviewer-corrected"))
         elif r.confirm.upper() == "Y":
+            notes = f"confirmed at {r.confidence}" + (f"; {r.signals}" if r.signals else "")
             out.append(FieldCorrespondence(
                 applaud_table=r.applaud_table, oracle_key=r.oracle_key,
                 applaud_bare=r.candidate_bare, applaud_ddid=r.applaud_ddid,
                 confidence=r.confidence, origin="confirmed", score=r.score,
-                signals=r.signals))
+                signals=r.signals, notes=notes))
         elif r.confirm.upper() == "N":
             out.append(FieldCorrespondence(
                 applaud_table=r.applaud_table, oracle_key=r.oracle_key,
