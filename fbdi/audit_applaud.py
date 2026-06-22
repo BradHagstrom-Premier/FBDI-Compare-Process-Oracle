@@ -14,7 +14,9 @@ Matching notes (verified live against ORACLE_MASTER):
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,6 +30,7 @@ from fbdi.applaud_type import applaud_type_for
 from fbdi.audit import _style_header_row, _label_to_technical
 from fbdi.type_parser import ParsedType
 
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Mapping filter (--tables scope support)
@@ -132,10 +135,11 @@ def expected_shape(of: AlignedField) -> Shape:
 
 
 def actual_shape(col: DataColumn) -> Shape:
-    """Applaud column's actual shape (class, size, scale) from its DataDictionary type
-    (X->char, N->numeric, else the lowercased code)."""
+    """Applaud column's actual shape (class, size, scale) from its DataDictionary type.
+    X and U (Unicode text, audit §1.2) -> char; N -> numeric; else the lowercased code
+    (e.g. D -> 'd' for DATE columns)."""
     dt = (col.data_type or "").strip().upper()
-    if dt == "X":
+    if dt in ("X", "U"):
         return ("char", col.size, None)
     if dt == "N":
         return ("numeric", col.size, col.dec_places)
@@ -517,9 +521,24 @@ def run_audit(snapshot: ApplaudSnapshot,
               release: str,
               release_changes: dict[tuple[str, str], list[Change]],
               out_path: Path,
-              old_release: str | None = None) -> list[Finding]:
+              old_release: str | None = None,
+              fieldmap: dict[str, list] | None = None,
+              accept_confidence: str = "confirmed") -> list[Finding]:
     """Run all dimension checks over the mapped (template, tab)->table chain and write the
-    findings workbook. Returns the flat findings list. `old_release` (optional) enables Dim 6b."""
+    findings workbook. Returns the flat findings list. `old_release` (optional) enables Dim 6b.
+    `fieldmap` (optional) maps table_name -> list[FieldCorrespondence] for field aliasing.
+    `accept_confidence` controls the gate passed to build_alias ('confirmed' | 'HIGH' | 'PROBABLE' | 'WEAK')."""
+    _RECOGNIZED_GATES = {"confirmed", "HIGH", "PROBABLE", "WEAK"}
+    if accept_confidence not in _RECOGNIZED_GATES:
+        logger.warning(
+            "run_audit: unrecognized accept_confidence=%r (expected one of %s); "
+            "aliasing will degrade to confirmed-only.",
+            accept_confidence, sorted(_RECOGNIZED_GATES))
+
+    # Function-local (NOT module-level) to avoid a circular import: correspondence
+    # imports expected_shape/actual_shape from this module. Used in the per-table loop.
+    from fbdi.correspondence import build_alias
+
     findings: list[Finding] = []
     mapped_tables: set[str] = set()
     appmap_pairs: dict[str, tuple[list[str], list[str]]] = {}
@@ -532,6 +551,24 @@ def run_audit(snapshot: ApplaudSnapshot,
         if not oracle_fields:
             continue
         table = snapshot.tables.get(table_name)
+
+        # --- Field-correspondence aliasing (spec §7) -------------------------
+        # Alias the Applaud *bare* side so the four checks below match renamed
+        # fields. DDID is left untouched (Dim 5 orphans match on DDID).
+        fm_rows = (fieldmap or {}).get(table_name, [])
+        alias = build_alias(fm_rows, accept_confidence) if fm_rows else {}
+        rejected_keys = {r.oracle_key.upper() for r in fm_rows
+                         if getattr(r, "origin", "") == "rejected"}
+
+        def _aliased(seq):
+            return [dataclasses.replace(c, bare=alias.get(c.bare.upper(), c.bare))
+                    for c in seq]
+
+        if table is not None and alias:
+            table = dataclasses.replace(table, columns=_aliased(table.columns))
+        # ---------------------------------------------------------------------
+
+        n_before = len(findings)
         row = appmap.get(table_name)
         mapped_tables.add(table_name)
         ifs = row.import_files if row else []
@@ -546,14 +583,16 @@ def run_audit(snapshot: ApplaudSnapshot,
             findings += check_table_coverage(template, tab, table_name, oracle_fields, table.columns)
 
         for if_name in ifs:
-            if_fields = snapshot.imports.get(if_name, [])
+            if_fields = _aliased(snapshot.imports.get(if_name, [])) if alias \
+                else snapshot.imports.get(if_name, [])
             findings += check_file_coverage(template, tab, if_name, "IMPORT", "2-IF",
                                             oracle_fields, if_fields)
             if table is not None:
                 findings += check_orphans(template, tab, table_name, if_name, "IMPORT",
                                           table.columns, if_fields)
         for ef_name in efs:
-            ef_fields = snapshot.exports.get(ef_name, [])
+            ef_fields = _aliased(snapshot.exports.get(ef_name, [])) if alias \
+                else snapshot.exports.get(ef_name, [])
             findings += check_file_coverage(template, tab, ef_name, "EXPORT", "3-EF",
                                             oracle_fields, ef_fields)
             if table is not None:
@@ -569,6 +608,20 @@ def run_audit(snapshot: ApplaudSnapshot,
             findings += check_release_delta(template, tab, table_name, changes,
                                             applaud_bares, old_release=(old_release or "(prior)"),
                                             new_release=release)
+
+        # Provenance for reviewer-rejected keys (audit §4.2 + §2.3): annotate EVERY
+        # missing-field finding produced during this table's iteration — Dim 4-TABLE AND
+        # the Dim 2-IF / 3-EF coverage findings (which carry the IF/EF object name, not
+        # table_name), so the same key is never shown as both reviewed and unreviewed
+        # across dimensions. APPEND to any existing note rather than discarding it.
+        # `Finding` is a mutable dataclass with a `notes` field and the writer emits a
+        # 'Notes' column (verified — audit_applaud.py:62-79, 445-456), so this reaches
+        # the written workbook (asserted by test_rejected_key_annotates...).
+        if rejected_keys:
+            _note = "Reviewed — confirmed no Applaud counterpart"
+            for f in findings[n_before:]:
+                if f.current_value == "absent" and f.oracle_field.upper() in rejected_keys:
+                    f.notes = f"{f.notes}; {_note}" if f.notes else _note
 
     findings += check_unmapped(set(snapshot.tables), mapped_tables)
     coverage = coverage_gaps(mapped_tables, appmap_pairs)

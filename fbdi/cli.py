@@ -169,11 +169,45 @@ def main(argv: list[str] | None = None) -> None:
     audit_applaud_parser.add_argument("--appmap", type=Path,
                                       default=Path("FBDI_to_Applaud_AppMap.xlsx"))
     audit_applaud_parser.add_argument("--output", type=Path, default=None)
+    audit_applaud_parser.add_argument("--fieldmap", type=Path,
+                                      default=Path("FBDI_to_Applaud_FieldMap.xlsx"),
+                                      help="Committed Oracle<->Applaud field map (loaded if present)")
+    audit_applaud_parser.add_argument("--accept-confidence", default="confirmed",
+                                      choices=["confirmed", "HIGH", "PROBABLE", "WEAK"],
+                                      help="Minimum origin/tier to alias (default: confirmed). The "
+                                           "committed field map holds only confirmed/rejected rows, so "
+                                           "HIGH/PROBABLE/WEAK currently behave the same as 'confirmed' "
+                                           "(tier gates apply only to derived rows, which the committed "
+                                           "map never stores).")
     audit_applaud_parser.add_argument(
         "--tables", default=None,
         help="Comma-separated Applaud target tables to scope the audit to "
              "(e.g. T_BANKS_BRANCHES,T_AP_INVOICE_INT). Omit to audit the full mapping. "
              "An unknown table name fails loud.")
+
+    corr_derive_parser = subparsers.add_parser(
+        "correspondence-derive",
+        help="Propose Oracle<->Applaud field correspondences into a review workbook")
+    corr_derive_parser.add_argument("--release", required=True, help="Release tag, e.g. 26B")
+    corr_derive_parser.add_argument("--system", default="ORACLE_MASTER")
+    corr_derive_parser.add_argument("--catalog", type=Path,
+                                    default=Path("FBDI_Master_Catalog.xlsx"))
+    corr_derive_parser.add_argument("--mapping", type=Path,
+                                    default=Path("FBDI_to_ApplaudTables_Mapping.xlsx"))
+    corr_derive_parser.add_argument("--map", dest="fieldmap", type=Path,
+                                    default=Path("FBDI_to_Applaud_FieldMap.xlsx"),
+                                    help="Committed field map; already-decided pairs are skipped")
+    corr_derive_parser.add_argument("--tables", default=None,
+                                    help="Comma-separated Applaud target tables to scope to")
+    corr_derive_parser.add_argument("--output", type=Path, default=None)
+
+    corr_confirm_parser = subparsers.add_parser(
+        "correspondence-confirm",
+        help="Merge reviewer decisions from a review workbook into the committed field map")
+    corr_confirm_parser.add_argument("--review", type=Path, required=True)
+    corr_confirm_parser.add_argument("--system", default="ORACLE_MASTER")
+    corr_confirm_parser.add_argument("--map", dest="fieldmap", type=Path,
+                                     default=Path("FBDI_to_Applaud_FieldMap.xlsx"))
 
     args = parser.parse_args(argv)
 
@@ -193,6 +227,10 @@ def main(argv: list[str] | None = None) -> None:
         _run_report(args)
     elif args.command == "audit-applaud":
         _run_audit_applaud(args)
+    elif args.command == "correspondence-derive":
+        _run_correspondence_derive(args)
+    elif args.command == "correspondence-confirm":
+        _run_correspondence_confirm(args)
 
 
 def _run_compare(args: argparse.Namespace) -> None:
@@ -486,7 +524,7 @@ def _run_audit_applaud(args: argparse.Namespace) -> None:
     mapping = load_mapping(args.mapping)
     if args.tables:
         from fbdi.audit_applaud import filter_mapping_to_tables, UnknownTableError
-        names = [t for t in args.tables.split(",") if t.strip()]
+        names = [t.strip() for t in args.tables.split(",") if t.strip()]
         if not names:
             print("Error: --tables must list at least one table name "
                   "(got empty/whitespace-only input).")
@@ -500,6 +538,9 @@ def _run_audit_applaud(args: argparse.Namespace) -> None:
               f"table(s) via --tables.")
     appmap = load_appmap_workbook(args.appmap) if args.appmap.exists() else {}
 
+    from fbdi.correspondence import load_fieldmap_workbook
+    fieldmap = load_fieldmap_workbook(args.fieldmap) if args.fieldmap.exists() else None
+
     release_changes = {}
     if old_release:
         try:
@@ -512,6 +553,109 @@ def _run_audit_applaud(args: argparse.Namespace) -> None:
     out = args.output or Path(f"Applaud_Compliance_Report_{release}_{args.system}.xlsx")
 
     findings = run_audit(snapshot, catalog, mapping, appmap, release=release,
-                         release_changes=release_changes, out_path=out, old_release=old_release)
+                         release_changes=release_changes, out_path=out, old_release=old_release,
+                         fieldmap=fieldmap, accept_confidence=args.accept_confidence)
     print(f"Findings: {len(findings)}  (HIGH={sum(1 for f in findings if f.severity=='HIGH')})")
     print(f"Output written to: {out}")
+
+
+def _run_correspondence_derive(args: argparse.Namespace) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(message)s")
+    from fbdi.applaud_snapshot import ApplaudSnapshot
+    from fbdi.report import load_catalog_release, load_mapping
+    from fbdi.config import applaud_snapshot_path
+    from fbdi.correspondence import (
+        assemble_derivation_inputs, derive_correspondences, load_fieldmap_workbook,
+        write_review_workbook, ReviewRow,
+    )
+    from fbdi.audit_applaud import expected_shape, actual_shape
+
+    snap_path = applaud_snapshot_path(args.system)
+    if not snap_path.exists():
+        print(f"Error: snapshot not found: {snap_path}. Run Step A extraction first.")
+        sys.exit(1)
+    snapshot = ApplaudSnapshot.load(snap_path)
+    release = args.release.upper()
+    try:
+        catalog = load_catalog_release(args.catalog, release)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+    mapping = load_mapping(args.mapping)
+    if args.tables:
+        from fbdi.audit_applaud import filter_mapping_to_tables, UnknownTableError
+        names = [t.strip() for t in args.tables.split(",") if t.strip()]
+        try:
+            mapping = filter_mapping_to_tables(mapping, names)
+        except UnknownTableError as exc:
+            print(f"Error: {exc}")
+            sys.exit(1)
+
+    committed = load_fieldmap_workbook(args.fieldmap) if args.fieldmap.exists() else {}
+    decided = {(t, fc.oracle_key) for t, rows in committed.items() for fc in rows}
+
+    inputs = assemble_derivation_inputs(snapshot, catalog, mapping)
+    derived = derive_correspondences(inputs, decided)
+
+    # exact_counts for the reviewer's denominator context (audit §6).
+    exact_counts: dict[str, tuple[int, int]] = {}
+    for table, (_prefix, oracle_by_key, cols) in inputs.items():
+        bares = {c.bare.upper() for c in cols}
+        exact = sum(1 for k in oracle_by_key if k.upper() in bares)
+        exact_counts[table] = (exact, len(oracle_by_key))
+
+    col_by_table_bare = {(t, c.bare): c for t, (_, _, cols) in inputs.items() for c in cols}
+    of_by_table_key = {(t, k): of for t, (_, obk, _) in inputs.items()
+                       for k, of in obk.items()}
+
+    rows: list[ReviewRow] = []
+    for fc in derived:
+        of = of_by_table_key.get((fc.applaud_table, fc.oracle_key))
+        col = col_by_table_bare.get((fc.applaud_table, fc.applaud_bare))
+        rows.append(ReviewRow(
+            applaud_table=fc.applaud_table, oracle_key=fc.oracle_key,
+            oracle_type=" ".join(str(x) for x in expected_shape(of) if x not in (None, "")) if of else "",
+            candidate_bare=fc.applaud_bare, applaud_ddid=fc.applaud_ddid,
+            applaud_type=" ".join(str(x) for x in actual_shape(col) if x not in (None, "")) if col else "",
+            confidence=fc.confidence, score=fc.score, signals=fc.signals, alternatives=""))
+
+    out = args.output or Path(f"Applaud_FieldMap_Review_{release}_{args.system}.xlsx")
+    write_review_workbook(rows, out, exact_counts=exact_counts)
+    print(f"Derived {len(rows)} candidate correspondence(s) across "
+          f"{len(inputs)} table(s). Review workbook: {out}")
+
+
+def _run_correspondence_confirm(args: argparse.Namespace) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(message)s")
+    from fbdi.applaud_snapshot import ApplaudSnapshot
+    from fbdi.config import applaud_snapshot_path
+    from fbdi.correspondence import (
+        load_review_workbook, apply_review_decisions, InvalidCorrectedBareError,
+        load_fieldmap_workbook, merge_decisions, write_fieldmap_workbook,
+    )
+    if not args.review.is_file():
+        print(f"Error: review workbook not found: {args.review}")
+        sys.exit(1)
+    snap_path = applaud_snapshot_path(args.system)
+    if not snap_path.exists():
+        print(f"Error: snapshot not found: {snap_path}.")
+        sys.exit(1)
+    snapshot = ApplaudSnapshot.load(snap_path)
+    valid_bares = {name: {c.bare for c in t.columns}
+                   for name, t in snapshot.tables.items()}
+
+    review_rows = load_review_workbook(args.review)
+    try:
+        decisions = apply_review_decisions(review_rows, valid_bares)
+    except InvalidCorrectedBareError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+
+    committed = load_fieldmap_workbook(args.fieldmap) if args.fieldmap.exists() else {}
+    merged = merge_decisions(decisions, committed)   # confirm-time: new decisions win (audit §1.1)
+    flat = [fc for rows in merged.values() for fc in rows]
+    write_fieldmap_workbook(flat, args.fieldmap)
+    n_conf = sum(1 for fc in flat if fc.origin == "confirmed")
+    n_rej = sum(1 for fc in flat if fc.origin == "rejected")
+    print(f"Merged {len(decisions)} decision(s). Field map now: {n_conf} confirmed, "
+          f"{n_rej} rejected -> {args.fieldmap}")
