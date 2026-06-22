@@ -495,3 +495,50 @@ def test_apply_confirm_yes_folds_provenance_into_notes(tmp_path):
     reloaded_row = reloaded["T_POZ"][0]
     assert "HIGH" in reloaded_row.notes
     assert "name=0.80" in reloaded_row.notes
+
+
+# ---------------------------------------------------------------------------
+# Code-review (CodeRabbit) fixes
+# ---------------------------------------------------------------------------
+
+def test_load_fieldmap_rejects_reordered_headers(tmp_path):
+    # CR: positional parsing of a human-editable workbook must fail loud on a
+    # reordered/renamed/deleted header, not silently read wrong columns.
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Field Map"
+    ws.append(["Oracle Key", "Applaud Table", "Applaud Bare", "Applaud DDID",
+               "Confidence", "Origin", "Notes"])           # first two columns swapped
+    ws.append(["PROCUREMENT_BU", "T_POZ", "BARE", "T09BARE", "HIGH", "confirmed", ""])
+    path = tmp_path / "bad_fieldmap.xlsx"
+    wb.save(path)
+    with pytest.raises(ValueError):
+        load_fieldmap_workbook(path)
+
+
+def test_load_review_rejects_renamed_headers(tmp_path):
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Review"
+    ws.append(["Applaud Table", "Oracle Key", "Oracle Type", "Candidate Applaud Bare",
+               "Applaud DDID", "Applaud Type", "Confidence", "Score", "Signals",
+               "Conflicts/Alternatives", "Confirm?", "WRONG_NAME"])   # last column renamed
+    path = tmp_path / "bad_review.xlsx"
+    wb.save(path)
+    with pytest.raises(ValueError):
+        load_review_workbook(path)
+
+
+def test_build_alias_rejects_conflicting_bare_first_wins(caplog):
+    # CR / Pass-1 audit LOW #5: two admitted rows mapping the SAME bare to DIFFERENT
+    # oracle keys must not silently last-row-win — first wins, with a WARNING.
+    import logging
+    rows = [_fc("T_POZ", "OKEY_FIRST", "SAME_BARE", origin="confirmed"),
+            _fc("T_POZ", "OKEY_SECOND", "SAME_BARE", origin="confirmed")]
+    with caplog.at_level(logging.WARNING, logger="fbdi.correspondence"):
+        alias = build_alias(rows, accept_confidence="confirmed")
+    assert alias == {"SAME_BARE": "OKEY_FIRST"}            # first wins, not last
+    assert any("conflicting alias" in r.message and "SAME_BARE" in r.message
+               for r in caplog.records)

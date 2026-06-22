@@ -294,6 +294,20 @@ def write_fieldmap_workbook(rows: list[FieldCorrespondence], path: Path) -> None
     wb.save(path)
 
 
+def _validate_headers(ws, expected: list[str], path: Path) -> None:
+    """Fail loud if the worksheet's header row does not match `expected`.
+
+    Both loaders parse human-editable workbooks by fixed column position, so a
+    reordered/renamed/deleted column would otherwise be read as silently wrong data.
+    Compares only the first len(expected) header cells (stripped)."""
+    header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
+    actual = [(str(c).strip() if c is not None else "") for c in header_row][:len(expected)]
+    if actual != expected:
+        raise ValueError(
+            f"{path}: unexpected header row {actual!r}; expected {expected!r}. "
+            "Do not reorder, rename, or delete columns in the workbook.")
+
+
 def load_fieldmap_workbook(path: Path) -> dict[str, list[FieldCorrespondence]]:
     """Load the committed field map into {applaud_table: [FieldCorrespondence, ...]}.
 
@@ -303,9 +317,12 @@ def load_fieldmap_workbook(path: Path) -> dict[str, list[FieldCorrespondence]]:
 
     Duplicate (table, oracle_key) rows: the last row wins (matching dict-collapse
     behaviour downstream) and a WARNING is emitted so hand-edits that create
-    duplicates are never silent."""
+    duplicates are never silent.
+
+    Fails loud (ValueError) if the header row does not match `_FIELDMAP_HEADERS`."""
     wb = load_workbook(path, read_only=True, data_only=True)
     ws = wb["Field Map"] if "Field Map" in wb.sheetnames else wb.active
+    _validate_headers(ws, _FIELDMAP_HEADERS, path)
     # Use an ordered dict keyed by (table, oracle_key) so duplicate detection and
     # last-wins collapse happen in a single pass.
     seen: dict[tuple[str, str], FieldCorrespondence] = {}
@@ -424,9 +441,13 @@ def write_review_workbook(rows: list[ReviewRow], path: Path,
 
 
 def load_review_workbook(path: Path) -> list[ReviewRow]:
-    """Load reviewer decisions. Header-separator rows (a single '--- ...' cell) are skipped."""
+    """Load reviewer decisions. Header-separator rows (a single '--- ...' cell) are skipped.
+
+    Fails loud (ValueError) if the header row does not match `_REVIEW_HEADERS` — a
+    reordered/renamed column would otherwise be parsed by position into wrong fields."""
     wb = load_workbook(path, read_only=True, data_only=True)
     ws = wb["Review"] if "Review" in wb.sheetnames else wb.active
+    _validate_headers(ws, _REVIEW_HEADERS, path)
     out: list[ReviewRow] = []
     for row in ws.iter_rows(min_row=2, values_only=True):
         cells = (list(row) + [None] * 12)[:12]
@@ -559,7 +580,11 @@ def build_alias(fieldmap_for_table: list[FieldCorrespondence],
 
     'confirmed' (default): only origin=confirmed rows. A tier name ('HIGH' /
     'PROBABLE' / 'WEAK') additionally admits origin=derived rows at or above that
-    tier (pre-review pass). origin=rejected is never aliased."""
+    tier (pre-review pass). origin=rejected is never aliased.
+
+    If two admitted rows map the same applaud_bare to *different* oracle keys (only
+    possible via a stale map after a rename — Pass-1 audit LOW #5), the first wins and
+    a WARNING is emitted, so the collision is never a silent last-row-wins overwrite."""
     tier_rank = {name: i for i, (name, _) in enumerate(TIER_BANDS)}  # HIGH=0 best
     gate = (accept_confidence or "confirmed").strip()
     alias: dict[str, str] = {}
@@ -572,6 +597,14 @@ def build_alias(fieldmap_for_table: list[FieldCorrespondence],
             admit = False
         else:
             admit = tier_rank.get(fc.confidence, 99) <= tier_rank.get(gate, -1)
-        if admit:
-            alias[fc.applaud_bare.upper()] = fc.oracle_key.upper()
+        if not admit:
+            continue
+        bare_u, okey_u = fc.applaud_bare.upper(), fc.oracle_key.upper()
+        existing = alias.get(bare_u)
+        if existing is not None and existing != okey_u:
+            logger.warning("build_alias: conflicting alias for bare %r — keeping %r, "
+                           "ignoring %r (stale map after a rename?).",
+                           bare_u, existing, okey_u)
+            continue
+        alias[bare_u] = okey_u
     return alias

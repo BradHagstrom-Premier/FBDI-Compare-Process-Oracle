@@ -42,6 +42,7 @@
 
 **Naming locked across tasks** (a function called one name in Task 3 must be that name in Task 7):
 `FieldCorrespondence(applaud_table, oracle_key, applaud_bare, applaud_ddid, confidence, origin="derived", score=0.0, signals="", notes="")`;
+`ReviewRow(applaud_table, oracle_key, oracle_type, candidate_bare, applaud_ddid, applaud_type, confidence, score, signals, alternatives, confirm="", corrected_bare="")`;
 `normalize_name`, `expand_abbreviations`, `truncation_window`, `names_correspond`, `score_candidate`,
 `derive_table_correspondences`, `derive_correspondences`,
 `write_fieldmap_workbook`, `load_fieldmap_workbook`, `merge_fieldmap`, `merge_decisions`,

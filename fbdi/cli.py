@@ -174,9 +174,11 @@ def main(argv: list[str] | None = None) -> None:
                                       help="Committed Oracle<->Applaud field map (loaded if present)")
     audit_applaud_parser.add_argument("--accept-confidence", default="confirmed",
                                       choices=["confirmed", "HIGH", "PROBABLE", "WEAK"],
-                                      help="Minimum acceptance for aliasing (default: confirmed). "
-                                           "NOTE: the tier gates (HIGH/PROBABLE/WEAK) are "
-                                           "not-yet-operational through this CLI — see the note below")
+                                      help="Minimum origin/tier to alias (default: confirmed). The "
+                                           "committed field map holds only confirmed/rejected rows, so "
+                                           "HIGH/PROBABLE/WEAK currently behave the same as 'confirmed' "
+                                           "(tier gates apply only to derived rows, which the committed "
+                                           "map never stores).")
     audit_applaud_parser.add_argument(
         "--tables", default=None,
         help="Comma-separated Applaud target tables to scope the audit to "
@@ -522,7 +524,7 @@ def _run_audit_applaud(args: argparse.Namespace) -> None:
     mapping = load_mapping(args.mapping)
     if args.tables:
         from fbdi.audit_applaud import filter_mapping_to_tables, UnknownTableError
-        names = [t for t in args.tables.split(",") if t.strip()]
+        names = [t.strip() for t in args.tables.split(",") if t.strip()]
         if not names:
             print("Error: --tables must list at least one table name "
                   "(got empty/whitespace-only input).")
@@ -577,15 +579,17 @@ def _run_correspondence_derive(args: argparse.Namespace) -> None:
     try:
         catalog = load_catalog_release(args.catalog, release)
     except ValueError as exc:
-        print(f"Error: {exc}"); sys.exit(1)
+        print(f"Error: {exc}")
+        sys.exit(1)
     mapping = load_mapping(args.mapping)
     if args.tables:
         from fbdi.audit_applaud import filter_mapping_to_tables, UnknownTableError
-        names = [t for t in args.tables.split(",") if t.strip()]
+        names = [t.strip() for t in args.tables.split(",") if t.strip()]
         try:
             mapping = filter_mapping_to_tables(mapping, names)
         except UnknownTableError as exc:
-            print(f"Error: {exc}"); sys.exit(1)
+            print(f"Error: {exc}")
+            sys.exit(1)
 
     committed = load_fieldmap_workbook(args.fieldmap) if args.fieldmap.exists() else {}
     decided = {(t, fc.oracle_key) for t, rows in committed.items() for fc in rows}
@@ -595,7 +599,7 @@ def _run_correspondence_derive(args: argparse.Namespace) -> None:
 
     # exact_counts for the reviewer's denominator context (audit §6).
     exact_counts: dict[str, tuple[int, int]] = {}
-    for table, (prefix, oracle_by_key, cols) in inputs.items():
+    for table, (_prefix, oracle_by_key, cols) in inputs.items():
         bares = {c.bare.upper() for c in cols}
         exact = sum(1 for k in oracle_by_key if k.upper() in bares)
         exact_counts[table] = (exact, len(oracle_by_key))
@@ -630,10 +634,12 @@ def _run_correspondence_confirm(args: argparse.Namespace) -> None:
         load_fieldmap_workbook, merge_decisions, write_fieldmap_workbook,
     )
     if not args.review.is_file():
-        print(f"Error: review workbook not found: {args.review}"); sys.exit(1)
+        print(f"Error: review workbook not found: {args.review}")
+        sys.exit(1)
     snap_path = applaud_snapshot_path(args.system)
     if not snap_path.exists():
-        print(f"Error: snapshot not found: {snap_path}."); sys.exit(1)
+        print(f"Error: snapshot not found: {snap_path}.")
+        sys.exit(1)
     snapshot = ApplaudSnapshot.load(snap_path)
     valid_bares = {name: {c.bare for c in t.columns}
                    for name, t in snapshot.tables.items()}
@@ -642,7 +648,8 @@ def _run_correspondence_confirm(args: argparse.Namespace) -> None:
     try:
         decisions = apply_review_decisions(review_rows, valid_bares)
     except InvalidCorrectedBareError as exc:
-        print(f"Error: {exc}"); sys.exit(1)
+        print(f"Error: {exc}")
+        sys.exit(1)
 
     committed = load_fieldmap_workbook(args.fieldmap) if args.fieldmap.exists() else {}
     merged = merge_decisions(decisions, committed)   # confirm-time: new decisions win (audit §1.1)
