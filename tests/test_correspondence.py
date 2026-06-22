@@ -434,6 +434,43 @@ def test_build_alias_tier_gate_extends_confirmed_not_replaces():
 # Review note #1: Y-confirmed rows fold provenance into notes
 # ---------------------------------------------------------------------------
 
+from fbdi.correspondence import assemble_derivation_inputs
+
+
+def _snapshot_with_procurement_sites():
+    from fbdi.applaud_snapshot import ApplaudSnapshot, SnapshotTable, DataColumn
+    col = DataColumn("T09PROCUREMENT_BUSINESSUNITNAM", "PROCUREMENT_BUSINESSUNITNAM",
+                     "X", 25, None, None, 1)
+    t = SnapshotTable("T_POZ_SUPPLIER_SITES_INT", "T09", False, "(T09)", [], [col])
+    return ApplaudSnapshot("ORACLE_MASTER", "x", "2026-06-11", "t",
+                           tables={"T_POZ_SUPPLIER_SITES_INT": t})
+
+
+def test_assemble_derivation_inputs_groups_by_table():
+    snap = _snapshot_with_procurement_sites()
+    catalog = {("PO_TPL", "Suppliers"): [_of("PROCUREMENT_BU")]}
+    mapping = {("PO_TPL", "Suppliers"): {"applaud_table": "T_POZ_SUPPLIER_SITES_INT"}}
+    inputs = assemble_derivation_inputs(snap, catalog, mapping)
+    prefix, oracle_by_key, cols = inputs["T_POZ_SUPPLIER_SITES_INT"]
+    assert prefix == "T09"
+    assert "PROCUREMENT_BU" in oracle_by_key
+    assert cols and cols[0].bare == "PROCUREMENT_BUSINESSUNITNAM"
+
+
+def test_assemble_merges_multiple_tabs_to_one_table():
+    # Pass-1 audit §2.2: two (template, tab) rows mapping to ONE Applaud table must MERGE
+    # their Oracle keys, not overwrite — both tabs' divergent fields enter the pool.
+    snap = _snapshot_with_procurement_sites()
+    catalog = {("PO_TPL", "Suppliers"): [_of("PROCUREMENT_BU")],
+               ("PO_TPL", "Addresses"): [_of("REMIT_ADVICE_DELIVERY")]}
+    mapping = {("PO_TPL", "Suppliers"): {"applaud_table": "T_POZ_SUPPLIER_SITES_INT"},
+               ("PO_TPL", "Addresses"): {"applaud_table": "T_POZ_SUPPLIER_SITES_INT"}}
+    inputs = assemble_derivation_inputs(snap, catalog, mapping)
+    _prefix, oracle_by_key, _cols = inputs["T_POZ_SUPPLIER_SITES_INT"]
+    assert "PROCUREMENT_BU" in oracle_by_key      # from the Suppliers tab
+    assert "REMIT_ADVICE_DELIVERY" in oracle_by_key  # from the Addresses tab — NOT dropped
+
+
 def test_apply_confirm_yes_folds_provenance_into_notes(tmp_path):
     # Carried review note #1: Y-confirmed FieldCorrespondence must carry provenance in
     # .notes so write_fieldmap_workbook can persist it (Notes column). The score/signals

@@ -506,6 +506,46 @@ def apply_review_decisions(
 # Alias resolver
 # ---------------------------------------------------------------------------
 
+def assemble_derivation_inputs(
+    snapshot, catalog: dict[tuple[str, str], list[AlignedField]],
+    mapping: dict[tuple[str, str], dict],
+) -> dict[str, tuple[str | None, dict[str, AlignedField], list[DataColumn]]]:
+    """Group the audit's (template, tab)->table chain into per-table derivation inputs:
+    {applaud_table: (prefix, {oracle_match_key: AlignedField}, [DataColumn, ...])}.
+    Mirrors run_audit's loop so derivation sees exactly the audit's column set.
+
+    When several (template, tab) rows map to ONE Applaud table (the known multi-mapping
+    rows from the first-pass mapping audit), MERGE their Oracle keys rather than
+    overwrite (audit §2.2) — otherwise only the last tab's divergent fields would ever
+    get correspondence candidates, so the derivation would be lossier than the audit it
+    serves. Tables with no catalog fields or no snapshot entry are skipped with an INFO
+    log (audit LOW #6) so an empty review workbook is explainable."""
+    from fbdi.audit_applaud import oracle_match_key
+    out: dict[str, tuple[str | None, dict[str, AlignedField], list[DataColumn]]] = {}
+    for (template, tab), info in mapping.items():
+        table_name = info.get("applaud_table")
+        if not table_name:
+            continue
+        oracle_fields = catalog.get((template, tab), [])
+        table = snapshot.tables.get(table_name)
+        if not oracle_fields or table is None:
+            logger.info("correspondence: skipping (%s, %s) -> %s — %s.",
+                        template, tab, table_name,
+                        "no catalog fields" if not oracle_fields else "no snapshot table")
+            continue
+        oracle_by_key = {oracle_match_key(f): f for f in oracle_fields if oracle_match_key(f)}
+        if table_name in out:
+            prev_prefix, prev_keys, prev_cols = out[table_name]
+            if prev_prefix != table.prefix:
+                logger.warning("correspondence: prefix disagreement for %s (%r vs %r); "
+                               "keeping first.", table_name, prev_prefix, table.prefix)
+            prev_keys.update(oracle_by_key)             # merge this tab's keys (audit §2.2)
+            out[table_name] = (prev_prefix, prev_keys, prev_cols)
+        else:
+            out[table_name] = (table.prefix, oracle_by_key, list(table.columns))
+    return out
+
+
 def build_alias(fieldmap_for_table: list[FieldCorrespondence],
                 accept_confidence: str = "confirmed") -> dict[str, str]:
     """Resolve a table's field map into {applaud_bare_upper: oracle_key_upper}.
