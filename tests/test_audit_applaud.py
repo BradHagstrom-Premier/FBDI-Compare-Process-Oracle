@@ -399,3 +399,111 @@ def test_actual_shape_keeps_x_and_n():
     n = DataColumn("T_N", "N1", "N", 18, 4, None, 2)
     assert actual_shape(x) == ("char", 50, None)
     assert actual_shape(n) == ("numeric", 18, 4)
+
+
+# --- Task 7: fieldmap aliasing + rejected-provenance + guard ---------------
+
+import dataclasses
+
+from fbdi.align import AlignedField
+from fbdi.applaud_snapshot import ApplaudSnapshot, SnapshotTable, DataColumn
+from fbdi.correspondence import FieldCorrespondence
+
+
+def _snapshot_with_procurement(size):
+    col = DataColumn(ddid="T09PROCUREMENT_BUSINESSUNITNAM",
+                     bare="PROCUREMENT_BUSINESSUNITNAM", data_type="X", size=size,
+                     dec_places=None, odbc_name=None, row=1)
+    table = SnapshotTable(name="T_POZ_SUPPLIER_SITES_INT", prefix="T09",
+                          prefix_fallback=False, description="(T09)", key_seqs=[],
+                          columns=[col])
+    return ApplaudSnapshot(system="ORACLE_MASTER", mdb_path="x", extracted_at="2026-06-11",
+                           extractor_version="t", tables={"T_POZ_SUPPLIER_SITES_INT": table})
+
+
+def _procurement_catalog():
+    # Oracle field PROCUREMENT_BU, char 40 -> bigger than the Applaud char 25 column.
+    of = AlignedField(position=1, label=None, technical="PROCUREMENT_BU",
+                      data_type="VARCHAR2", length=40, scale=None, required=None)
+    return {("PO_TPL", "Suppliers"): [of]}
+
+
+_MAPPING = {("PO_TPL", "Suppliers"): {"applaud_table": "T_POZ_SUPPLIER_SITES_INT"}}
+
+
+def test_alias_collapses_missing_field_and_fires_sizing(tmp_path):
+    snap = _snapshot_with_procurement(size=25)
+    catalog = _procurement_catalog()
+
+    # No fieldmap: PROCUREMENT_BU reads as a missing field (Dim 4 HIGH).
+    out_a = tmp_path / "a.xlsx"
+    base = run_audit(snap, catalog, _MAPPING, appmap={}, release="26B",
+                     release_changes={}, out_path=out_a)
+    assert any(f.dimension == "4-TABLE" and f.oracle_field == "PROCUREMENT_BU"
+               and f.current_value == "absent" for f in base)
+
+    # With a confirmed alias: the missing-field finding vanishes AND Dim 1 sizing fires
+    # (Applaud char 25 < Oracle char 40), surfacing the previously-skipped resize gap.
+    fieldmap = {"T_POZ_SUPPLIER_SITES_INT": [FieldCorrespondence(
+        applaud_table="T_POZ_SUPPLIER_SITES_INT", oracle_key="PROCUREMENT_BU",
+        applaud_bare="PROCUREMENT_BUSINESSUNITNAM",
+        applaud_ddid="T09PROCUREMENT_BUSINESSUNITNAM", confidence="HIGH",
+        origin="confirmed")]}
+    out_b = tmp_path / "b.xlsx"
+    aliased = run_audit(snap, catalog, _MAPPING, appmap={}, release="26B",
+                        release_changes={}, out_path=out_b, fieldmap=fieldmap)
+    assert not any(f.dimension == "4-TABLE" and f.oracle_field == "PROCUREMENT_BU"
+                   and f.current_value == "absent" for f in aliased)
+    assert any(f.dimension == "1-SIZING" and f.attribute == "SIZE"
+               and f.applaud_object_name == "T_POZ_SUPPLIER_SITES_INT" for f in aliased)
+
+
+def test_rejected_key_annotates_finding_without_changing_severity(tmp_path):
+    snap = _snapshot_with_procurement(size=25)
+    catalog = _procurement_catalog()
+    fieldmap = {"T_POZ_SUPPLIER_SITES_INT": [FieldCorrespondence(
+        applaud_table="T_POZ_SUPPLIER_SITES_INT", oracle_key="PROCUREMENT_BU",
+        applaud_bare="", applaud_ddid="", confidence="HIGH", origin="rejected")]}
+    out = tmp_path / "c.xlsx"
+    findings = run_audit(snap, catalog, _MAPPING, appmap={}, release="26B",
+                         release_changes={}, out_path=out, fieldmap=fieldmap)
+    miss = [f for f in findings if f.dimension == "4-TABLE"
+            and f.oracle_field == "PROCUREMENT_BU" and f.current_value == "absent"]
+    assert len(miss) == 1
+    assert miss[0].severity == "HIGH"                  # unchanged
+    assert "Reviewed" in miss[0].notes                 # provenance note on the in-memory finding
+
+    # Pass-1 audit §1.2 (BLOCKER): the provenance must reach the WRITTEN workbook, not just
+    # live in memory. Re-open out.xlsx and confirm the note lands in the 'Notes' column.
+    from openpyxl import load_workbook
+    wb = load_workbook(out)
+    ws = wb["Findings"] if "Findings" in wb.sheetnames else wb.active
+    header = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    notes_idx = header.index("Notes")
+    oracle_idx = header.index("Oracle Field")
+    written = [row[notes_idx] for row in ws.iter_rows(min_row=2, values_only=True)
+               if row[oracle_idx] == "PROCUREMENT_BU"]
+    wb.close()
+    assert any(n and "Reviewed" in n for n in written)
+
+
+def test_accept_confidence_unknown_emits_warning_and_completes(tmp_path, caplog):
+    snap = _snapshot_with_procurement(size=25)
+    catalog = _procurement_catalog()
+    # A derived row with confidence "HIGH" — mis-cased gate "high" won't admit it.
+    fieldmap = {"T_POZ_SUPPLIER_SITES_INT": [FieldCorrespondence(
+        applaud_table="T_POZ_SUPPLIER_SITES_INT", oracle_key="PROCUREMENT_BU",
+        applaud_bare="PROCUREMENT_BUSINESSUNITNAM",
+        applaud_ddid="T09PROCUREMENT_BUSINESSUNITNAM", confidence="HIGH",
+        origin="derived")]}
+    out = tmp_path / "d.xlsx"
+    import logging
+    with caplog.at_level(logging.WARNING, logger="fbdi.audit_applaud"):
+        findings = run_audit(snap, catalog, _MAPPING, appmap={}, release="26B",
+                             release_changes={}, out_path=out, fieldmap=fieldmap,
+                             accept_confidence="high")
+    # Warning must mention the unrecognized value.
+    assert any("high" in r.message.lower() or "accept_confidence" in r.message.lower()
+               for r in caplog.records if r.levelno >= logging.WARNING)
+    # Run must still complete and return findings (no exception).
+    assert isinstance(findings, list)
