@@ -343,6 +343,14 @@ def test_apply_corrected_bare_not_in_table_fails_loud():
         apply_review_decisions(rows, {"T_POZ": {"PROCUREMENT_BUSINESSUNITNAM"}})
 
 
+def test_apply_confirm_yes_with_unknown_candidate_fails_loud():
+    # Audit §4.1 (Y path): a reviewer who edits the candidate cell and marks Y must not
+    # silently commit an alias to a non-existent column — same fail-loud guard as Corrected Bare.
+    rows = [_review("T_POZ", "PROCUREMENT_BU", "EDITED_TO_NONEXISTENT", confirm="Y")]
+    with pytest.raises(InvalidCorrectedBareError):
+        apply_review_decisions(rows, {"T_POZ": {"PROCUREMENT_BUSINESSUNITNAM"}})
+
+
 def test_apply_skips_undecided_rows():
     rows = [_review("T_POZ", "PROCUREMENT_BU", "PROCUREMENT_BUSINESSUNITNAM")]  # no Y/N
     out = apply_review_decisions(rows, {"T_POZ": {"PROCUREMENT_BUSINESSUNITNAM"}})

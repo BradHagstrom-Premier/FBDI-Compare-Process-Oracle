@@ -480,6 +480,13 @@ def apply_review_decisions(
                 applaud_bare=canonical_map[upper_corrected], applaud_ddid="",
                 confidence="HIGH", origin="confirmed", notes="reviewer-corrected"))
         elif r.confirm.upper() == "Y":
+            upper_candidate = r.candidate_bare.upper()
+            if upper_candidate not in canonical_map:
+                raise InvalidCorrectedBareError(
+                    f"{r.applaud_table}: Confirm?='Y' candidate bare {r.candidate_bare!r} for "
+                    f"Oracle key {r.oracle_key!r} is not a column in that table. The workbook "
+                    "candidate cell may have been edited. Fix or use Corrected Bare instead; "
+                    "refusing to commit an alias that maps to nothing.")
             notes = f"confirmed at {r.confidence}" + (f"; {r.signals}" if r.signals else "")
             out.append(FieldCorrespondence(
                 applaud_table=r.applaud_table, oracle_key=r.oracle_key,
