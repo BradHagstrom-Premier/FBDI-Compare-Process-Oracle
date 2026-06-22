@@ -535,6 +535,10 @@ def run_audit(snapshot: ApplaudSnapshot,
             "aliasing will degrade to confirmed-only.",
             accept_confidence, sorted(_RECOGNIZED_GATES))
 
+    # Function-local (NOT module-level) to avoid a circular import: correspondence
+    # imports expected_shape/actual_shape from this module. Used in the per-table loop.
+    from fbdi.correspondence import build_alias
+
     findings: list[Finding] = []
     mapped_tables: set[str] = set()
     appmap_pairs: dict[str, tuple[list[str], list[str]]] = {}
@@ -551,7 +555,6 @@ def run_audit(snapshot: ApplaudSnapshot,
         # --- Field-correspondence aliasing (spec §7) -------------------------
         # Alias the Applaud *bare* side so the four checks below match renamed
         # fields. DDID is left untouched (Dim 5 orphans match on DDID).
-        from fbdi.correspondence import build_alias
         fm_rows = (fieldmap or {}).get(table_name, [])
         alias = build_alias(fm_rows, accept_confidence) if fm_rows else {}
         rejected_keys = {r.oracle_key.upper() for r in fm_rows
