@@ -1,5 +1,5 @@
 ---
-name: Definian FBDI Compliance Report
+name: Definian FBDI Release Change Report
 description: Oracle FBDI field-level change report for internal Definian Oracle integration consultants
 colors:
   blue-authority: "#0D2C71"
@@ -94,7 +94,7 @@ components:
     padding: "2px 10px"
 ---
 
-# Design System: Definian FBDI Compliance Report
+# Design System: Definian FBDI Release Change Report
 
 ## 1. Overview
 
@@ -154,11 +154,11 @@ Six canonical Definian brand colors plus two approved semantic supplementals. Ev
 - **Title** (700 weight, 18px, line-height 1.3, color: white on blue): File section names in the blue header bar. Per-FBDI-file identity marker.
 - **Body** (400 weight, 13px, line-height 1.5, color: Midnight): Main prose, table data cells, lede paragraphs, metadata rows.
 - **Label** (600–700 weight, 10–11px, letter-spacing 0.5px, uppercase): All table column headers, module names, badge text, category sub-labels, change-type h4 headings. Uppercase + spacing is mandatory; this is the visual signature of all structural annotation in the report.
-- **Mono** (400 weight, 11.5px, line-height 1.4, color: Midnight or Slate Annotation): All Oracle/Applaud field names, table prefix codes, filename references. No exceptions.
+- **Mono** (400 weight, 11.5px, line-height 1.4, color: Midnight or Slate Annotation): All Oracle field names, table prefix codes, filename references. No exceptions.
 
 ### Named Rules
 
-**The Mono Rule.** Every technical identifier — Oracle field name, Applaud column name, table prefix, filename — must render in monospace. A field name in regular sans is a defect, not a style choice.
+**The Mono Rule.** Every technical identifier — Oracle field name, table prefix, filename — must render in monospace. A field name in regular sans is a defect, not a style choice.
 
 **The Label Rule.** All column headers and structural sub-labels are uppercase with letter-spacing ≥0.5px. Consistency in label treatment is what creates reading rhythm across the report's dense tables. Breaking this rule — even once — disrupts the visual contract with the reader.
 
@@ -226,7 +226,7 @@ The semantic color system expressed as a section label. Each change type (Added,
 - **Color:** Inherits from parent change block (Green / Red / Amber / Slate)
 
 ### Module Tag
-Small category pill used in the summary table and pending-base list.
+Small category pill used in the summary table and module grouping.
 
 - **Default:** Mist Divider background, Midnight text, `10px` radius, `10px` label scale
 - **Financials variant:** Signal Green background, white text — the one place Signal Green appears outside change data
@@ -253,7 +253,7 @@ Visual placeholder for consultant action tracking. Not a real input — a styled
 ### Do:
 - **Do** use Authority Blue (`#0D2C71`) for all structural headers, file head bars, table column fills, and section h2 headings. It is the document's identity and hierarchy color.
 - **Do** use Signal Green (`#00AB63`) only for: ADDED field counts and labels, Financials module identification, and the cover brand wordmark. Its meaning is "new, positive, Definian."
-- **Do** render every Oracle field name, Applaud column name, table prefix, and filename in monospace. No exceptions.
+- **Do** render every Oracle field name, table prefix, and filename in monospace. No exceptions.
 - **Do** use uppercase + letter-spacing ≥0.5px for all table column headers and structural sub-labels. This is the visual contract for the report's dense tabular content.
 - **Do** use `1px solid #D8D7EE` for all surface containment borders. Thin, structural, consistent.
 - **Do** use Cloud Surface (`#F7F7FB`) for all card-like backgrounds (module cards, shift summaries, collapsible interiors). It is one tonal step above Canvas and provides sufficient differentiation without a border.

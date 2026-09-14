@@ -1,20 +1,23 @@
-"""FBDI Compliance Report generator.
+"""FBDI Release Change Report generator.
 
-Reads the FBDI Master Catalog (per-release sheets) and the FBDI-to-Applaud
-mapping, runs alignment per (file, tab), filters to the in-scope universe
-(MAPPED only; pending-base routed to a separate section), and emits an
-HTML and PDF report from one Jinja2 template.
+Reads the FBDI Master Catalog (per-release sheets), aligns each (file, tab)
+across two releases, groups the changes by module, and emits a consultant-
+facing HTML report ("here's what changed from <OLD> to <NEW>"), with an
+opt-in PDF via weasyprint.
 
-This module exposes:
-- build_report_context(...) — pure view-model construction (testable in isolation)
-- generate_report(...)      — top-level: load -> build -> render -> write (TBD)
+Module grouping comes from baselines/<release>/file_modules.json (written by
+the downloader); the NEW release wins over OLD.
 
-The view-model dataclasses (ReportContext, FileSection, ChangeRow,
-PendingBaseEntry) are the contract between this module and the template.
+Public surface:
+- build_report_context(...) — pure view-model construction (testable)
+- load_catalog_release(...) — read one release sheet, grouped by (file, tab)
+- load_file_modules(...)    — read a release's {file: module} map
+- generate_report(...)      — load -> build -> render -> write
 """
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,30 +25,22 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from fbdi.align import AlignedField, Change, align_tabs
-from fbdi.applaud_type import applaud_type_for
-from fbdi.catalog_normalize import normalize_label
-from fbdi.type_parser import parse_data_type
 
-
-APPLAUD_NAME_LIMIT = 30
+UNCLASSIFIED = "Unclassified"
 
 
 @dataclass
 class ChangeRow:
-    """One row in a per-file change-type table (view-model)."""
+    """One row in a per-tab change-type table (view-model)."""
     change_type: str
-    applaud_field_name: str
-    name_length: int
-    name_exceeds_30: bool
+    field_name: str            # FBDI technical name (or label when no technical)
+    label: str
+    oracle_type_str: str       # e.g. "VARCHAR2(30)" — empty when not applicable
     old_position: int | None
     new_position: int | None
-    label: str
-    oracle_type_str: str           # e.g. "VARCHAR2(30)" — empty when not applicable
-    applaud_type_str: str          # e.g. "char 30"
     required: bool | None
     axes: tuple[str, ...]
     sub_kinds: tuple[str, ...]
-    # For RENAMED / MODIFIED / MULTI — old vs new values to display side-by-side
     old_label: str | None = None
     new_label: str | None = None
     old_oracle_type_str: str | None = None
@@ -56,41 +51,18 @@ class ChangeRow:
 
 @dataclass
 class FileSection:
-    """One per-file section in the main body."""
+    """One per-tab section, grouped under a module."""
     file: str
     tab: str
-    applaud_table: str
-    prefix: str
     module: str
-    status: str                    # "MAPPED" | "NEEDS_REVIEW"
-    in_base_note: str | None       # e.g. the "Multiple mapping is possible..." string when present
     changes_by_type: dict[str, list[ChangeRow]] = field(default_factory=dict)
-    shift_summary: str | None = None  # e.g. "20 fields shifted from positions 19-39 to 20-40"
-    # True when every SHIFTED row has the same (new-old) delta AND old positions form a
-    # contiguous range — in that case the summary_box already says everything and the
-    # PDF skips the per-row table to save a page of redundant signal.
+    shift_summary: str | None = None
     shift_is_uniform: bool = False
 
 
 @dataclass
-class PendingBaseEntry:
-    """One entry in the pending base-system tables list."""
-    file: str
-    tab: str
-    applaud_table: str
-    prefix: str
-    module: str
-    change_count: int
-
-
-@dataclass
 class ScopeTotals:
-    """Aggregate change counts across all in-scope file sections.
-
-    Surfaced on the cover so the engagement lead can read the cover, understand
-    the quarterly scope, and close the document without scrolling to §1's
-    <tfoot>. `mod` includes MULTI (combined-axis) rows — same broad category.
-    """
+    """Aggregate change counts across all sections (for the cover)."""
     tabs: int = 0
     add: int = 0
     rem: int = 0
@@ -105,84 +77,47 @@ class ReportContext:
     new_release: str
     generated_date: str
     file_sections: list[FileSection]
-    pending_base: list[PendingBaseEntry]
     totals: ScopeTotals = field(default_factory=ScopeTotals)
 
-
-# Public: scope filtering and view-model construction ---------------------------
 
 def build_report_context(
     catalog_old: dict[tuple[str, str], list[AlignedField]],
     catalog_new: dict[tuple[str, str], list[AlignedField]],
-    mapping: dict[tuple[str, str], dict],
+    module_of: dict[str, str],
     old_release: str,
     new_release: str,
     generated_date: str | None = None,
 ) -> ReportContext:
-    """Build the report context from grouped catalog data + mapping lookup.
+    """Build the report context from grouped catalog data + a file->module map.
 
-    catalog_old / catalog_new keys are (file, tab) tuples. Values are
-    AlignedField rows already in catalog form. mapping keys match the
-    catalog keys; values are dicts with 'applaud_table', 'prefix',
-    'module', 'in_base'.
-
-    Scope rules:
-    - keys absent from mapping are silently excluded (UNMAPPED universe).
-    - mapping rows whose 'in_base' contains "Needs to be created in base
-      system" are routed to the pending_base list rather than file_sections.
-    - keys with no detected changes are dropped (no empty sections).
+    Scope: every (file, tab) present in either release that has at least one
+    detected change. No mapping filter. module_of maps file_name -> module;
+    files absent from it group under UNCLASSIFIED.
     """
     from datetime import date as _date
     if generated_date is None:
         generated_date = _date.today().isoformat()
 
     file_sections: list[FileSection] = []
-    pending_base: list[PendingBaseEntry] = []
     all_keys = set(catalog_old.keys()) | set(catalog_new.keys())
 
     for key in sorted(all_keys):
-        if key not in mapping:
-            continue  # UNMAPPED — silently exclude
-        m = mapping[key]
         file_name, tab = key
-
-        old_rows = catalog_old.get(key, [])
-        new_rows = catalog_new.get(key, [])
-        changes = align_tabs(old_rows, new_rows)
+        changes = align_tabs(catalog_old.get(key, []), catalog_new.get(key, []))
         if not changes:
             continue
-
-        in_base = m.get("in_base") or ""
-        if "Needs to be created in base system" in in_base:
-            pending_base.append(PendingBaseEntry(
-                file=file_name, tab=tab,
-                applaud_table=m["applaud_table"],
-                prefix=m["prefix"],
-                module=m["module"],
-                change_count=len(changes),
-            ))
-            continue
-
-        in_base_note = in_base if in_base else None
-
         section = FileSection(
             file=file_name, tab=tab,
-            applaud_table=m["applaud_table"],
-            prefix=m["prefix"],
-            module=m["module"],
-            status=m.get("status", "MAPPED"),
-            in_base_note=in_base_note,
+            module=module_of.get(file_name, UNCLASSIFIED),
         )
-        section.changes_by_type = _bucket_changes(changes, prefix=m["prefix"])
+        section.changes_by_type = _bucket_changes(changes)
         shifted = section.changes_by_type.get("SHIFTED", [])
         section.shift_summary = _build_shift_summary(shifted)
         section.shift_is_uniform = _is_uniform_shift(shifted)
         file_sections.append(section)
 
-    # Sort by (module, file, tab) for stable ordering — also drives
-    # the template's groupby('module') so groups appear in this order.
+    # Sort by (module, file, tab) — also drives the template's groupby('module').
     file_sections.sort(key=lambda s: (s.module or "", s.file, s.tab))
-    pending_base.sort(key=lambda p: (p.module or "", p.file, p.tab))
 
     totals = ScopeTotals(
         tabs=len(file_sections),
@@ -195,38 +130,14 @@ def build_report_context(
         ),
         shift=sum(len(s.changes_by_type.get("SHIFTED", [])) for s in file_sections),
     )
-
     return ReportContext(
-        old_release=old_release,
-        new_release=new_release,
-        generated_date=generated_date,
-        file_sections=file_sections,
-        pending_base=pending_base,
-        totals=totals,
+        old_release=old_release, new_release=new_release,
+        generated_date=generated_date, file_sections=file_sections, totals=totals,
     )
 
 
-def _applaud_field_name(prefix: str, technical: str | None, label: str | None) -> str:
-    """Construct the Applaud field name: prefix + technical (or normalized label).
-
-    Technical UPPER_SNAKE_CASE names are used verbatim when present (already
-    canonical). Otherwise the user-facing label is normalized (punctuation
-    stripped, whitespace collapsed) and internal spaces are replaced with
-    underscores — Applaud column names cannot contain spaces.
-    """
-    if technical:
-        suffix = technical
-    else:
-        suffix = "_".join(normalize_label(label or "").split())
-    return f"{prefix}{suffix}"
-
-
 def _oracle_type_str(f: AlignedField | None) -> str:
-    """Return the Oracle-style type string for a field.
-
-    Prefers data_type_raw (preserves CHAR unit, e.g. VARCHAR2(30 CHAR)) when
-    present; falls back to reconstructing from parsed parts.
-    """
+    """Oracle-style type string; prefers data_type_raw (keeps CHAR unit)."""
     if f is None or not f.data_type:
         return ""
     if f.data_type_raw:
@@ -238,40 +149,18 @@ def _oracle_type_str(f: AlignedField | None) -> str:
     return f.data_type
 
 
-def _applaud_type_str_for(f: AlignedField | None) -> str:
-    """Translate an AlignedField's type into the Applaud-side type string."""
-    raw = _oracle_type_str(f)
-    if not raw:
-        return ""
-    return applaud_type_for(parse_data_type(raw))
-
-
-def _bucket_changes(changes: list[Change], prefix: str) -> dict[str, list[ChangeRow]]:
-    """Group classified changes into per-type buckets of ChangeRow view-models.
-
-    The "primary" field for naming/typing is the new field when present
-    (ADDED, MODIFIED, RENAMED, SHIFTED, MULTI) and the old field for
-    REMOVED. Old/new pairs are also stamped onto the row so the template
-    can render side-by-side comparisons for RENAMED / MODIFIED / MULTI.
-    """
+def _bucket_changes(changes: list[Change]) -> dict[str, list[ChangeRow]]:
+    """Group classified changes into per-type buckets of ChangeRow view-models."""
     buckets: dict[str, list[ChangeRow]] = defaultdict(list)
     for c in changes:
         primary = c.new_field if c.new_field is not None else c.old_field
-        # primary is non-None for every classified change (align_tabs guarantee).
-        applaud_name = _applaud_field_name(prefix, primary.technical, primary.label)
-        oracle_type = _oracle_type_str(primary)
-        applaud_type = _applaud_type_str_for(primary)
-
         row = ChangeRow(
             change_type=c.change_type,
-            applaud_field_name=applaud_name,
-            name_length=len(applaud_name),
-            name_exceeds_30=len(applaud_name) > APPLAUD_NAME_LIMIT,
+            field_name=(primary.technical or primary.label or ""),
+            label=primary.label or "",
+            oracle_type_str=_oracle_type_str(primary),
             old_position=c.old_position,
             new_position=c.new_position,
-            label=primary.label or "",
-            oracle_type_str=oracle_type,
-            applaud_type_str=applaud_type,
             required=primary.required,
             axes=c.axes,
             sub_kinds=c.sub_kinds,
@@ -287,11 +176,12 @@ def _bucket_changes(changes: list[Change], prefix: str) -> dict[str, list[Change
 
 
 def _build_shift_summary(shifted_rows: list[ChangeRow]) -> str | None:
-    """Build the inline shift-summary sentence used in the SHIFTED block."""
     if not shifted_rows:
         return None
-    old_positions = sorted(r.old_position for r in shifted_rows)
-    new_positions = sorted(r.new_position for r in shifted_rows)
+    old_positions = sorted(r.old_position for r in shifted_rows if r.old_position is not None)
+    new_positions = sorted(r.new_position for r in shifted_rows if r.new_position is not None)
+    if not old_positions or not new_positions:
+        return None
     n = len(shifted_rows)
     return (
         f"{n} field{'s' if n != 1 else ''} shifted from positions "
@@ -300,16 +190,6 @@ def _build_shift_summary(shifted_rows: list[ChangeRow]) -> str | None:
 
 
 def _is_uniform_shift(shifted_rows: list[ChangeRow]) -> bool:
-    """True if every shifted row has the same delta AND old positions are contiguous.
-
-    A uniform shift is the common case where a column is inserted earlier in the tab
-    and every following column slides by the same amount (delta=+1 for one insert,
-    +N for N inserts). The summary_box already says "N fields shifted from A-B to
-    C-D", so the per-row table adds zero signal — the PDF can skip it.
-
-    Single-row "shifts" aren't really uniform-by-shape; require at least 2 rows so
-    the optimization only fires when there's actual bulk to collapse.
-    """
     if len(shifted_rows) < 2:
         return False
     deltas = {
@@ -319,22 +199,17 @@ def _is_uniform_shift(shifted_rows: list[ChangeRow]) -> bool:
     }
     if len(deltas) != 1:
         return False
-    old_positions = sorted(
-        r.old_position for r in shifted_rows if r.old_position is not None
-    )
+    old_positions = sorted(r.old_position for r in shifted_rows if r.old_position is not None)
     return all(
         old_positions[i + 1] - old_positions[i] == 1
         for i in range(len(old_positions) - 1)
     )
 
 
-# Public: on-disk loaders -------------------------------------------------------
-
 def load_catalog_release(catalog_path: Path, release: str) -> dict[tuple[str, str], list[AlignedField]]:
     """Read one release sheet from the master catalog and group by (file, tab).
 
-    Catalog schema (verified against FBDI_Master_Catalog.xlsx):
-    release | file_name | tab_name | position | column_label |
+    Catalog schema: release | file_name | tab_name | position | column_label |
     column_technical | data_type | length | scale | data_type_raw | required
     """
     wb = load_workbook(catalog_path, read_only=True, data_only=True)
@@ -344,10 +219,7 @@ def load_catalog_release(catalog_path: Path, release: str) -> dict[tuple[str, st
     ws = wb[release]
 
     grouped: dict[tuple[str, str], list[AlignedField]] = defaultdict(list)
-    rows = ws.iter_rows(min_row=2, values_only=True)
-    for row in rows:
-        # Schema: release, file_name, tab_name, position, column_label,
-        # column_technical, data_type, length, scale, data_type_raw, required
+    for row in ws.iter_rows(min_row=2, values_only=True):
         _rel, file_name, tab_name, position, label, technical, data_type, length, scale, data_type_raw, required = row
         if file_name is None or tab_name is None:
             continue
@@ -363,7 +235,6 @@ def load_catalog_release(catalog_path: Path, release: str) -> dict[tuple[str, st
         ))
 
     wb.close()
-    # Sort each group's rows by position to be safe
     for k in grouped:
         grouped[k].sort(key=lambda f: f.position)
     return dict(grouped)
@@ -382,44 +253,21 @@ def _parse_required(v) -> bool | None:
     return None
 
 
-def load_mapping(mapping_path: Path) -> dict[tuple[str, str], dict]:
-    """Read FBDI_to_ApplaudTables_Mapping.xlsx and return MAPPED-status rows.
+def load_file_modules(release: str) -> dict[str, str]:
+    """Read baselines/<release>/file_modules.json -> {file_name: module}.
 
-    UNMAPPED rows are filtered out at load time (they're noise per the spec).
-    NEEDS_REVIEW rows are kept so the report can flag them visually.
-
-    Mapping schema (verified):
-    FBDI Template | FBDI Tab | Applaud Table | Prefix | Status | Module |
-    In Base System?
+    Returns {} if the file is absent (report groups those files under
+    UNCLASSIFIED). Release label is lowercased to match the on-disk dir.
     """
-    wb = load_workbook(mapping_path, read_only=True, data_only=True)
-    ws = wb["FBDI Mapping"]
-    out: dict[tuple[str, str], dict] = {}
-    rows = ws.iter_rows(min_row=2, values_only=True)
-    for row in rows:
-        # Schema: FBDI Template, FBDI Tab, Applaud Table, Prefix, Status,
-        # Module, In Base System?
-        template, tab, applaud_table, prefix, status, module, in_base = row[:7]
-        if template is None or tab is None:
-            continue
-        if status not in ("MAPPED", "NEEDS_REVIEW"):
-            continue
-        out[(str(template), str(tab))] = {
-            "applaud_table": applaud_table,
-            "prefix": prefix,
-            "module": module,
-            "status": status,
-            "in_base": in_base,
-        }
-    wb.close()
-    return out
+    path = Path("baselines") / release.lower() / "file_modules.json"
+    if not path.is_file():
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
-# Public: top-level entry point ------------------------------------------------
+# --- PDF (opt-in) GTK registration on Windows -------------------------------
 
-# Probed in order; first match wins. MSYS2's mingw64 ships current Pango (1.50+),
-# so it goes first — required for weasyprint >= 53. The standalone GtkD installer
-# is a fallback but caps at Pango 1.43, which can't run weasyprint >= 53.
 _GTK_WINDOWS_BIN_CANDIDATES = (
     r"C:\msys64\mingw64\bin",
     r"C:\Program Files\GTK3-Runtime Win64\bin",
@@ -429,16 +277,9 @@ _GTK_WINDOWS_BIN_CANDIDATES = (
 
 
 def _register_windows_gtk_dlls() -> None:
-    """On Windows, make a known GTK install dir loadable by weasyprint.
-
-    Python 3.8+ ignores PATH for direct cffi.dlopen calls, so we register the
-    GTK bin dir via os.add_dll_directory. cairocffi (used by weasyprint < 53)
-    falls back to ctypes.util.find_library which honors PATH, so we prepend
-    there too. No-op on non-Windows or when GTK is not at a known path.
-    """
+    """On Windows, make a known GTK install dir loadable by weasyprint. No-op elsewhere."""
     import os
     import sys
-
     if sys.platform != "win32":
         return
     for candidate in _GTK_WINDOWS_BIN_CANDIDATES:
@@ -451,53 +292,50 @@ def _register_windows_gtk_dlls() -> None:
 
 def generate_report(
     catalog_path: Path,
-    mapping_path: Path,
     old_release: str,
     new_release: str,
     out_dir: Path,
-) -> tuple[Path, Path]:
-    """Load -> build -> render -> write HTML and PDF.
+    pdf: bool = False,
+) -> tuple[Path, Path | None]:
+    """Load -> build -> render -> write. Returns (html_path, pdf_path|None).
 
-    Returns (html_path, pdf_path).
+    HTML is always written. PDF is written only when pdf=True (weasyprint +
+    GTK imported lazily so the common HTML path has no heavy dependency).
     """
-    _register_windows_gtk_dlls()
     import jinja2
-    import weasyprint
 
     catalog_old = load_catalog_release(catalog_path, old_release)
     catalog_new = load_catalog_release(catalog_path, new_release)
-    mapping = load_mapping(mapping_path)
+    # NEW wins over OLD for module classification. Catalog file_name values are
+    # extension-less (e.g. "AutoInvoiceImportTemplate") while file_modules.json
+    # keys carry the ".xlsm" extension — reconcile on the stem so the lookup hits.
+    raw_modules = {**load_file_modules(old_release), **load_file_modules(new_release)}
+    module_of = {Path(k).stem: v for k, v in raw_modules.items()}
 
     ctx = build_report_context(
-        catalog_old=catalog_old,
-        catalog_new=catalog_new,
-        mapping=mapping,
-        old_release=old_release,
-        new_release=new_release,
+        catalog_old=catalog_old, catalog_new=catalog_new,
+        module_of=module_of, old_release=old_release, new_release=new_release,
     )
 
     template_dir = Path(__file__).parent / "templates"
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(template_dir),
         autoescape=jinja2.select_autoescape(["html", "j2"]),
-        # Strip the first newline after a block tag (trim_blocks) and any
-        # leading whitespace before a block tag (lstrip_blocks). Removes the
-        # blank-line debris that {% for %}/{% if %} otherwise leaves in the
-        # rendered output — cleaner View Source without changing visual output.
-        trim_blocks=True,
-        lstrip_blocks=True,
+        trim_blocks=True, lstrip_blocks=True,
     )
     tpl = env.get_template("report.html.j2")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    base = f"FBDI_Compliance_Report_{old_release}_{new_release}"
+    base = f"FBDI_Change_Report_{old_release}_{new_release}"
     html_path = out_dir / f"{base}.html"
-    pdf_path = out_dir / f"{base}.pdf"
-
     html_path.write_text(tpl.render(ctx=ctx, print_mode=False), encoding="utf-8")
 
-    pdf_html = tpl.render(ctx=ctx, print_mode=True)
-    # base_url lets weasyprint resolve the bundled fonts in templates/fonts/
-    weasyprint.HTML(string=pdf_html, base_url=str(template_dir)).write_pdf(str(pdf_path))
+    pdf_path: Path | None = None
+    if pdf:
+        _register_windows_gtk_dlls()
+        import weasyprint
+        pdf_path = out_dir / f"{base}.pdf"
+        pdf_html = tpl.render(ctx=ctx, print_mode=True)
+        weasyprint.HTML(string=pdf_html, base_url=str(template_dir)).write_pdf(str(pdf_path))
 
     return html_path, pdf_path

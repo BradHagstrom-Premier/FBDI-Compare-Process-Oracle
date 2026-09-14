@@ -3,7 +3,6 @@
 Adds checks not already covered by verify_run.py:
 - Catalog row count delta (post-rerun vs pre-rerun catalog)
 - Compare-report changes count vs expected baseline
-- Module column population % in the working mapping spreadsheet
 
 Never blocks. Exit 0 = clean, 1 = regression detected.
 """
@@ -23,7 +22,6 @@ from openpyxl import load_workbook
 CATALOG_DELTA_PCT_THRESHOLD = 5.0          # ±5% on per-release row count
 COMPARE_CHANGES_DELTA_THRESHOLD = 50       # absolute delta around expected
 DEFAULT_EXPECTED_COMPARE_CHANGES = 706     # baseline 26A→26B ground truth
-MODULE_PCT_THRESHOLD = 95.0                # ≥95% rows with col A populated
 
 
 def _count_release_rows(catalog_path: Path, release: str) -> int:
@@ -41,33 +39,10 @@ def _count_compare_changes(report_path: Path) -> int:
         return max((ws.max_row or 1) - 1, 0)
 
 
-def _module_pct(mapping_path: Path) -> tuple[float | None, int, int]:
-    """Compute Module column population %: rows with col A non-blank
-    are the denominator; rows with col F non-blank are the numerator.
-    Returns (pct, populated, total). Returns (None, 0, 0) if the
-    'FBDI Mapping' sheet is missing — distinct from a 0% sheet that exists."""
-    with closing(load_workbook(mapping_path, read_only=True, data_only=True)) as wb:
-        if "FBDI Mapping" not in wb.sheetnames:
-            return None, 0, 0
-        ws = wb["FBDI Mapping"]
-        total = 0
-        populated = 0
-        for i, row in enumerate(ws.iter_rows(values_only=True)):
-            if i == 0:
-                continue
-            if row[0]:  # col A non-blank
-                total += 1
-                if len(row) >= 6 and row[5]:
-                    populated += 1
-    pct = (populated / total * 100.0) if total > 0 else 0.0
-    return pct, populated, total
-
-
 def run_checks(
     new_catalog: Path,
     baseline_catalog: Path,
     compare_report: Path | None,
-    mapping: Path,
     release: str,
     expected_compare_changes: int = DEFAULT_EXPECTED_COMPARE_CHANGES,
 ) -> dict:
@@ -99,25 +74,12 @@ def run_checks(
                 f"(±{COMPARE_CHANGES_DELTA_THRESHOLD})"
             )
 
-    # Module pct populated
-    module_pct, populated, total = _module_pct(mapping) if mapping.is_file() else (None, 0, 0)
-    if mapping.is_file() and module_pct is None:
-        regressions.append(
-            f"Module column check: 'FBDI Mapping' sheet not found in {mapping}"
-        )
-    elif module_pct is not None and module_pct < MODULE_PCT_THRESHOLD:
-        regressions.append(
-            f"Module column populated: {module_pct:.1f}% ({populated}/{total}) "
-            f"vs threshold ≥{MODULE_PCT_THRESHOLD}%"
-        )
-
     return {
         "release": release,
         "catalog_rows_new": new_rows,
         "catalog_delta_pct": delta_pct,
         "compare_changes": changes,
         "expected_compare_changes": expected_compare_changes,
-        "module_pct_populated": module_pct,
         "regressions": regressions,
     }
 
@@ -132,8 +94,6 @@ def main(argv=None) -> int:
                         help="Pre-rerun catalog snapshot for delta check")
     parser.add_argument("--compare-report", type=Path,
                         help="e.g. Comparison_Report_26A_26B.xlsx")
-    parser.add_argument("--mapping", type=Path,
-                        default=Path("FBDI_to_ApplaudTables_Mapping.xlsx"))
     parser.add_argument("--expected-compare-changes", type=int,
                         default=DEFAULT_EXPECTED_COMPARE_CHANGES)
     args = parser.parse_args(argv)
@@ -155,7 +115,6 @@ def main(argv=None) -> int:
         new_catalog=args.new_catalog,
         baseline_catalog=args.baseline_catalog,
         compare_report=report_path,
-        mapping=args.mapping,
         release=args.release.upper(),
         expected_compare_changes=args.expected_compare_changes,
     )

@@ -9,8 +9,8 @@ Some Oracle templates also ship format-mask variants for temporal types:
 
 And a handful ship with a stray trailing period: VARCHAR2(1 CHAR).
 
-This module parses those strings once so downstream comparison to Applaud
-doesn't re-parse on every run.
+This module parses those strings once so downstream comparison and
+cataloging don't re-parse on every run.
 """
 
 import re

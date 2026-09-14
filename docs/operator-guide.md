@@ -8,7 +8,7 @@ Every quarter, Oracle ships a new release of its FBDI (File-Based Data Import) t
 
 1. A comparison report showing exactly what changed (`Comparison_Report_<OLD>_<NEW>.xlsx`).
 2. An updated master catalog of every field in every template for the new release (`FBDI_Master_Catalog.xlsx`).
-3. An HTML and PDF compliance report that's safe to hand to clients or auditors (`FBDI_Compliance_Report_<OLD>_<NEW>.html` and `.pdf`).
+3. An HTML release change report grouped by Oracle module, with an optional matching PDF (`FBDI_Change_Report_<OLD>_<NEW>.html` and `.pdf`).
 
 Definian team members who maintain Oracle integrations use these outputs to keep those integrations aligned with Oracle's changes. This guide is for whoever is running that quarterly refresh. No Python knowledge required.
 
@@ -28,15 +28,13 @@ That installs the Python packages the pipeline depends on.
 
 **Windows sleep warning.** The download step uses a browser automation tool that needs Chrome to stay open for 15–20 minutes. If your laptop goes to sleep or locks the screen mid-run, Chrome loses its connection and the download fails. Before starting, disable Windows sleep: Settings, System, Power, Screen and sleep, then set to "Never" for the duration. Or plan to stay at your desk. Running overnight with sleep disabled also works fine.
 
-**Time budget.** A full run takes 35–50 minutes end to end. Downloads account for most of that. The compare and catalog steps are each under 5 minutes. The compliance report takes another 5 to 15 seconds.
+**Time budget.** A full run takes 35–50 minutes end to end. Downloads account for most of that. The compare and catalog steps are each under 5 minutes. The release change report takes another 5 to 15 seconds.
 
 **Two ways to run it.** The recommended path, especially for your first run, is to open Claude Code and say something like "Oracle released 26C, run the FBDI refresh." That invokes the `fbdi-compare-release` skill, which walks you through each stage with human-in-the-loop checkpoints at every decision point. The alternative is to run the CLI commands for each stage directly in a terminal. That's faster once you know what you're doing, but you lose the checkpoint prompts and the automatic error handling.
 
 ---
 
 ## The 9 stages, in order
-
-(Plus a Stage 6.5 between catalog and summary that handles the FBDI-to-Applaud mapping update.)
 
 ### Stage 1: Environment preflight
 
@@ -110,23 +108,11 @@ That installs the Python packages the pipeline depends on.
 
 ---
 
-### Stage 6.5: Populate Module column in mapping spreadsheet
-
-**What it does.** Updates the Module column in `FBDI_to_ApplaudTables_Mapping.xlsx` based on the per-release `file_modules.json` written by the downloader. The pipeline asks you whether to back up the mapping file first (HITL #7); the default is yes. If `FBDI_to_ApplaudTables_Mapping.xlsx` isn't present at the repo root, this stage is skipped silently and the run continues.
-
-**What you see on screen.** A short JSON-style summary showing how many cells were populated, how many stayed blank, and how many were overwritten.
-
-**Expected wall time.** A few seconds.
-
-**If it stalls.** It shouldn't. If `file_modules.json` is missing for either release, that means Stage 3 didn't complete cleanly. The skill halts and tells you which release is missing the file.
-
----
-
 ### Stage 7: Summary
 
-**What it does.** Reads the comparison report and catalog and renders a human-readable summary to your terminal: total change rows, which files changed the most, the Module column update results from Stage 6.5, and any files that timed out during smart-clear and still need manual attention.
+**What it does.** Reads the comparison report and catalog and renders a human-readable summary to your terminal: total change rows, which files changed the most, and any files that timed out during smart-clear and still need manual attention.
 
-**What you see on screen.** A formatted text block. Something like: "748 change rows across 47 files. Top 5 most-changed: ..." followed by the Stage 6.5 summary and a list of any files from Stage 4 that need manual clearing.
+**What you see on screen.** A formatted text block. Something like: "748 change rows across 47 files. Top 5 most-changed: ..." followed by a list of any files from Stage 4 that need manual clearing.
 
 **Expected wall time.** Under 10 seconds.
 
@@ -146,21 +132,21 @@ That installs the Python packages the pipeline depends on.
 
 ---
 
-### Stage 9: Compliance report
+### Stage 9: Release change report
 
-**What it does.** Asks you to validate the Excel outputs (HITL #8), then generates the formal HTML and PDF compliance report to hand to clients or auditors. This is the polished deliverable. It pulls from the master catalog and the FBDI-to-Applaud mapping, filters to the in-scope mapped tabs, and renders a single document in two formats.
+**What it does.** Asks you to validate the Excel outputs (HITL #8), then generates the HTML release change report ("here's what changed from OLD to NEW"). It reads the master catalog, aligns each file/tab across the two releases, and groups the changed tabs by Oracle module using each release's `file_modules.json`. The HTML is the default deliverable; a matching PDF is generated only when you ask for one (the skill adds `--pdf`).
 
-**What you see on screen.** A short prompt asking you to spot-check the comparison report and catalog for anything obviously wrong (unreasonable change counts, blank columns, missing files). When you confirm, the script writes `FBDI_Compliance_Report_<OLD>_<NEW>.html` and `.pdf` to the repo root. If you say "skip," the run ends without generating the report; you can always come back and run `python -m fbdi report` later, or re-trigger the skill with a phrase like "generate the compliance report for 26A 26B."
+**What you see on screen.** A short prompt asking you to spot-check the comparison report and catalog for anything obviously wrong (unreasonable change counts, blank columns, missing files). When you confirm, the script writes `FBDI_Change_Report_<OLD>_<NEW>.html` to the repo root (and `.pdf` if you requested it). If you say "skip," the run ends without generating the report; you can always come back and run `python -m fbdi report --old <OLD> --new <NEW>` later, or re-trigger the skill with a phrase like "generate the release change report for 26A 26B."
 
 **Expected wall time.** 5 to 15 seconds.
 
-**If it stalls.** PDF generation is the part that fails most often, and the failure mode is loud. If you see a Pango or libgobject error, MSYS2 mingw64 GTK isn't installed correctly. The HTML file is usually written even when the PDF step fails, so check for that first.
+**If it stalls.** The HTML path has no heavy dependency and almost never fails. PDF generation (only when you pass `--pdf`) is the part that can fail, and the failure mode is loud. If you see a Pango or libgobject error, MSYS2 mingw64 GTK isn't installed correctly. The HTML file is written regardless, so check for that first.
 
 ---
 
-## The 8 HITL checkpoints
+## The HITL checkpoints
 
-The pipeline has eight human-in-the-loop checkpoints where it stops and asks you what to do. The labels HITL #1 through #8 are stable IDs from the design spec, not the order they appear during a run. HITL #3, for instance, fires before HITL #1 because version resolution happens before baseline presence is checked.
+The pipeline has seven human-in-the-loop checkpoints where it stops and asks you what to do. The labels HITL #1 through #8 are stable IDs from the design spec, not the order they appear during a run. HITL #3, for instance, fires before HITL #1 because version resolution happens before baseline presence is checked. (HITL #7, the mapping-backup gate, was retired when the mapping stage was removed, so the IDs run 1–6 and 8.)
 
 ### HITL #1: Prior release missing
 
@@ -244,37 +230,24 @@ The pipeline has eight human-in-the-loop checkpoints where it stops and asks you
 
 ---
 
-### HITL #7: Backup before mapping update
+### HITL #8: Release change report validation gate
 
-**Trigger.** Stage 6.5 is about to update the Module column in `FBDI_to_ApplaudTables_Mapping.xlsx`.
-
-**Options.**
-
-- Yes, copy to `FBDI_to_ApplaudTables_Mapping.bak.xlsx` (default).
-- No, just go (the file is git-tracked, so you can revert).
-
-**How to decide.** Take the backup. It's free, the file is small, and if something looks wrong after the run you have a clean copy to compare against. The default is yes for a reason.
-
----
-
-### HITL #8: Compliance report validation gate
-
-**Trigger.** Stage 9 is about to generate the compliance report. The skill wants you to spot-check the Excel outputs first so the report doesn't bake in obvious errors.
+**Trigger.** Stage 9 is about to generate the release change report. The skill wants you to spot-check the Excel outputs first so the report doesn't bake in obvious errors.
 
 **Options.**
 
-- Yes, generate the HTML and PDF.
-- Skip (you can run `python -m fbdi report` later, or trigger the skill with a phrase like "generate compliance report for 26A 26B").
+- Yes, generate the report (HTML, plus a PDF if you asked for one).
+- Skip (you can run `python -m fbdi report --old <OLD> --new <NEW>` later, or trigger the skill with a phrase like "generate the release change report for 26A 26B").
 
-**How to decide.** Open `Comparison_Report_<OLD>_<NEW>.xlsx` and the new tab in `FBDI_Master_Catalog.xlsx`. Does the total change count look plausible for a quarterly Oracle release? Are there any obviously wrong files? Does the catalog have a reasonable row count and no blank columns? If anything jumps out, skip the report, fix the underlying issue, and re-run. Bad inputs produce a bad report, and the report is what gets sent to clients.
+**How to decide.** Open `Comparison_Report_<OLD>_<NEW>.xlsx` and the new tab in `FBDI_Master_Catalog.xlsx`. Does the total change count look plausible for a quarterly Oracle release? Are there any obviously wrong files? Does the catalog have a reasonable row count and no blank columns? If anything jumps out, skip the report, fix the underlying issue, and re-run. Bad inputs produce a bad report.
 
 ---
 
 ## Reading the outputs
 
-You get four output files after a successful run, all in the repo root.
+You get three output files after a successful run (a fourth if you generate the PDF), all in the repo root.
 
-**`Comparison_Report_<OLD>_<NEW>.xlsx`** is the change log. It has seven columns: File, Tab, Position, Label, Technical, Change Type, and Details. Change Type is one of Added, Removed, or Modified. Each row represents a single field-level change in a single template tab. This is the file you hand to whoever owns the Applaud mapping. They use it to identify which integrations need updating before the new release goes live. When you're triaging, sort by File or Tab to group changes by area, or sort by Change Type to pull out all Removed fields first (those are highest risk for existing integrations).
+**`Comparison_Report_<OLD>_<NEW>.xlsx`** is the change log. It has seven columns: File, Tab, Position, Label, Technical, Change Type, and Details. Change Type is one of Added, Removed, or Modified. Each row represents a single field-level change in a single template tab. This is the file you hand to whoever owns the integration mapping. They use it to identify which integrations need updating before the new release goes live. When you're triaging, sort by File or Tab to group changes by area, or sort by Change Type to pull out all Removed fields first (those are highest risk for existing integrations).
 
 **`FBDI_Master_Catalog.xlsx`** is the full snapshot. It has three kinds of sheets:
 
@@ -284,7 +257,7 @@ You get four output files after a successful run, all in the repo root.
 
 The catalog is useful when someone asks "what fields does this template have?" for any release. It's the reference you reach for before opening an actual xlsm file.
 
-**`FBDI_Compliance_Report_<OLD>_<NEW>.html`** and **`FBDI_Compliance_Report_<OLD>_<NEW>.pdf`** are the polished deliverables. Same content in two formats. The HTML version has collapsible sections, which is the better choice for browsing changes interactively. The PDF is the formal print-rendered version, suitable for attaching to an email or dropping into an audit folder. Both are generated from the master catalog and the FBDI-to-Applaud mapping, so they only show changes that are actually in scope for Definian's integrations.
+**`FBDI_Change_Report_<OLD>_<NEW>.html`** (and, if you asked for it, **`FBDI_Change_Report_<OLD>_<NEW>.pdf`**) is the polished deliverable. The HTML is the default and is the better choice for browsing changes interactively. The PDF is opt-in (`--pdf`) and is the formal print-rendered version, suitable for attaching to an email or dropping into a folder. Both are generated from the master catalog, showing every file/tab that changed between the two releases, grouped by Oracle module.
 
 ---
 
@@ -294,7 +267,7 @@ The catalog is useful when someone asks "what fields does this template have?" f
 
 **You hit Ctrl-C mid-run.** That's fine. The pipeline is designed to resume. From Stage 3 onward, re-invoking the skill picks up where you left off. Files already on disk aren't re-downloaded, and the compare and catalog steps overwrite their outputs cleanly. One exception: if you Ctrl-C partway through Stage 3, re-running it will wipe `originals/` and start fresh. The skill warns you before doing this.
 
-**The compliance report PDF won't generate.** If Stage 9 prints a Pango or libgobject error, MSYS2 mingw64 GTK isn't set up correctly. CLAUDE.md has the install steps under Known Hazards. The HTML file is usually written even when the PDF step fails, so check for `FBDI_Compliance_Report_<OLD>_<NEW>.html` in the repo root first. You can also re-run just the report step later with `python -m fbdi report --old <OLD> --new <NEW>`, or trigger the skill with a phrase like "regenerate the PDF for 26A 26B."
+**The release change report PDF won't generate.** The PDF is opt-in (`--pdf`); the HTML never needs GTK. If the PDF step prints a Pango or libgobject error, MSYS2 mingw64 GTK isn't set up correctly. CLAUDE.md has the install steps under Known Hazards. The HTML file is written even when the PDF step fails, so check for `FBDI_Change_Report_<OLD>_<NEW>.html` in the repo root first. You can also re-run just the report step later with `python -m fbdi report --old <OLD> --new <NEW> --pdf`, or trigger the skill with a phrase like "regenerate the PDF for 26A 26B."
 
 **For anything else.** The skill's built-in error handling covers the common cases. It'll never dump a raw Python error at you without also giving you a plain-English explanation and a choice of what to do next. If you're seeing something the skill doesn't handle gracefully, or if Stage 8 verification surfaces a regression you don't recognize, check the "Known hazards" section in `CLAUDE.md` first. If the catalog Issues count jumps significantly between releases, Stage 8 will call it out specifically.
 

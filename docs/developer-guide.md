@@ -12,12 +12,11 @@ Shipped and working today:
 - A per-release catalog that snapshots every field with its type and metadata.
 - A Selenium-based downloader.
 - A smart-clear tool that strips sample data from templates while preserving headers.
-- An Applaud mapping audit that checks whether FBDI fields are covered by downstream Applaud target tables.
-- A compliance report generator that produces both HTML and PDF (`python -m fbdi report`).
-- 320 unit tests.
+- A release change report generator that produces HTML by default, with an opt-in PDF via `--pdf` (`python -m fbdi report`).
+- 233 tests.
 - An orchestrator skill that chains the lot of it together with human-in-the-loop checkpoints.
 
-On the frontier: `python -m fbdi run`, a headless chained pipeline (download, compare, catalog, populate-module, report) that runs without Claude in the loop. The implementation plan is at `docs/superpowers/plans/2026-05-04-fbdi-run-headless-pipeline.md`. The FBDI-to-Applaud mapping (`FBDI_to_ApplaudTables_Mapping.xlsx`) is complete with no TBD rows as of 2026-05-04; new tabs introduced in future Oracle releases may bring rows that need manual review.
+On the frontier: Phase 2 of the repo cleanse restyles the release change report with the Definian design system (brand tokens, Aptos fonts), keeping HTML-first with an opt-in PDF. The report's data layer is already decoupled and clean; Phase 2 is presentation only. Design at `docs/superpowers/specs/2026-09-14-repo-cleanse-and-report-redesign-design.md` (§6).
 
 `CLAUDE.md` at the repo root is the source of truth for current state. When this guide and CLAUDE.md disagree, trust CLAUDE.md.
 
@@ -37,13 +36,11 @@ On the frontier: `python -m fbdi run`, a headless chained pipeline (download, co
    - Download fresh by running `python tools/download_and_clear.py 26B`. This runs the Selenium scraper, populates `baselines/26B/originals/`, then smart-clears the templates into `baselines/26B/blanks/`. Plan on 15–20 minutes.
    - Copy from a teammate. Grab `baselines/26A/` and `baselines/26B/` from someone who already has them. Raw Oracle downloads live under `originals/`, cleared copies under `blanks/`.
 
-5. If you're working on the Applaud audit, you also need `applaud_snapshot.json`. It lives at `baselines/applaud/applaud_snapshot.json` and is gitignored. Copy it from a teammate. It's a snapshot of the Applaud MDB schema.
-
-6. Smoke test:
+5. Smoke test:
    ```
    python -m pytest tests/
    ```
-   Expect 320 passed, no failures or errors.
+   Expect 230 passed and 3 skipped (the skips are environment-gated), no failures or errors.
 
 ## Codebase tour
 
@@ -65,25 +62,17 @@ Everything domain-specific lives under `fbdi/`. The `tools/` directory holds the
 
 **`fbdi/align.py`** is the alignment algorithm shared by `catalog.py` (the Drift writer) and `report.py`. `align_tabs(old_rows, new_rows) -> list[Change]` does an LCS-style alignment and classifies each row across three axes: label, metadata, and position. The result is a single `Change` per row, tagged SHIFTED, RENAMED, MODIFIED, ADDED, REMOVED, or MULTI. If you find yourself wanting to reimplement diff logic somewhere new, route it through `align.py` instead.
 
-**`fbdi/audit.py`** is the Applaud mapping audit engine. It reads `applaud_snapshot.json` (at `baselines/applaud/applaud_snapshot.json`), `FBDI_Master_Catalog.xlsx`, and the working `FBDI_to_ApplaudTables_Mapping.xlsx`. Two-pass adjudication: score signals like name similarity and prefix matching, then classify each FBDI tab as YES, NEEDS_REVIEW, or UNMAPPED. Outputs are `Claude_fbdi_applaud_mapping.xlsx` (three sheets) and a markdown audit report.
+**`fbdi/report.py`** generates the release change report. `generate_report(catalog_path, old_release, new_release, out_dir, pdf=False) -> (html_path, pdf_path|None)`. It reads the master catalog's per-release sheets, aligns each `(file, tab)` across the two releases via `align.align_tabs`, and groups the changed tabs by Oracle module using each release's `baselines/<release>/file_modules.json` (NEW wins over OLD; files with no entry fall under "Unclassified"). It renders a single Jinja2 template (`fbdi/templates/report.html.j2`). HTML is always written; the PDF is opt-in (`pdf=True`), and weasyprint is imported lazily only then — so the common HTML path has no heavy dependency. The PDF rendering needs MSYS2 mingw64 GTK on Windows; if `python -m fbdi report --pdf` blows up on Pango, that's the cause.
 
-**`fbdi/build_mapping.py`** built the initial scaffold of `FBDI_to_ApplaudTables_Mapping.xlsx`. It's a one-shot utility that scanned the 25D and 26A baselines, enumerated tabs, merged 9 hardcoded Applaud mappings, and wrote the starting point.
+**`fbdi/catalog_normalize.py`** is a single function, `normalize_label()`, that produces the catalog's `column_label`. It strips punctuation and symbols (asterisks, etc.) while preserving alphanumerics, underscores, and whitespace, then collapses whitespace runs. It's applied only to user-facing labels; technical names are left alone.
 
-**`fbdi/populate_module.py`** is a surgical column-F updater for `FBDI_to_ApplaudTables_Mapping.xlsx`. It reads `baselines/<ver>/file_modules.json` (NEW wins, OLD as fallback) and writes the Module column. It uses openpyxl in full mode so formatting, formulas, and freeze-panes survive the rewrite.
-
-**`fbdi/applaud_type.py`** translates Oracle types to Applaud types. `applaud_type_for(parsed_type) -> str`. `VARCHAR2(N)` becomes `char N`, `NUMBER(p,s)` becomes `numeric p,s`, `DATE` and `TIMESTAMP` both become `date`, and so on.
-
-**`fbdi/report.py`** generates the compliance report. `generate_report(catalog_path, mapping_path, old_release, new_release, out_dir) -> (html_path, pdf_path)`. It filters to MAPPED in-scope tabs, routes pending-base tabs to a separate section, and renders both HTML and PDF from a single Jinja2 template (`fbdi/templates/report.html.j2`) via `weasyprint`. The PDF rendering needs MSYS2 mingw64 GTK on Windows; if you're on a fresh machine and `python -m fbdi report` blows up on Pango, that's the cause.
-
-**`fbdi/catalog_normalize.py`** is a single function, `normalize_label()`. It strips characters Applaud doesn't handle cleanly (asterisks, punctuation, symbols) while preserving alphanumerics, underscores, and whitespace. It's applied only to user-facing labels; technical names are left alone.
-
-**`fbdi/cli.py` and `fbdi/__main__.py`** wire the package up as a CLI. The main convenience is `_resolve_dir()`. When you pass `--old 26A`, it resolves that to `baselines/26A/originals/` automatically. Subcommands exposed today: `compare`, `catalog`, `diagnose`, `populate-module`, and `report`.
+**`fbdi/cli.py` and `fbdi/__main__.py`** wire the package up as a CLI. The main convenience is `_resolve_dir()`. When you pass `--old 26A`, it resolves that to `baselines/26A/originals/` automatically. Subcommands exposed today: `compare`, `catalog`, `diagnose`, and `report`.
 
 **`tools/download_and_clear.py`** lives outside `fbdi/` deliberately. Selenium and webdriver-manager are heavy dependencies and don't belong in the comparison engine. This script chains download then smart-clear, or accepts `--clear-only` to re-clear without re-downloading.
 
 ## The `/fbdi-compare-release` skill
 
-The skill's job is glue, not logic. All the domain work happens in `fbdi/` and `tools/`. The skill orchestrates a 9-stage pipeline (plus an interim Stage 6.5 for mapping updates) with eight human-in-the-loop checkpoints so a non-developer can run a quarterly refresh without understanding the internals. The stages cover preflight, version resolve, download, smart-clear, compare, catalog, populate-module, summary, post-run verification, and the compliance report.
+The skill's job is glue, not logic. All the domain work happens in `fbdi/` and `tools/`. The skill orchestrates the staged pipeline with human-in-the-loop checkpoints so a non-developer can run a quarterly refresh without understanding the internals. The stages cover preflight, version resolve, download, smart-clear, compare, catalog, summary, post-run verification, and the release change report.
 
 The skill lives at `.claude/skills/fbdi-compare-release/`. The files:
 
@@ -104,7 +93,7 @@ When to modify the skill vs. the CLI: if the change is orchestration (a new HITL
 
 ## Testing conventions
 
-The test suite lives in `tests/` in a flat structure, one file per `fbdi/` module. 320 tests as of 2026-05-04.
+The test suite lives in `tests/` in a flat structure, one file per `fbdi/` module. 233 tests (230 pass + 3 environment-gated skips).
 
 Run the full suite:
 ```
@@ -145,27 +134,21 @@ Say Oracle just shipped 27A. The fastest path is to trigger `/fbdi-compare-relea
    ```
    This adds a `27A` tab to `FBDI_Master_Catalog.xlsx` and recomputes the Drift tab against 26B.
 
-5. Update the Module column in the mapping spreadsheet:
-   ```
-   python -m fbdi populate-module --new 27A --old 26B
-   ```
-   This reads `baselines/<ver>/file_modules.json` (NEW wins, OLD as fallback) and surgically updates column F of `FBDI_to_ApplaudTables_Mapping.xlsx`. Formatting and freeze-panes are preserved.
-
-6. Generate the compliance report:
+5. Generate the release change report:
    ```
    python -m fbdi report --old 26B --new 27A
    ```
-   You get an HTML and a PDF in the repo root.
+   You get `FBDI_Change_Report_26B_27A.html` in the repo root. Add `--pdf` to also render the PDF (needs MSYS2 mingw64 GTK). The report reads the catalog and each release's `file_modules.json` to group the changed tabs by Oracle module.
 
-7. Verify detection health:
+6. Verify detection health:
    ```
    python -m fbdi diagnose --old baselines/26B/originals --new baselines/27A/originals
    ```
    Check the `FILE_ERROR` count. If it jumped vs. the prior release, something Oracle shipped is corrupt or uses a format the engine doesn't handle. Investigate before handing off the report.
 
-8. If Oracle changed the structure of a template's header rows and detection breaks, the fix lives in `fbdi/detect_header.py`. Adjust the scoring weights or thresholds, then add a test in `tests/test_detect_header.py` that pins the new behavior. Do not special-case a filename. That's the architectural decision the engine was built to avoid. The whole point of dynamic detection is that filenames shouldn't matter.
+7. If Oracle changed the structure of a template's header rows and detection breaks, the fix lives in `fbdi/detect_header.py`. Adjust the scoring weights or thresholds, then add a test in `tests/test_detect_header.py` that pins the new behavior. Do not special-case a filename. That's the architectural decision the engine was built to avoid. The whole point of dynamic detection is that filenames shouldn't matter.
 
-9. If a previously-working tab now produces `NO_HEADER`, `detect_header.py` is the first place to look. If it's failing on the comparison side (a header is detected but fields are wrong), check `compare.py`. If the catalog is missing fields, check `catalog.py`'s `_extract_rich` vs. `_extract_thin` dispatch. The distinction matters when Oracle's header row is UPPER_SNAKE_CASE vs. mixed-case labels.
+8. If a previously-working tab now produces `NO_HEADER`, `detect_header.py` is the first place to look. If it's failing on the comparison side (a header is detected but fields are wrong), check `compare.py`. If the catalog is missing fields, check `catalog.py`'s `_extract_rich` vs. `_extract_thin` dispatch. The distinction matters when Oracle's header row is UPPER_SNAKE_CASE vs. mixed-case labels.
 
 ## Design docs and how we work
 
@@ -183,7 +166,7 @@ For cross-release historical context, the `reference/` directory at repo root is
 
 **Corrupt XML in some xlsm files.** `openpyxl` throws `zipfile.BadZipFile` on a handful of Oracle templates. The engine catches the exception and logs the file as a `FILE_ERROR`. The issue shows up in the catalog's Issues tab and in the diagnose report. `verify_run.py` flags a regression when the FILE_ERROR count jumps between releases. That's the signal to go investigate what Oracle shipped.
 
-**5 MB cap in `diagnose` and `build_mapping`.** These two modules load workbooks in full (non-read_only) mode, which holds the whole file in memory. The cap is in `fbdi/config.py` as `MAX_FILE_SIZE_BYTES`. The comparison engine has no such limit because it streams via `iter_rows` in read_only mode. If you're extending `diagnose` or `build_mapping`, keep the cap. Don't silently remove it and then wonder why memory spikes.
+**5 MB cap in `diagnose`.** This module loads workbooks in full (non-read_only) mode, which holds the whole file in memory. The cap is in `fbdi/config.py` as `MAX_FILE_SIZE_BYTES`. The comparison engine has no such limit because it streams via `iter_rows` in read_only mode. If you're extending `diagnose`, keep the cap. Don't silently remove it and then wonder why memory spikes.
 
 **Legacy VBA-generated comparison reports.** The legacy VBA macro produced comparison reports with a corrupt stylesheet (this is what `Comparison_Report_25D_26A.xlsx` looks like, for example). Standard `openpyxl.load_workbook()` throws an exception on these. If you need to read one programmatically, use `read_only=True` or `data_only=True` with exception handling around the load. Python-generated reports don't have this issue.
 
@@ -193,7 +176,7 @@ For cross-release historical context, the `reference/` directory at repo root is
 
 **JET `<oj-tree-view>` race in the scraper.** Oracle's docs put the table of contents inside an `<oj-tree-view>` under `#navigationDrawer`. The drawer container appears in the DOM before the tree-view's `<li role="treeitem">` children populate. Without a wait for at least one treeitem, the scraper finds an empty list and silently skips the URL. No error, no SKIP log. The page just immediately reports "Completed" with zero downloads. Fixed in commit 82cd568. Keep the wait when refactoring the scraper.
 
-**PDF rendering needs MSYS2 mingw64 GTK on Windows.** `fbdi/report.py` uses weasyprint, which depends on libgobject, libpango, and libcairo. The standalone GtkD installer ships Pango 1.43 and breaks on weasyprint ≥53. MSYS2 mingw64 ships Pango 1.56+ and works. Install MSYS2 and run `pacman -S mingw-w64-x86_64-pango mingw-w64-x86_64-gtk3 mingw-w64-x86_64-pkg-config`. The probe order in `_GTK_WINDOWS_BIN_CANDIDATES` checks MSYS2 first; keep that ordering. Don't try to lower the `weasyprint>=62.0` pin to work around an older GTK. weasyprint <53 lacks flexbox and grid layout entirely, and the report cover collapses to white-on-white.
+**PDF rendering needs MSYS2 mingw64 GTK on Windows (only for `--pdf`).** The default HTML path has no heavy dependency; `fbdi/report.py` imports weasyprint lazily only when `--pdf` is passed. weasyprint depends on libgobject, libpango, and libcairo. The standalone GtkD installer ships Pango 1.43 and breaks on weasyprint ≥53. MSYS2 mingw64 ships Pango 1.56+ and works. Install MSYS2 and run `pacman -S mingw-w64-x86_64-pango mingw-w64-x86_64-gtk3 mingw-w64-x86_64-pkg-config`. The probe order in `_GTK_WINDOWS_BIN_CANDIDATES` checks MSYS2 first; keep that ordering. Don't try to lower the `weasyprint>=62.0` pin to work around an older GTK; older weasyprint lacks the flexbox and grid layout the Phase-2 report redesign needs.
 
 ## Where to ask for help
 

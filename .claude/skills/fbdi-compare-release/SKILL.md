@@ -1,6 +1,6 @@
 ---
 name: fbdi-compare-release
-description: "Use when Oracle ships a quarterly FBDI release and the user wants the full download → clear → compare → catalog pipeline run end-to-end. Triggers on phrases like 'Oracle released 26C', 'compare 26A to 26B', 'run the quarterly FBDI update', 'update the FBDI Master Catalog for 26B', 'new FBDI release dropped', 'FBDI refresh for Q1'. Also triggers on report-only phrases like 'generate compliance report', 'generate the report for 26A 26B', 'regenerate the PDF', 'generate the HTML report' — for these, verify FBDI_Master_Catalog.xlsx and FBDI_to_ApplaudTables_Mapping.xlsx exist at repo root, then jump directly to Stage 9. Does NOT trigger on near-miss phrases like 'compare these two spreadsheets' or 'run the test suite'."
+description: "Use when Oracle ships a quarterly FBDI release and the user wants the full download → clear → compare → catalog pipeline run end-to-end. Triggers on phrases like 'Oracle released 26C', 'compare 26A to 26B', 'run the quarterly FBDI update', 'update the FBDI Master Catalog for 26B', 'new FBDI release dropped', 'FBDI refresh for Q1'. Also triggers on report-only phrases like 'generate the release change report', 'generate the report for 26B 26C', 'regenerate the PDF' — for these, verify FBDI_Master_Catalog.xlsx exists at repo root, then jump directly to the report stage. Does NOT trigger on near-miss phrases like 'compare these two spreadsheets' or 'run the test suite'."
 ---
 
 # FBDI Compare-Release Orchestrator
@@ -250,41 +250,6 @@ python -m fbdi catalog --release <NEW>
 
 Expected wall time: ~3–5 min.
 
-## Stage 6.5 — Populate Module column in mapping spreadsheet
-
-If `FBDI_to_ApplaudTables_Mapping.xlsx` is absent at the repo root, skip
-this stage with the notice "Module column population skipped — mapping
-file not present" and proceed to Stage 7. This is a feature, not a
-failure: the file may not be checked out locally.
-
-**HITL #7 — backup before overwrite:** Ask the user:
-
-> "About to update the Module column in
-> `FBDI_to_ApplaudTables_Mapping.xlsx` based on
-> `baselines/<NEW>/file_modules.json` and
-> `baselines/<OLD>/file_modules.json`. Backup first?
->   (a) Yes, copy to `FBDI_to_ApplaudTables_Mapping.bak.xlsx` [default]
->   (b) No, just go (the file is git-tracked, you can revert)"
-
-On (a): `cp FBDI_to_ApplaudTables_Mapping.xlsx FBDI_to_ApplaudTables_Mapping.bak.xlsx`.
-If a backup with that name already exists, append a timestamp:
-`FBDI_to_ApplaudTables_Mapping.bak.<YYYYMMDD-HHMMSS>.xlsx`.
-
-Then run:
-
-```
-python -m fbdi populate-module --new <NEW> --old <OLD>
-```
-
-Expected exit codes:
-- `0` → JSON summary printed (populated/blank/overwritten counts).
-  Capture this for Stage 7's summary.
-- `2` → `file_modules.json` missing for one or both releases. This means
-  Stage 3 didn't complete cleanly for that release. Halt; surface the
-  error to the user.
-- `3` → mapping spreadsheet is open in Excel. Ask the user to close it,
-  then retry once.
-
 ## Stage 7 — Summary
 
 ```
@@ -310,22 +275,11 @@ Comparison Report: Comparison_Report_<OLD>_<NEW>.xlsx
 
 Catalog:           FBDI_Master_Catalog.xlsx
 
-Module column update (Stage 6.5):
-  populated: <populated>, blank: <blank>, overwritten: <overwritten>
-  mapping file: FBDI_to_ApplaudTables_Mapping.xlsx
-  backup:       FBDI_to_ApplaudTables_Mapping.bak.xlsx
-
 Stage 4 timeouts (manual clear required in baselines/<NEW>/blanks/):
   - PayablesCollectionDocuments.xlsm
 ```
 
 If the `stage4_timeouts` list is empty, omit that section.
-
-The "Module column update" block is rendered from the JSON summary you
-captured in Stage 6.5 (`populated`/`blank`/`overwritten` keys), spliced
-manually into the output between the Catalog line and Stage 4 timeouts —
-`summarize_report.py` does not produce these fields. If Stage 6.5 was
-skipped (mapping file absent), omit the "Module column update" section.
 
 ## Stage 8 — Post-run verification
 
@@ -387,34 +341,33 @@ block.
 Each stage is idempotent on output-existence terms:
 - Stage 3: re-running **wipes** `originals/` first (destructive). The skill
   warns before retrying.
-- Stages 4-6.5: re-running is safe; they overwrite their outputs.
+- Stages 4-6: re-running is safe; they overwrite their outputs.
 
 If interrupted at Stage 5, re-invoking the skill skips 1-4 (env still
 healthy, downloads still present, blanks still cleared) and resumes from
 compare.
 
-## Stage 9 — Compliance Report
+## Stage 9 — Release Change Report
 
 After Stage 8 finishes — or, for a standalone report-only invocation (triggered
 by a report phrase rather than a full-pipeline phrase), immediately — present
 HITL #8.
 
 **Standalone preflight:** When Stage 9 is reached via a report-only invocation
-(Stages 1–8 were skipped), first confirm both required inputs exist at repo root:
+(Stages 1–8 were skipped), first confirm the required input exists at repo root:
 
 - `FBDI_Master_Catalog.xlsx`
-- `FBDI_to_ApplaudTables_Mapping.xlsx`
 
-If either is missing, stop:
+If it is missing, stop:
 
-> "`<filename>` not found at repo root. Run the full pipeline (Stages 1–6)
-> first to generate it, or check your working directory."
+> "`FBDI_Master_Catalog.xlsx` not found at repo root. Run the full pipeline
+> (Stages 1–6) first to generate it, or check your working directory."
 
 **HITL #8 — validation gate:**
 
 For a **full pipeline run** (Stages 1–8 just completed), present:
 
-> "Pipeline complete. Before generating the formal compliance report, please
+> "Pipeline complete. Before generating the release change report, please
 > validate the Excel outputs:
 >
 > - `Comparison_Report_<OLD>_<NEW>.xlsx` — do the total change count and top
@@ -422,12 +375,12 @@ For a **full pipeline run** (Stages 1–8 just completed), present:
 > - `FBDI_Master_Catalog.xlsx` — open the `<NEW>` sheet and spot-check a few
 >   rows. Reasonable row count? No obvious gaps or blank data columns?
 >
-> Ready to generate the HTML and PDF compliance report? (yes / skip)"
+> Ready to generate the release change report? (yes / skip)"
 
 For a **standalone report-only invocation** (Stages 1–8 skipped), replace the
 opener:
 
-> "Ready to generate the compliance report for `<OLD>` → `<NEW>`. Before
+> "Ready to generate the release change report for `<OLD>` → `<NEW>`. Before
 > generating, please validate the Excel outputs:
 >
 > - `Comparison_Report_<OLD>_<NEW>.xlsx` — do the total change count and top
@@ -435,35 +388,43 @@ opener:
 > - `FBDI_Master_Catalog.xlsx` — open the `<NEW>` sheet and spot-check a few
 >   rows. Reasonable row count? No obvious gaps or blank data columns?
 >
-> Ready to generate the HTML and PDF compliance report? (yes / skip)"
+> Ready to generate the release change report? (yes / skip)"
 
-If the user says **skip**, log `Compliance Report skipped at user request` and end.
+If the user says **skip**, log `Release change report skipped at user request` and end.
 
 **Report generation:**
 
+The report is HTML by default. Add `--pdf` only when the user asks for a PDF as
+well (PDF rendering needs MSYS2/GTK — see Known Hazards in CLAUDE.md).
+
 ```
-python -m fbdi report --old <OLD> --new <NEW>
+py -m fbdi report --old <OLD> --new <NEW>
+```
+
+To also produce a PDF:
+
+```
+py -m fbdi report --old <OLD> --new <NEW> --pdf
 ```
 
 Expected wall time: ~5–15 seconds.
 
-On success, print:
+On success, print (include the PDF line only when `--pdf` was used):
 
 ```
-Compliance Report generated:
-  HTML: FBDI_Compliance_Report_<OLD>_<NEW>.html
-  PDF:  FBDI_Compliance_Report_<OLD>_<NEW>.pdf
+Release change report generated:
+  HTML: FBDI_Change_Report_<OLD>_<NEW>.html
+  PDF:  FBDI_Change_Report_<OLD>_<NEW>.pdf
 ```
 
 **Error handling:**
 
-- **Mapping file missing** (CLI exits 1): Surface as — *"The mapping file
-  `FBDI_to_ApplaudTables_Mapping.xlsx` wasn't found. This file is required for
-  the compliance report. Is it in the repo root? If not, the report can't be
-  generated until it's present."*
+- **Catalog missing** (CLI exits 1): Surface as — *"`FBDI_Master_Catalog.xlsx`
+  wasn't found at the repo root. It's the required input for the report. Run the
+  full pipeline (Stages 1–6) first to generate it, or check your working
+  directory."*
 
 - **PDF rendering fails (GTK/weasyprint traceback):** Parse the exception type
   and say — *"PDF generation failed — this usually means MSYS2/GTK isn't set
   up. See Known Hazards in CLAUDE.md for the install steps. The HTML file was
-  likely written successfully; check `FBDI_Compliance_Report_<OLD>_<NEW>.html`
-  first."*
+  written successfully; check `FBDI_Change_Report_<OLD>_<NEW>.html`."*
