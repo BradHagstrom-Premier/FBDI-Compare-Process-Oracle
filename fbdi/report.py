@@ -306,8 +306,11 @@ def generate_report(
 
     catalog_old = load_catalog_release(catalog_path, old_release)
     catalog_new = load_catalog_release(catalog_path, new_release)
-    # NEW wins over OLD for module classification.
-    module_of = {**load_file_modules(old_release), **load_file_modules(new_release)}
+    # NEW wins over OLD for module classification. Catalog file_name values are
+    # extension-less (e.g. "AutoInvoiceImportTemplate") while file_modules.json
+    # keys carry the ".xlsm" extension — reconcile on the stem so the lookup hits.
+    raw_modules = {**load_file_modules(old_release), **load_file_modules(new_release)}
+    module_of = {Path(k).stem: v for k, v in raw_modules.items()}
 
     ctx = build_report_context(
         catalog_old=catalog_old, catalog_new=catalog_new,

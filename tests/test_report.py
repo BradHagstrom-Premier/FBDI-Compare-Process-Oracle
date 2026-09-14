@@ -138,3 +138,40 @@ class TestRender:
         ctx = build_report_context({}, {}, {}, "26A", "26B")
         html = _render_report(ctx)
         assert "No field-level changes detected" in html
+
+
+class TestGenerateReportModuleGrouping:
+    """Regression: catalog file_name is extension-less but file_modules.json keys
+    carry .xlsm — generate_report must reconcile them so files aren't all
+    grouped under 'Unclassified'."""
+
+    def _write_catalog(self, path):
+        wb = Workbook()
+        wb.remove(wb.active)
+        header = ["release", "file_name", "tab_name", "position", "column_label",
+                  "column_technical", "data_type", "length", "scale", "data_type_raw", "required"]
+        # 26A: one field; 26B: two fields (so the tab shows an ADDED change).
+        ws_a = wb.create_sheet("26A")
+        ws_a.append(header)
+        ws_a.append(["26A", "AutoInvoiceImportTemplate", "RA", 1, "A", "A_F", "VARCHAR2", 30, None, "VARCHAR2(30)", "TRUE"])
+        ws_b = wb.create_sheet("26B")
+        ws_b.append(header)
+        ws_b.append(["26B", "AutoInvoiceImportTemplate", "RA", 1, "A", "A_F", "VARCHAR2", 30, None, "VARCHAR2(30)", "TRUE"])
+        ws_b.append(["26B", "AutoInvoiceImportTemplate", "RA", 2, "B", "B_F", "VARCHAR2", 30, None, "VARCHAR2(30)", "FALSE"])
+        wb.save(path)
+        wb.close()
+
+    def test_module_resolved_from_extensioned_json_keys(self, tmp_path, monkeypatch):
+        from fbdi.report import generate_report
+        catalog = tmp_path / "cat.xlsx"
+        self._write_catalog(catalog)
+        (tmp_path / "baselines" / "26b").mkdir(parents=True)
+        (tmp_path / "baselines" / "26b" / "file_modules.json").write_text(
+            json.dumps({"AutoInvoiceImportTemplate.xlsm": "Financials"}))
+        monkeypatch.chdir(tmp_path)
+
+        html_path, pdf_path = generate_report(catalog, "26A", "26B", tmp_path)
+        assert pdf_path is None
+        html = html_path.read_text(encoding="utf-8")
+        assert '<h2 class="module">Financials</h2>' in html
+        assert "Unclassified" not in html
