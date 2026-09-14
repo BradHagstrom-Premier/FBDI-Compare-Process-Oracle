@@ -1,6 +1,6 @@
 # Oracle FBDI Pulldown
 
-Automates comparison of Oracle FBDI (File-Based Data Import) template files (`.xlsm`) across Oracle Cloud quarterly releases. Produces three deliverables: a field-level diff report (`Comparison_Report_<OLD>_<NEW>.xlsx`), a per-release snapshot catalog (`FBDI_Master_Catalog.xlsx`), and an HTML/PDF compliance report.
+Automates comparison of Oracle FBDI (File-Based Data Import) template files (`.xlsm`) across Oracle Cloud quarterly releases. Produces three deliverables: a field-level diff report (`Comparison_Report_<OLD>_<NEW>.xlsx`), a per-release snapshot catalog (`FBDI_Master_Catalog.xlsx`), and an HTML/PDF release change report (`FBDI_Change_Report_<OLD>_<NEW>.html`/`.pdf`).
 
 > **Running it:** see [`docs/operator-guide.md`](docs/operator-guide.md).
 > **Developing on it:** see [`docs/developer-guide.md`](docs/developer-guide.md).
@@ -25,7 +25,7 @@ The repo ships the `fbdi-compare-release` skill at `.claude/skills/fbdi-compare-
 
 > Compare 26A to 26B
 
-Claude invokes the skill and walks you through a 9-stage orchestrated pipeline, plus an interim Stage 6.5 for mapping updates: preflight, version resolve, download, smart-clear, compare, catalog, populate-module, summary, post-run verification, and a final HTML/PDF compliance report. There are eight human-in-the-loop checkpoints along the way for the edge cases. Expect 35–50 minutes end to end; downloads dominate. The full workflow lives in `.claude/skills/fbdi-compare-release/SKILL.md`.
+Claude invokes the skill and walks you through the orchestrated pipeline: preflight, version resolve, download, smart-clear, compare, catalog, summary, post-run verification, and a final HTML/PDF release change report. There are human-in-the-loop checkpoints along the way for the edge cases. Expect 35–50 minutes end to end; downloads dominate. The full workflow lives in `.claude/skills/fbdi-compare-release/SKILL.md`.
 
 ### Option B: CLI directly
 
@@ -40,6 +40,9 @@ python -m fbdi compare --old 26A --new 26B
 
 # Update the per-release snapshot catalog
 python -m fbdi catalog --release 26B
+
+# Generate the release change report (HTML; add --pdf for the PDF)
+python -m fbdi report --old 26A --new 26B
 
 # Diagnose header-detection outcomes per tab
 python -m fbdi diagnose --old baselines/26A/originals --new baselines/26B/originals
@@ -63,7 +66,7 @@ See `CLAUDE.md` for the full list of hazards and the resolved-issues log.
 FBDI-Compare-Process-Oracle/
 ├── fbdi/                      # Python comparison/catalog/clear engine
 ├── tools/                     # Selenium downloader (download_and_clear.py)
-├── tests/                     # 320 unit tests (pytest)
+├── tests/                     # 233 tests (pytest)
 ├── .claude/skills/            # Project-level Claude Code skills
 │   └── fbdi-compare-release/  # Orchestrator for quarterly refreshes
 ├── docs/
@@ -71,10 +74,10 @@ FBDI-Compare-Process-Oracle/
 │   ├── developer-guide.md     # Codebase tour and extension guide
 │   ├── archive/               # Historical narrative docs (audits, gap findings)
 │   └── superpowers/           # Design specs and implementation plans
-├── baselines/                 # gitignored: downloaded xlsm per release + applaud_snapshot.json
+├── baselines/                 # gitignored: downloaded xlsm + file_modules.json per release
 ├── reference/                 # Read-only archive of legacy VBA + scripts
 ├── baseline_files.txt         # Inventory of expected downloads per release
-├── FBDI_Master_Catalog.xlsx   # Per-release snapshot catalog (git-tracked)
+├── FBDI_Master_Catalog.xlsx   # Per-release snapshot catalog (gitignored; regenerable)
 ├── requirements.txt
 ├── CLAUDE.md                  # Persistent Claude Code context
 └── README.md
@@ -85,7 +88,7 @@ FBDI-Compare-Process-Oracle/
 ## Testing
 
 ```bash
-python -m pytest tests/              # full suite (320 tests)
+python -m pytest tests/              # full suite (233 tests)
 python -m pytest tests/test_clear.py -v
 ```
 
@@ -106,6 +109,6 @@ python -m pytest tests/test_clear.py -v
 
 ## Status
 
-Shipped: the comparison engine, the CLI (`fbdi compare`, `catalog`, `diagnose`, `populate-module`, `report`), smart clearing, the `download_and_clear` Selenium driver, the FBDI master catalog, the Applaud mapping audit, the `fbdi-compare-release` Claude Code skill, the HTML/PDF compliance report, and the `FBDI_to_ApplaudTables_Mapping.xlsx` mapping (no TBD rows as of 2026-05-04). 320 unit tests passing.
+Shipped: the comparison engine, the CLI (`fbdi compare`, `catalog`, `diagnose`, `report`), smart clearing, the `download_and_clear` Selenium driver, the FBDI master catalog, the `fbdi-compare-release` Claude Code skill, and the HTML/PDF release change report. 233 tests passing.
 
-Planned: `python -m fbdi run`, a headless chained pipeline. Implementation plan at `docs/superpowers/plans/2026-05-04-fbdi-run-headless-pipeline.md`.
+Planned: Phase 2 restyles the release change report with the Definian design system (HTML-first, opt-in PDF). Design at `docs/superpowers/specs/2026-09-14-repo-cleanse-and-report-redesign-design.md`.

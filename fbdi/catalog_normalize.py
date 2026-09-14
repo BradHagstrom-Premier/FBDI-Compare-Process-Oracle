@@ -1,9 +1,10 @@
 """Normalize user-facing FBDI column labels for the master catalog.
 
-Strips characters Applaud doesn't handle well (asterisks, punctuation,
-symbols) while preserving alphanumerics, underscores, and whitespace.
-Applied only to labels — technical UPPER_SNAKE_CASE names are untouched
-because they are already canonical by construction.
+Produces the catalog's ``column_label`` value: strips punctuation and
+symbols (asterisks, etc.) while preserving alphanumerics, underscores, and
+whitespace, then collapses whitespace runs. Applied only to labels —
+technical UPPER_SNAKE_CASE names are untouched because they are already
+canonical by construction.
 """
 
 
