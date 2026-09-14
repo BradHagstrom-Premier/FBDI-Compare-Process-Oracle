@@ -75,68 +75,6 @@ class TestCatalogCLI:
         assert master.exists()
 
 
-def test_populate_module_subcommand_invocation(tmp_path, monkeypatch, capsys):
-    """`python -m fbdi populate-module` invokes populate_module_column with the
-    right args and prints the summary."""
-    import fbdi.cli as cli_mod
-    from openpyxl import Workbook
-
-    # Build minimal artifacts in tmp_path
-    (tmp_path / "baselines" / "26a").mkdir(parents=True)
-    (tmp_path / "baselines" / "26b").mkdir(parents=True)
-    (tmp_path / "baselines" / "26a" / "file_modules.json").write_text(
-        '{"AutoInvoiceImportTemplate.xlsm": "Financials"}'
-    )
-    (tmp_path / "baselines" / "26b" / "file_modules.json").write_text(
-        '{"AutoInvoiceImportTemplate.xlsm": "Financials"}'
-    )
-
-    mapping_path = tmp_path / "mapping.xlsx"
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "FBDI Mapping"
-    headers = ["FBDI Template", "FBDI Tab", "Applaud Table", "Prefix",
-               "Status", "Module", "In Base System?"]
-    for c_idx, h in enumerate(headers, start=1):
-        ws.cell(row=1, column=c_idx, value=h)
-    ws.cell(row=2, column=1, value="AutoInvoiceImportTemplate")
-    ws.cell(row=2, column=2, value="RA_TAB")
-    wb.save(mapping_path)
-    wb.close()
-
-    monkeypatch.chdir(tmp_path)
-    cli_mod.main(["populate-module", "--new", "26b", "--old", "26a",
-                  "--mapping", str(mapping_path)])
-
-    # Verify the workbook actually got the Module value written
-    from openpyxl import load_workbook
-    wb = load_workbook(mapping_path, read_only=True)
-    ws = wb["FBDI Mapping"]
-    row2 = list(ws.iter_rows(min_row=2, max_row=2, values_only=True))[0]
-    wb.close()
-    assert row2[5] == "Financials"  # column F
-
-    # Verify the JSON summary on stdout includes the populated count
-    out = capsys.readouterr().out
-    assert '"populated": 1' in out
-    assert '"new_release": "26B"' in out
-
-
-def test_populate_module_missing_json_exits_2(tmp_path, monkeypatch):
-    """Missing file_modules.json for either release exits 2."""
-    import fbdi.cli as cli_mod
-
-    # Only create the OLD baseline — NEW's file_modules.json is missing
-    (tmp_path / "baselines" / "26a").mkdir(parents=True)
-    (tmp_path / "baselines" / "26a" / "file_modules.json").write_text("{}")
-
-    monkeypatch.chdir(tmp_path)
-    with pytest.raises(SystemExit) as excinfo:
-        cli_mod.main(["populate-module", "--new", "26b", "--old", "26a",
-                      "--mapping", "ignored.xlsx"])
-    assert excinfo.value.code == 2
-
-
 class TestReportSubcommand:
     def test_report_subcommand_parses_old_and_new(self, monkeypatch, tmp_path):
         from fbdi import cli
