@@ -290,6 +290,22 @@ def _register_windows_gtk_dlls() -> None:
             return
 
 
+def _load_design_css() -> str:
+    """Return the vendored self-contained Definian CSS (tokens + base64 Aptos).
+
+    Injected into the template as ``design_css`` so the generated HTML is a
+    single portable file (no external CSS/font fetch, in a browser or in
+    weasyprint). Regenerate with ``tools/build_report_font_css.py``.
+    """
+    css_path = Path(__file__).parent / "templates" / "assets" / "definian.css"
+    if not css_path.is_file():
+        raise FileNotFoundError(
+            f"Report CSS asset missing: {css_path}. "
+            "Regenerate it with: py tools/build_report_font_css.py"
+        )
+    return css_path.read_text(encoding="utf-8")
+
+
 def generate_report(
     catalog_path: Path,
     old_release: str,
@@ -299,8 +315,10 @@ def generate_report(
 ) -> tuple[Path, Path | None]:
     """Load -> build -> render -> write. Returns (html_path, pdf_path|None).
 
-    HTML is always written. PDF is written only when pdf=True (weasyprint +
-    GTK imported lazily so the common HTML path has no heavy dependency).
+    HTML is always written as a single self-contained file (the Definian
+    design CSS + base64 Aptos fonts are inlined). PDF is written only when
+    pdf=True (weasyprint + GTK imported lazily so the common HTML path has no
+    heavy dependency).
     """
     import jinja2
 
@@ -324,18 +342,21 @@ def generate_report(
         trim_blocks=True, lstrip_blocks=True,
     )
     tpl = env.get_template("report.html.j2")
+    design_css = _load_design_css()
 
     out_dir.mkdir(parents=True, exist_ok=True)
     base = f"FBDI_Change_Report_{old_release}_{new_release}"
     html_path = out_dir / f"{base}.html"
-    html_path.write_text(tpl.render(ctx=ctx, print_mode=False), encoding="utf-8")
+    html_path.write_text(
+        tpl.render(ctx=ctx, print_mode=False, design_css=design_css), encoding="utf-8"
+    )
 
     pdf_path: Path | None = None
     if pdf:
         _register_windows_gtk_dlls()
         import weasyprint
         pdf_path = out_dir / f"{base}.pdf"
-        pdf_html = tpl.render(ctx=ctx, print_mode=True)
+        pdf_html = tpl.render(ctx=ctx, print_mode=True, design_css=design_css)
         weasyprint.HTML(string=pdf_html, base_url=str(template_dir)).write_pdf(str(pdf_path))
 
     return html_path, pdf_path

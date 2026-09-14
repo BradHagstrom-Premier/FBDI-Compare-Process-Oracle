@@ -1,70 +1,422 @@
+{#- FBDI Release Change Report — Definian design system (Tier B).
+    Context: ctx (ReportContext), print_mode (bool), design_css (str|None).
+    design_css carries the vendored self-contained Definian tokens + Aptos faces;
+    it is injected by report.generate_report and omitted by unit render tests. -#}
+{%- import "_report_macros.j2" as m -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FBDI Release Change Report — {{ ctx.old_release }} → {{ ctx.new_release }}</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 2rem; color: #1a1a1a; }
-  h1 { font-size: 1.6rem; color: #0D2C71; }
-  .totals { margin: 1rem 0; }
-  .totals span { display: inline-block; margin-right: 1.5rem; font-weight: 600; }
-  h2.module { margin-top: 2rem; border-bottom: 2px solid #0D2C71; padding-bottom: 0.25rem; }
-  h3.tab { margin-top: 1.25rem; }
-  table { border-collapse: collapse; width: 100%; margin: 0.5rem 0 1.25rem; }
-  th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 0.85rem; }
-  th { background: #f0f2f7; }
-  caption { text-align: left; font-weight: 600; margin-bottom: 0.25rem; }
-  .center { text-align: center; }
+{% if design_css %}{{ design_css | safe }}{% endif %}
+
+/* ── Report semantic palette ───────────────────────────────────────────────
+   Change-type families. Hue = the Definian brand/status token; the -strong
+   (text) and -tint (fill) values are the AA-safe pair. Green/neutral come from
+   the Definian ramps; the red/amber pairs are the Definian "status pill"
+   values from the design system's Brand Strictness Tiers component. Every
+   value is a static hex (no color-mix) so the weasyprint PDF is deterministic. */
+:root{
+  --rpt-maxw: 1180px;
+  --rpt-border: var(--def-cool-gray);
+  --rpt-surface: var(--def-neutral-50);      /* #F6F6F8 cloud surface */
+  --rpt-row-rule: var(--def-neutral-100);    /* #EEEEF3 table row divider */
+
+  --rpt-added-strong: var(--def-green-800);  /* #005F38 */
+  --rpt-added-tint:   var(--def-green-50);   /* #E6F7EF */
+  --rpt-removed:       var(--status-error);  /* #D64545 */
+  --rpt-removed-strong:#A12B2B;
+  --rpt-removed-tint:  #FCE5E5;
+  --rpt-modified:      var(--status-warning);/* #E5A100 */
+  --rpt-modified-strong:#8A6100;
+  --rpt-modified-tint: #FFF3D6;
+  --rpt-neutral-strong: var(--def-dark-gray);/* #3C405B */
+  --rpt-neutral-tint:  var(--def-neutral-100);
+}
+
+*{ box-sizing: border-box; }
+html{ -webkit-text-size-adjust:100%; }
+body{
+  margin:0;
+  background:var(--def-neutral-50);
+  color:var(--def-ink);
+  font-family:var(--font-sans);
+  font-size:var(--fs-small);           /* 14px — a dense operational document */
+  line-height:var(--lh-small);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+::selection{ background:rgba(0,171,99,.22); }             /* Signal Green wash */
+:focus-visible{ outline:2px solid var(--def-green); outline-offset:2px; border-radius:var(--r-sm); }
+a{ color:var(--def-blue); }
+
+.wrap{ max-width:var(--rpt-maxw); margin:0 auto; padding:0 var(--space-6) var(--space-16); }
+
+/* ── Cover ─────────────────────────────────────────────────────────────── */
+.cover{
+  background:linear-gradient(135deg, var(--def-blue) 0%, var(--def-midnight) 100%);
+  color:var(--def-white);
+  padding:var(--space-12) var(--space-10) var(--space-10);
+  position:relative; overflow:hidden;
+}
+.cover__inner{ max-width:var(--rpt-maxw); margin:0 auto; position:relative; z-index:1; }
+.cover__logo{ display:block; height:34px; width:auto; margin-bottom:var(--space-8); }
+.cover__logo svg{ height:34px; width:auto; display:block; }
+.cover h1{
+  font-family:var(--font-display); font-weight:700;
+  font-size:44px; line-height:48px; letter-spacing:var(--ls-tight);
+  margin:0 0 var(--space-3); color:var(--def-white); text-wrap:balance;
+}
+.cover__sub{
+  font-size:var(--fs-body-lg); line-height:var(--lh-body-lg); font-weight:400;
+  color:var(--def-cool-gray); margin:0 0 var(--space-2);
+}
+.cover__sub .rel{ color:var(--def-white); font-weight:600; }
+.cover__date{ font-size:var(--fs-caption); color:var(--def-cool-gray); margin:0 0 var(--space-8);
+  letter-spacing:var(--ls-wide); text-transform:uppercase; }
+
+/* Brand grid-dot motif, top-right (decorative, from the design system hero). */
+.cover__grid{ position:absolute; top:var(--space-10); right:var(--space-10);
+  display:grid; grid-template-columns:repeat(6,8px); grid-auto-rows:8px; gap:5px; z-index:0; opacity:.9; }
+.cover__grid span{ width:8px; height:8px; background:var(--def-green); }
+
+/* Scope tiles — the report's change legend + magnitude in one row. */
+.scope{ display:flex; flex-wrap:wrap; gap:var(--space-3);
+  border-top:1px solid rgba(216,215,238,.25); padding-top:var(--space-6); }
+.tile{ flex:1 1 120px; background:rgba(255,255,255,.06); border-radius:var(--r-md);
+  padding:var(--space-4) var(--space-5); }
+.tile__n{ font-family:var(--font-display); font-weight:700; font-size:34px; line-height:1;
+  letter-spacing:var(--ls-tight); font-variant-numeric:tabular-nums; }
+.tile__l{ display:block; margin-top:var(--space-2); font-size:var(--fs-overline);
+  line-height:var(--lh-overline); letter-spacing:var(--ls-overline); text-transform:uppercase;
+  color:var(--def-cool-gray); font-weight:500; }
+.tile--tabs .tile__n{ color:var(--def-white); }
+.tile--add  .tile__n{ color:var(--def-green); }
+.tile--rem  .tile__n{ color:var(--rpt-removed); }
+.tile--mod  .tile__n{ color:var(--rpt-modified); }
+.tile--shift .tile__n{ color:var(--def-cool-gray); }
+
+/* ── Toolbar (HTML only) ───────────────────────────────────────────────── */
+.toolbar{ position:sticky; top:0; z-index:5; background:var(--def-white);
+  border-bottom:1px solid var(--rpt-border); padding:var(--space-3) var(--space-6);
+  display:flex; flex-wrap:wrap; gap:var(--space-3); align-items:center; }
+.toolbar__in{ max-width:var(--rpt-maxw); margin:0 auto; width:100%;
+  display:flex; flex-wrap:wrap; gap:var(--space-3); align-items:center; }
+.field{ display:flex; align-items:center; gap:var(--space-2); }
+.field label{ font-size:var(--fs-overline); letter-spacing:var(--ls-overline);
+  text-transform:uppercase; color:var(--def-neutral-500); font-weight:600; }
+.toolbar input[type=search], .toolbar select{
+  font-family:var(--font-sans); font-size:var(--fs-small); color:var(--def-ink);
+  background:var(--def-white); border:1px solid var(--rpt-border); border-radius:var(--r-sm);
+  padding:6px 10px; }
+.toolbar input[type=search]{ min-width:230px; }
+.btn{ font-family:var(--font-sans); font-size:var(--fs-caption); font-weight:600;
+  letter-spacing:var(--ls-wide); text-transform:uppercase; color:var(--def-blue);
+  background:var(--def-white); border:1px solid var(--rpt-border); border-radius:var(--r-sm);
+  padding:6px 11px; cursor:pointer; }
+.btn:hover{ background:var(--rpt-surface); }
+.toolbar__spacer{ margin-left:auto; }
+.toolbar__count{ font-size:var(--fs-caption); color:var(--def-neutral-500);
+  font-variant-numeric:tabular-nums; }
+
+/* ── Module + file structure ───────────────────────────────────────────── */
+.module{ margin:var(--space-12) 0 var(--space-5); display:flex; align-items:baseline; gap:var(--space-3); }
+.module h2{ font-family:var(--font-display); font-weight:600; font-size:var(--fs-h3);
+  line-height:var(--lh-h3); color:var(--def-blue); margin:0; letter-spacing:var(--ls-tight); }
+.module__rule{ flex:1; height:1px; background:var(--rpt-border); }
+
+.file{ border:1px solid var(--rpt-border); border-radius:var(--r-md); overflow:hidden;
+  margin-bottom:var(--space-5); background:var(--def-white); }
+.file__head{ background:var(--def-blue); color:var(--def-white);
+  padding:var(--space-4) var(--space-5); display:flex; align-items:center; gap:var(--space-4);
+  cursor:pointer; user-select:none; }
+.file__id{ min-width:0; flex:1; }
+.file__name{ font-family:var(--font-mono); font-size:var(--fs-body); font-weight:400;
+  color:var(--def-white); word-break:break-word; }
+.file__tab{ display:block; margin-top:2px; font-size:var(--fs-caption); color:var(--def-cool-gray); }
+.file__tab code{ font-family:var(--font-mono); color:var(--def-white); }
+.file__mini{ display:flex; gap:var(--space-3); font-size:var(--fs-caption);
+  font-variant-numeric:tabular-nums; white-space:nowrap; }
+.file__mini .m-add{ color:#8CE3B8; }
+.file__mini .m-rem{ color:#F0B4AC; }
+.file__mini .m-mod{ color:#F2D79A; }
+.file__mini .m-shift{ color:var(--def-cool-gray); }
+.file__pill{ font-size:var(--fs-overline); letter-spacing:var(--ls-overline); text-transform:uppercase;
+  font-weight:600; padding:2px 10px; border-radius:var(--r-pill); white-space:nowrap;
+  background:rgba(255,255,255,.14); color:var(--def-white); }
+.file__pill--fin{ background:var(--def-green-700); color:var(--def-white); }
+.file__chev{ flex-shrink:0; transition:transform var(--dur-fast) var(--ease-out); }
+.file.collapsed .file__chev{ transform:rotate(-90deg); }
+.file.collapsed .file__body{ display:none; }
+.file__body{ padding:var(--space-5) var(--space-5) var(--space-2); }
+
+/* ── Change blocks ─────────────────────────────────────────────────────── */
+.chg{ margin-bottom:var(--space-5); }
+.chg__head{ display:flex; align-items:center; gap:var(--space-2); margin:0 0 var(--space-2); }
+.chg__label{ font-size:var(--fs-overline); line-height:1; letter-spacing:var(--ls-overline);
+  text-transform:uppercase; font-weight:700; }
+.chg__badge{ font-size:var(--fs-overline); font-weight:700; line-height:1; padding:3px 9px;
+  border-radius:var(--r-pill); font-variant-numeric:tabular-nums; }
+.chg--added   .chg__label{ color:var(--rpt-added-strong); }
+.chg--added   .chg__badge{ background:var(--rpt-added-tint);   color:var(--rpt-added-strong); }
+.chg--removed .chg__label{ color:var(--rpt-removed-strong); }
+.chg--removed .chg__badge{ background:var(--rpt-removed-tint); color:var(--rpt-removed-strong); }
+.chg--modified .chg__label{ color:var(--rpt-modified-strong); }
+.chg--modified .chg__badge{ background:var(--rpt-modified-tint); color:var(--rpt-modified-strong); }
+.chg--neutral .chg__label{ color:var(--rpt-neutral-strong); }
+.chg--neutral .chg__badge{ background:var(--rpt-neutral-tint); color:var(--rpt-neutral-strong); }
+
+/* ── Change tables ─────────────────────────────────────────────────────── */
+.tablewrap{ overflow-x:auto; }
+table{ border-collapse:collapse; width:100%; }
+thead th{ text-align:left; font-size:var(--fs-overline); line-height:var(--lh-overline);
+  letter-spacing:var(--ls-overline); text-transform:uppercase; font-weight:700;
+  color:var(--def-neutral-600); background:var(--rpt-surface);
+  padding:7px 10px; border-bottom:1px solid var(--rpt-border); }
+tbody td{ font-size:var(--fs-small); color:var(--def-ink); padding:7px 10px;
+  border-bottom:1px solid var(--rpt-row-rule); vertical-align:top; }
+tbody tr:last-child td{ border-bottom:0; }
+tbody tr:hover td{ background:var(--rpt-surface); }
+.c-field{ font-family:var(--font-mono); font-size:var(--fs-caption); color:var(--def-blue-700); }
+.c-type{ font-family:var(--font-mono); font-size:var(--fs-caption); color:var(--def-neutral-700); }
+.c-num{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap;
+  color:var(--def-neutral-600); width:1%; }
+.c-req{ text-align:center; white-space:nowrap; width:1%; }
+.arrow{ color:var(--def-neutral-400); padding:0 4px; }
+.was{ color:var(--def-neutral-500); }
+.now{ color:var(--def-ink); font-weight:600; }
+th.c-num, th.c-req{ text-align:right; }
+th.c-req{ text-align:center; }
+
+/* ── Shift summary / details ───────────────────────────────────────────── */
+.shift-note{ margin:0 0 var(--space-2); font-size:var(--fs-small); color:var(--def-neutral-600);
+  background:var(--rpt-surface); border:1px solid var(--rpt-border); border-radius:var(--r-sm);
+  padding:var(--space-3) var(--space-4); }
+.shift-note em{ font-style:normal; font-weight:600; color:var(--def-ink); }
+details.shift{ border:1px solid var(--rpt-border); border-radius:var(--r-sm); overflow:hidden; }
+details.shift>summary{ list-style:none; cursor:pointer; user-select:none;
+  display:flex; align-items:center; gap:var(--space-2); padding:8px 12px;
+  background:var(--rpt-surface); font-size:var(--fs-caption); font-weight:600; color:var(--def-blue); }
+details.shift>summary::-webkit-details-marker{ display:none; }
+details.shift>summary .file__chev{ transition:transform var(--dur-fast) var(--ease-out); transform:rotate(-90deg); }
+details.shift[open]>summary .file__chev{ transform:rotate(0deg); }
+details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
+
+.empty{ text-align:center; color:var(--def-neutral-600); padding:var(--space-16) var(--space-6); }
+.empty__mark{ font-family:var(--font-display); font-weight:700; font-size:var(--fs-h3);
+  color:var(--def-green); margin-bottom:var(--space-3); }
+.noresults{ text-align:center; color:var(--def-neutral-600); padding:var(--space-10) var(--space-6); }
+
+/* ── Print / PDF ───────────────────────────────────────────────────────── */
+@media print{
+  body{ background:var(--def-white); font-size:11px; line-height:15px; }
+  .toolbar{ display:none !important; }
+  .wrap{ max-width:none; padding:0 0 var(--space-6); }
+  .cover{ padding:var(--space-10) var(--space-8); }
+  .cover__grid{ display:none; }
+  .file{ break-inside:avoid; }
+  .chg{ break-inside:avoid; }
+  .tablewrap{ overflow:visible; }
+  thead{ display:table-header-group; }
+  tbody tr:hover td{ background:transparent; }
+  details.shift .file__chev{ display:none; }
+}
+@page{ size:A4; margin:14mm 12mm; }
 </style>
 </head>
 <body>
-<h1>FBDI Release Change Report — {{ ctx.old_release }} &rarr; {{ ctx.new_release }}</h1>
-<p>Generated {{ ctx.generated_date }}</p>
-<div class="totals">
-  <span>Tabs changed: {{ ctx.totals.tabs }}</span>
-  <span>Added: {{ ctx.totals.add }}</span>
-  <span>Removed: {{ ctx.totals.rem }}</span>
-  <span>Modified: {{ ctx.totals.mod }}</span>
-  <span>Shifted: {{ ctx.totals.shift }}</span>
+
+<header class="cover">
+  <div class="cover__grid" aria-hidden="true">
+    {% for _ in range(18) %}<span></span>{% endfor %}
+  </div>
+  <div class="cover__inner">
+    <span class="cover__logo" aria-label="Definian">
+      <svg viewBox="0 0 480.4946 96.9498" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Definian"><g fill="#FFFFFF"><rect x="296.1788" width="17.4255" height="15.5278"/><rect x="191.5043" width="17.4299" height="15.5278"/><rect x="296.1116" y="31.5539" width="17.5599" height="64.9622"/><rect x="191.5066" y="31.5574" width="17.4299" height="64.9601"/><path d="M260.2334,31.5602h-37.7062v65.1096h16.0435v-49.064h21.8361c3.9187,0,7.0923,3.1757,7.0923,7.0924v41.809l16.0478.1711v-41.8091c0-12.8719-10.4371-23.3091-23.3135-23.3091Z"/><rect x="392.0047" y="47.6058" width="16.0434" height="49.064"/><path d="M429.713,31.5602h-21.6649v16.0456h21.8339c3.921,0,7.0946,3.1757,7.0946,7.0924v41.809l16.0478.1711v-41.8091c0-12.8719-10.4371-23.3091-23.3114-23.3091Z"/><path d="M47.2269,31.5675l-23.4456-.0043c-13.132-.0021-23.7814,10.6407-23.7814,23.7748v17.4623c0,13.1082,10.6104,23.7446,23.7164,23.777l23.5106.0607v-14.8845h-22.696c-3.8452,0-6.9603-3.1173-6.9603-6.9602v-21.34c0-3.8451,3.1151-6.9603,6.9603-6.9603h22.696v35.2605h17.2977V.7632h-17.2977v30.8044Z"/><path d="M166.7402.5641c-11.1172,2.1879-18.0169,10.9591-18.0169,23.595v7.3956h-10.8291v15.0491h10.8291v49.9131h17.6942v-49.9118h14.657v-15.0491l-14.657-.0013v-7.8873c0-7.2592,5.2792-8.1127,9.1092-8.1127h5.5478V.0008h-8.715c-1.9842,0-3.8408.2167-5.6193.5633Z"/><path d="M112.1586,31.5576h-20.9695c-9.5425,0-17.2739,7.7336-17.2739,17.2739v29.3812c0,2.5302.4744,4.9022,1.4211,7.1205.9509,2.2118,2.3049,4.1571,4.0682,5.8295,1.7634,1.6723,3.6285,3.0111,6.0222,3.9599,2.3959.9489,4.7983,1.5576,8.1475,1.5576h35.1542v-13.7451l-32.0521.0823c-3.9189,0-8.0781-3.1758-8.0781-7.0924v-3.6003h42.2466v-22.462c0-7.8246-3.0523-18.3051-18.6862-18.3051ZM117.1454,59.2512h-28.5471v-8.2795c0-4.3044,2.8486-6.2606,7.4172-6.2606h14.3494c2.0774,0,3.7281.611,4.9456,1.8349,1.224,1.2196,1.8348,3.2905,1.8348,5.6366v7.0685Z"/><path d="M375.9845,37.0002c-1.7611-1.6702-3.6263-3.009-6.0223-3.96-2.3937-.9467-4.7961-1.5575-8.1452-1.5575h-35.1542v13.7471l32.0521-.0823c3.9188,0,8.078,3.1758,8.078,7.0924v3.6003h-23.5603c-9.0204,0-14.9949,2.762-18.2358,9.8609-1.0007,2.1901-1.4253,4.586-1.4253,7.1183v5.4828c0,2.5346.4744,4.9088,1.4253,7.1206.9489,2.2139,2.3029,4.1571,4.0661,5.8295,1.7634,1.6702,3.843,2.9829,6.2346,3.9317,2.3959.9489,5.0453,1.4233,7.9351,1.4233h20.9695c9.5425,0,17.2739-7.7336,17.2739-17.2739v-29.3812c0-2.5302-.4744-4.9022-1.4232-7.1205-.9488-2.2118-2.3027-4.1571-4.0682-5.8316ZM366.7929,77.1932c0,4.3022-2.8486,6.2606-7.4172,6.2606h-14.8867c-2.0753,0-3.7261-.611-4.9457-1.8349-1.2239-1.2196-1.8326-3.2927-1.8326-5.6366,0-2.0797.6087-4.0163,1.8326-5.2359,1.2196-1.2196,2.8704-1.8326,4.9457-1.8326h22.3038v8.2795Z"/><polygon points="461.3285 88.653 464.4219 88.653 464.4219 96.9498 466.1333 96.9498 466.1333 88.653 469.2419 88.653 469.2419 87.1756 461.3285 87.1756 461.3285 88.653"/><polygon points="478.1118 87.1756 475.4841 94.8269 475.4559 94.8269 472.7589 87.1756 470.35 87.1756 470.35 96.9498 471.9791 96.9498 471.9791 89.4068 472.0073 89.4068 474.7172 96.9498 476.1274 96.9498 478.8375 89.4068 478.8635 89.4068 478.8635 96.9498 480.4946 96.9498 480.4946 87.1756 478.1118 87.1756"/></g></svg>
+    </span>
+    <h1>FBDI Release Change Report</h1>
+    <p class="cover__sub">Field-level changes from Oracle Cloud <span class="rel">{{ ctx.old_release }}</span> to <span class="rel">{{ ctx.new_release }}</span></p>
+    <p class="cover__date">Generated {{ ctx.generated_date }}</p>
+    <div class="scope">
+      <div class="tile tile--tabs"><span class="tile__n">{{ ctx.totals.tabs }}</span><span class="tile__l">Tabs changed</span></div>
+      <div class="tile tile--add"><span class="tile__n">{{ ctx.totals.add }}</span><span class="tile__l">Added</span></div>
+      <div class="tile tile--rem"><span class="tile__n">{{ ctx.totals.rem }}</span><span class="tile__l">Removed</span></div>
+      <div class="tile tile--mod"><span class="tile__n">{{ ctx.totals.mod }}</span><span class="tile__l">Modified</span></div>
+      <div class="tile tile--shift"><span class="tile__n">{{ ctx.totals.shift }}</span><span class="tile__l">Shifted</span></div>
+    </div>
+  </div>
+</header>
+
+{% if not print_mode and ctx.file_sections %}
+<div class="toolbar" role="search">
+  <div class="toolbar__in">
+    <div class="field">
+      <label for="q">Search</label>
+      <input type="search" id="q" placeholder="Field name or label…" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="mod">Module</label>
+      <select id="mod"><option value="">All modules</option></select>
+    </div>
+    <button type="button" class="btn" id="toggle-all" data-state="expanded">Collapse all</button>
+    <div class="toolbar__spacer"></div>
+    <span class="toolbar__count" id="count"></span>
+  </div>
 </div>
-{% for module, sections in ctx.file_sections | groupby("module") %}
-<h2 class="module">{{ module }}</h2>
-  {% for s in sections %}
-<h3 class="tab">{{ s.file }} &middot; {{ s.tab }}</h3>
-    {% for change_type in ["ADDED", "REMOVED", "MODIFIED", "RENAMED", "MULTI", "SHIFTED"] %}
-      {% set rows = s.changes_by_type.get(change_type, []) %}
-      {% if rows %}
-        {% if change_type == "SHIFTED" and s.shift_is_uniform %}
-<p><em>{{ s.shift_summary }}</em> (position shift only — informational, no DB impact).</p>
-        {% else %}
-<table>
-  <caption>{{ change_type | capitalize }} ({{ rows | length }})</caption>
-  <thead>
-    <tr>
-      <th scope="col">Field</th><th scope="col">Label</th><th scope="col">Oracle Type</th>
-      <th scope="col">Old Pos</th><th scope="col">New Pos</th><th scope="col">Required</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for r in rows %}
-    <tr>
-      <td>{{ r.field_name }}</td>
-      <td>{{ r.label }}</td>
-      <td>{% if change_type in ["MODIFIED", "RENAMED", "MULTI"] %}{{ r.old_oracle_type_str or "—" }} &rarr; {{ r.new_oracle_type_str or "—" }}{% else %}{{ r.oracle_type_str or "—" }}{% endif %}</td>
-      <td class="center">{{ r.old_position if r.old_position is not none else "—" }}</td>
-      <td class="center">{{ r.new_position if r.new_position is not none else "—" }}</td>
-      <td class="center">{% if r.required is none %}—{% else %}{{ r.required | string | upper }}{% endif %}</td>
-    </tr>
+{% endif %}
+
+<main class="wrap">
+{% if ctx.file_sections %}
+  {% for module, sections in ctx.file_sections | groupby("module") %}
+  <section class="module-group" data-module="{{ module }}">
+    <div class="module"><h2>{{ module }}</h2><span class="module__rule"></span></div>
+    {% for s in sections %}
+      {% set adds = s.changes_by_type.get("ADDED", []) | length %}
+      {% set rems = s.changes_by_type.get("REMOVED", []) | length %}
+      {% set mods = (s.changes_by_type.get("MODIFIED", []) | length) + (s.changes_by_type.get("MULTI", []) | length) + (s.changes_by_type.get("RENAMED", []) | length) %}
+      {% set shifts = s.changes_by_type.get("SHIFTED", []) | length %}
+    <article class="file" data-file="{{ s.file }}" data-tab="{{ s.tab }}">
+      <div class="file__head" role="button" tabindex="0" aria-expanded="true">
+        <div class="file__id">
+          <span class="file__name">{{ s.file }}</span>
+          <span class="file__tab">Tab <code>{{ s.tab }}</code></span>
+        </div>
+        <div class="file__mini" aria-hidden="true">
+          {% if adds %}<span class="m-add">+{{ adds }}</span>{% endif %}
+          {% if rems %}<span class="m-rem">&minus;{{ rems }}</span>{% endif %}
+          {% if mods %}<span class="m-mod">~{{ mods }}</span>{% endif %}
+          {% if shifts %}<span class="m-shift">&#8645;{{ shifts }}</span>{% endif %}
+        </div>
+        <span class="file__pill{% if module == 'Financials' %} file__pill--fin{% endif %}">{{ module }}</span>
+        <svg class="file__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="file__body">
+        {% for change_type in ["ADDED", "REMOVED", "MODIFIED", "RENAMED", "MULTI", "SHIFTED"] %}
+          {% set rows = s.changes_by_type.get(change_type, []) %}
+          {% if rows %}
+            {% if change_type == "ADDED" %}{% set cls = "added" %}
+            {% elif change_type == "REMOVED" %}{% set cls = "removed" %}
+            {% elif change_type in ["MODIFIED", "MULTI"] %}{% set cls = "modified" %}
+            {% else %}{% set cls = "neutral" %}{% endif %}
+            {% set diff = change_type in ["MODIFIED", "RENAMED", "MULTI"] %}
+        <div class="chg chg--{{ cls }}">
+          {% if change_type == "SHIFTED" and s.shift_is_uniform %}
+          <p class="shift-note"><em>{{ s.shift_summary }}</em> — position shift only; no database impact.</p>
+          {% elif change_type == "SHIFTED" %}
+          <div class="chg__head"><span class="chg__label">Shifted</span><span class="chg__badge">{{ rows | length }}</span></div>
+          <details class="shift"{% if print_mode %} open{% endif %}>
+            <summary><svg class="file__chev" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#0D2C71" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ s.shift_summary or (rows | length ~ " shifted fields") }} — show detail</summary>
+            <div class="shift-body">{{ m.shift_table(rows) }}</div>
+          </details>
+          {% else %}
+          <div class="chg__head"><span class="chg__label">{{ change_type | capitalize }}</span><span class="chg__badge">{{ rows | length }}</span></div>
+          {{ m.change_table(rows, change_type, diff) }}
+          {% endif %}
+        </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </article>
     {% endfor %}
-  </tbody>
-</table>
-        {% endif %}
-      {% endif %}
-    {% endfor %}
+  </section>
   {% endfor %}
-{% endfor %}
-{% if not ctx.file_sections %}
-<p>No field-level changes detected between {{ ctx.old_release }} and {{ ctx.new_release }}.</p>
+  <p class="noresults" id="noresults" hidden>No fields match your search.</p>
+{% else %}
+  <div class="empty">
+    <div class="empty__mark">No changes</div>
+    <p>No field-level changes detected between {{ ctx.old_release }} and {{ ctx.new_release }}.</p>
+  </div>
+{% endif %}
+</main>
+
+{% if not print_mode and ctx.file_sections %}
+<script>
+(function(){
+  "use strict";
+  var q = document.getElementById("q");
+  var modSel = document.getElementById("mod");
+  var toggleAll = document.getElementById("toggle-all");
+  var countEl = document.getElementById("count");
+  var noresults = document.getElementById("noresults");
+  var groups = Array.prototype.slice.call(document.querySelectorAll(".module-group"));
+  var files = Array.prototype.slice.call(document.querySelectorAll(".file"));
+
+  // Populate the module filter from the rendered content.
+  var mods = [];
+  groups.forEach(function(g){ var m = g.getAttribute("data-module"); if (mods.indexOf(m) === -1) mods.push(m); });
+  mods.forEach(function(m){ var o = document.createElement("option"); o.value = m; o.textContent = m; modSel.appendChild(o); });
+
+  function apply(){
+    var term = (q.value || "").trim().toLowerCase();
+    var mod = modSel.value;
+    var visibleFiles = 0;
+    groups.forEach(function(g){
+      var modOk = !mod || g.getAttribute("data-module") === mod;
+      var groupVisible = 0;
+      Array.prototype.forEach.call(g.querySelectorAll(".file"), function(f){
+        if (!modOk){ f.hidden = true; return; }
+        var fileMatch = 0;
+        Array.prototype.forEach.call(f.querySelectorAll("tbody tr"), function(tr){
+          var hay = tr.getAttribute("data-field") || "";
+          var show = !term || hay.indexOf(term) !== -1;
+          tr.hidden = !show;
+          if (show) fileMatch++;
+        });
+        // A section with no data rows (uniform-shift note only) matches on file/tab text.
+        var meta = (f.getAttribute("data-file") + " " + f.getAttribute("data-tab")).toLowerCase();
+        var metaMatch = !term || meta.indexOf(term) !== -1;
+        var visible = fileMatch > 0 || (metaMatch && f.querySelectorAll("tbody tr").length === 0) || (metaMatch && !term);
+        // When searching, hide change blocks whose rows are all filtered out.
+        Array.prototype.forEach.call(f.querySelectorAll(".chg"), function(chg){
+          var trs = chg.querySelectorAll("tbody tr");
+          if (trs.length){
+            var anyShown = Array.prototype.some.call(trs, function(tr){ return !tr.hidden; });
+            chg.hidden = term ? !anyShown : false;
+          } else {
+            chg.hidden = term ? !metaMatch : false;
+          }
+        });
+        // Reveal matches hidden inside a collapsed shift disclosure.
+        if (term){
+          Array.prototype.forEach.call(f.querySelectorAll("details.shift"), function(det){
+            det.open = Array.prototype.some.call(det.querySelectorAll("tbody tr"), function(tr){ return !tr.hidden; });
+          });
+        }
+        f.hidden = !visible;
+        if (visible){ groupVisible++; visibleFiles++; }
+      });
+      g.hidden = groupVisible === 0;
+    });
+    noresults.hidden = visibleFiles > 0;
+    countEl.textContent = visibleFiles + " of " + files.length + " tabs";
+  }
+
+  function setCollapsed(f, collapsed){
+    f.classList.toggle("collapsed", collapsed);
+    var head = f.querySelector(".file__head");
+    if (head) head.setAttribute("aria-expanded", String(!collapsed));
+  }
+  files.forEach(function(f){
+    var head = f.querySelector(".file__head");
+    head.addEventListener("click", function(){ setCollapsed(f, !f.classList.contains("collapsed")); });
+    head.addEventListener("keydown", function(e){
+      if (e.key === "Enter" || e.key === " "){ e.preventDefault(); setCollapsed(f, !f.classList.contains("collapsed")); }
+    });
+  });
+  toggleAll.addEventListener("click", function(){
+    var collapse = toggleAll.getAttribute("data-state") === "expanded";
+    files.forEach(function(f){ setCollapsed(f, collapse); });
+    toggleAll.setAttribute("data-state", collapse ? "collapsed" : "expanded");
+    toggleAll.textContent = collapse ? "Expand all" : "Collapse all";
+  });
+
+  q.addEventListener("input", apply);
+  modSel.addEventListener("change", apply);
+  apply();
+})();
+</script>
 {% endif %}
 </body>
 </html>
