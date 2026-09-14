@@ -2,7 +2,7 @@
 
 Adds checks not already covered by verify_run.py:
 - Catalog row count delta (post-rerun vs pre-rerun catalog)
-- Compare-report changes count vs expected baseline
+- Compare-report changes count within a plausibility band (gross-anomaly guard)
 
 Never blocks. Exit 0 = clean, 1 = regression detected.
 """
@@ -20,8 +20,19 @@ from openpyxl import load_workbook
 
 # Tunable thresholds — bump in future quarters as macro signals shift
 CATALOG_DELTA_PCT_THRESHOLD = 5.0          # ±5% on per-release row count
-COMPARE_CHANGES_DELTA_THRESHOLD = 50       # absolute delta around expected
-DEFAULT_EXPECTED_COMPARE_CHANGES = 706     # baseline 26A→26B ground truth
+
+# Compare-report change count is a MACRO sanity signal, not a precise
+# expectation. Oracle ships a different volume of change every quarter
+# (26A→26B = 706, 26B→26C = 1,582 — both healthy), so pinning an exact number
+# ± a tight window false-positives on every quarter that isn't the pinned one.
+# (The same lesson was already applied to summarize's ground-truth smoke test:
+# "the number changed" doesn't track "the code is broken".) Instead we flag
+# only GROSS anomalies: a near-zero count (header detection collapsed, or
+# nothing actually compared) or an implausible explosion (systematic
+# misalignment inflating the diff). Widen the ceiling if a genuinely larger
+# release legitimately trips it.
+COMPARE_CHANGES_FLOOR = 50                 # below this: suspect detection collapse
+COMPARE_CHANGES_CEILING = 6000             # above this: suspect systematic blow-up
 
 
 def _count_release_rows(catalog_path: Path, release: str) -> int:
@@ -44,7 +55,8 @@ def run_checks(
     baseline_catalog: Path,
     compare_report: Path | None,
     release: str,
-    expected_compare_changes: int = DEFAULT_EXPECTED_COMPARE_CHANGES,
+    compare_changes_floor: int = COMPARE_CHANGES_FLOOR,
+    compare_changes_ceiling: int = COMPARE_CHANGES_CEILING,
 ) -> dict:
     """Run all macro checks. Returns a JSON-serializable dict."""
     regressions: list[str] = []
@@ -62,16 +74,23 @@ def run_checks(
                     f"{baseline_rows} ({delta_pct:+.1f}%, threshold ±{CATALOG_DELTA_PCT_THRESHOLD}%)"
                 )
 
-    # Compare changes delta — guard against None (no report supplied or found)
+    # Compare changes plausibility band — guard against None (no report
+    # supplied or found). Flag only gross anomalies, not normal variation.
     changes = None
     if compare_report is not None and compare_report.is_file():
         changes = _count_compare_changes(compare_report)
     if changes is not None:
-        delta = abs(changes - expected_compare_changes)
-        if delta > COMPARE_CHANGES_DELTA_THRESHOLD:
+        if changes < compare_changes_floor:
             regressions.append(
-                f"Compare report changes: {changes} vs expected ~{expected_compare_changes} "
-                f"(±{COMPARE_CHANGES_DELTA_THRESHOLD})"
+                f"Compare report changes: {changes} is below the plausibility "
+                f"floor of {compare_changes_floor} — suspect header-detection "
+                f"collapse or an empty/incomplete compare run."
+            )
+        elif changes > compare_changes_ceiling:
+            regressions.append(
+                f"Compare report changes: {changes} exceeds the plausibility "
+                f"ceiling of {compare_changes_ceiling} — suspect systematic "
+                f"misalignment inflating the diff."
             )
 
     return {
@@ -79,7 +98,8 @@ def run_checks(
         "catalog_rows_new": new_rows,
         "catalog_delta_pct": delta_pct,
         "compare_changes": changes,
-        "expected_compare_changes": expected_compare_changes,
+        "compare_changes_floor": compare_changes_floor,
+        "compare_changes_ceiling": compare_changes_ceiling,
         "regressions": regressions,
     }
 
@@ -94,8 +114,14 @@ def main(argv=None) -> int:
                         help="Pre-rerun catalog snapshot for delta check")
     parser.add_argument("--compare-report", type=Path,
                         help="e.g. Comparison_Report_26A_26B.xlsx")
-    parser.add_argument("--expected-compare-changes", type=int,
-                        default=DEFAULT_EXPECTED_COMPARE_CHANGES)
+    parser.add_argument("--min-compare-changes", type=int,
+                        default=COMPARE_CHANGES_FLOOR,
+                        help="Plausibility floor; below this is flagged (default: "
+                             f"{COMPARE_CHANGES_FLOOR})")
+    parser.add_argument("--max-compare-changes", type=int,
+                        default=COMPARE_CHANGES_CEILING,
+                        help="Plausibility ceiling; above this is flagged (default: "
+                             f"{COMPARE_CHANGES_CEILING})")
     args = parser.parse_args(argv)
 
     if args.compare_report:
@@ -116,7 +142,8 @@ def main(argv=None) -> int:
         baseline_catalog=args.baseline_catalog,
         compare_report=report_path,
         release=args.release.upper(),
-        expected_compare_changes=args.expected_compare_changes,
+        compare_changes_floor=args.min_compare_changes,
+        compare_changes_ceiling=args.max_compare_changes,
     )
     print(json.dumps(result, indent=2))
     return 1 if result["regressions"] else 0
