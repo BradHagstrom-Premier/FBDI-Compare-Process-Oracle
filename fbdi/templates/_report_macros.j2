@@ -1,0 +1,51 @@
+{#- Change-table macros for report.html.j2. Imported (not included) so they are
+    in scope before their call sites. Autoescaped (.j2) — macro output is safe,
+    interpolated values are escaped. Kept whitespace-tight so the required=None
+    cell renders `>—<` (asserted by tests/test_report.py). Each table is wrapped
+    in .tablewrap (overflow-x:auto) so wide tables scroll instead of being
+    clipped by the file card at narrow widths. -#}
+{% macro change_table(rows, change_type, diff) -%}
+<div class="tablewrap"><table>
+  <thead><tr>
+    <th class="c-field" scope="col">Field</th>
+    <th scope="col">Label</th>
+    <th scope="col">Oracle Type</th>
+    <th class="c-num" scope="col">Old&nbsp;Pos</th>
+    <th class="c-num" scope="col">New&nbsp;Pos</th>
+    <th class="c-req" scope="col">Required</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr data-field="{{ (r.field_name ~ ' ' ~ r.label) | lower }}">
+      <td class="c-field">{{ r.field_name }}</td>
+      <td>{% if change_type in ["RENAMED", "MULTI"] and r.old_label and r.new_label and r.old_label != r.new_label %}<span class="was">{{ r.old_label }}</span><span class="arrow">&rarr;</span><span class="now">{{ r.new_label }}</span>{% else %}{{ r.label or "—" }}{% endif %}</td>
+      <td class="c-type">{% if diff %}{{ r.old_oracle_type_str or "—" }}<span class="arrow">&rarr;</span>{{ r.new_oracle_type_str or "—" }}{% else %}{{ r.oracle_type_str or "—" }}{% endif %}</td>
+      <td class="c-num">{% if r.old_position is not none %}{{ r.old_position }}{% else %}—{% endif %}</td>
+      <td class="c-num">{% if r.new_position is not none %}{{ r.new_position }}{% else %}—{% endif %}</td>
+      <td class="c-req">{% if r.required is none %}—{% else %}{{ r.required | string | upper }}{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{%- endmacro %}
+
+{% macro shift_table(rows) -%}
+<div class="tablewrap"><table>
+  <thead><tr>
+    <th class="c-field" scope="col">Field</th>
+    <th scope="col">Label</th>
+    <th class="c-num" scope="col">Old&nbsp;Pos</th>
+    <th class="c-num" scope="col">New&nbsp;Pos</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr data-field="{{ (r.field_name ~ ' ' ~ r.label) | lower }}">
+      <td class="c-field">{{ r.field_name }}</td>
+      <td>{{ r.label or "—" }}</td>
+      <td class="c-num">{% if r.old_position is not none %}{{ r.old_position }}{% else %}—{% endif %}</td>
+      <td class="c-num">{% if r.new_position is not none %}{{ r.new_position }}{% else %}—{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{%- endmacro %}

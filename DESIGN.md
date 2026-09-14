@@ -7,42 +7,45 @@ colors:
   midnight: "#02072D"
   slate-annotation: "#3C405B"
   mist-divider: "#D8D7EE"
-  cloud-surface: "#F7F7FB"
+  cloud-surface: "#F6F6F8"
   canvas: "#FFFFFF"
-  caution-amber: "#B8860B"
-  caution-amber-bg: "#FFFBF0"
-  remove-red: "#C0392B"
+  caution-amber: "#E5A100"
+  caution-amber-bg: "#FFF3D6"
+  caution-amber-strong: "#8A6100"
+  remove-red: "#D64545"
+  remove-red-bg: "#FCE5E5"
+  remove-red-strong: "#A12B2B"
 typography:
   display:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-    fontSize: "36px"
-    fontWeight: 800
+    fontFamily: "'Aptos Display', 'Aptos', Arial, 'Segoe UI', system-ui, sans-serif"
+    fontSize: "44px"
+    fontWeight: 700
     lineHeight: 1.1
-    letterSpacing: "-0.5px"
+    letterSpacing: "-0.01em"
   headline:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-    fontSize: "22px"
-    fontWeight: 700
-    lineHeight: 1.2
+    fontFamily: "'Aptos', Arial, 'Segoe UI', system-ui, sans-serif"
+    fontSize: "36px"
+    fontWeight: 600
+    lineHeight: 1.1
   title:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-    fontSize: "18px"
-    fontWeight: 700
+    fontFamily: "'Aptos', Arial, 'Segoe UI', system-ui, sans-serif"
+    fontSize: "16px"
+    fontWeight: 400
     lineHeight: 1.3
   body:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-    fontSize: "13px"
+    fontFamily: "'Aptos', Arial, 'Segoe UI', system-ui, sans-serif"
+    fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.5
   label:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-    fontSize: "10.5px"
-    fontWeight: 600
+    fontFamily: "'Aptos', Arial, 'Segoe UI', system-ui, sans-serif"
+    fontSize: "11px"
+    fontWeight: 700
     lineHeight: 1
-    letterSpacing: "0.5px"
+    letterSpacing: "0.12em"
   mono:
-    fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace"
-    fontSize: "11.5px"
+    fontFamily: "'Aptos Mono', ui-monospace, SFMono-Regular, Consolas, monospace"
+    fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.4
 rounded:
@@ -102,7 +105,7 @@ components:
 
 Each Oracle Cloud quarterly release buries hundreds of FBDI field changes across dozens of template files. This report's entire purpose is to extract the signal — exactly what changed, in exactly which field, at exactly which position — and deliver it with the authority of Definian's brand. The design system exists to serve that extraction: nothing decorative, nothing ambient, nothing that slows a consultant's read-through. Every visual decision is justified by whether it helps a consultant orient faster, act with more confidence, or communicate the finding more clearly to their client team.
 
-The system is built on the Definian canonical palette — Authority Blue, Signal Green, and their four supporting neutrals — supplemented by two semantic additions: Caution Amber for modified fields and Remove Red for removals. Color is the primary semantic layer; shape and spacing are structure. The system is deliberately flat (no shadows), tightly typeset (system sans for prose, monospace for all technical identifiers), and unambiguous about hierarchy. HTML and PDF are treated as separate media with separate design constraints; a consultant running the HTML report in a browser gets interaction and space; a consultant printing the PDF gets density and legibility. These are different deliverables that happen to share a source template.
+The system is built on the Definian canonical palette — Authority Blue, Signal Green, and their four supporting neutrals — supplemented by two semantic additions: Caution Amber for modified fields and Remove Red for removals. Color is the primary semantic layer; shape and spacing are structure. The system is deliberately flat (no shadows), tightly typeset (Aptos for prose, Aptos Mono for all technical identifiers), and unambiguous about hierarchy. HTML and PDF are treated as separate media with separate design constraints; a consultant running the HTML report in a browser gets interaction and space; a consultant printing the PDF gets density and legibility. These are different deliverables that happen to share a source template.
 
 The one thing that must be constant across both media: an unmistakable Definian visual signature. Deep navy headers, green signal accents, clean label typography — a consultant who has seen one Definian report should recognize the next one instantly.
 
@@ -113,6 +116,8 @@ The one thing that must be constant across both media: an unmistakable Definian 
 - Definian brand through structure — blue headers, green accents, the palette does the branding work
 - Two-medium design — HTML and PDF optimized independently for their respective audiences and constraints
 
+**Brand strictness:** Applied at **Tier B** (Definian's internal / operational tier — dashboards and ops tooling): brand-aligned and holding the brand spirit, with flexibility where it serves the consultant. The essentials are non-negotiable — Midnight/White grounds, Aptos type, the brand palette, flat surfaces, no warm decorative tones or bouncy motion. If the report becomes a client-facing deliverable, re-audit at Tier A.
+
 ## 2. Colors: The Definian Signal Palette
 
 Six canonical Definian brand colors plus two approved semantic supplementals. Every color has a single defined role. Introducing off-palette colors is prohibited except for functional semantic extension (a new change type requiring a new semantic color); decorative expansion is never justified.
@@ -121,15 +126,20 @@ Six canonical Definian brand colors plus two approved semantic supplementals. Ev
 - **Authority Blue** (`#0D2C71`): The structural backbone. Section headers, file header bars, table column headers, summary table fills, and the cover hero background. This is Definian's identity color; it appears on every screen and anchors every major section boundary.
 - **Signal Green** (`#00AB63`): Positive signal. Used for: field additions (ADDED), Financials module identification, brand wordmark on the cover, and the count badges of Added change blocks. Its meaning is "this is new, this is good, this is Definian." Never used decoratively.
 
-### Secondary
-- **Caution Amber** (`#B8860B`): Modified fields only. The change-block header color and badge fill for MODIFIED and MULTI change types. Paired with its tinted background (`#FFFBF0`) for in-base notes and warning callouts.
-- **Remove Red** (`#C0392B`): Removed fields only. The change-block header color and badge fill for REMOVED change types. Also the delete-state for action checkboxes. Used only when something is gone.
+### Secondary — Definian status tokens
+
+These two align to the Definian design system's own derived status colors (not a bespoke amber/red), so the report stays inside the brand system.
+
+- **Caution Amber** (`#E5A100`, `--status-warning`): Modified fields only. The MODIFIED / MULTI change family. Its AA-safe pair — tint `#FFF3D6` background with `#8A6100` text — is used for the count badge and any warning note.
+- **Remove Red** (`#D64545`, `--status-error`): Removed fields only. The REMOVED change family. AA-safe pair: tint `#FCE5E5` background with `#A12B2B` text.
+
+The strong-text / tint values are the Definian "status pill" pair from the design system's Brand Strictness Tiers component. **Badges use the tint-background + dark-hue-text treatment, not a solid fill with white text** — solid `#00AB63` / `#E5A100` / `#D64545` fail WCAG AA against white text at label size, so the semantic hue defines the family while the AA-safe pair carries the pill (see §5 Count Badge).
 
 ### Neutral
 - **Near-Black Midnight** (`#02072D`): Primary text across all document surfaces. Also the deep end of the cover gradient. Never pure black; this dark navy-tinted value keeps all body text within the Definian palette.
 - **Slate Annotation** (`#3C405B`): Supporting text on light surfaces — lede paragraphs, metadata rows, table annotations, renamed/shifted change headers. Also used for Dark Gray on Midnight backgrounds per the brand guide.
 - **Mist Divider** (`#D8D7EE`): All 1px structural borders: file section containers, table row dividers, detail element borders, section rule lines. Also the default module tag background.
-- **Cloud Surface** (`#F7F7FB`): Card and section backgrounds — module cards, shift summary boxes, collapsible content areas. One step above the canvas white to create tonal depth without a border.
+- **Cloud Surface** (`#F6F6F8`): Card and section backgrounds — module cards, shift summary boxes, collapsible content areas. One step above the canvas white to create tonal depth without a border.
 - **Canvas** (`#FFFFFF`): Document ground. The base page background and the file-body interior. This is the Definian brand white; use the token name, not the raw hex.
 
 ### Named Rules
@@ -140,12 +150,14 @@ Six canonical Definian brand colors plus two approved semantic supplementals. Ev
 
 **The No Off-Palette Rule.** Introducing a color outside the eight documented tokens — even a tint or shade of an existing color — is prohibited without explicit justification and documentation here.
 
-## 3. Typography: Precision Sans
+## 3. Typography: Aptos
 
-**Display/Body Font:** System sans — `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`
-**Mono Font:** `ui-monospace, SFMono-Regular, Consolas, monospace` — for all Oracle field names, table prefixes, and technical identifiers
+**Display Font:** `Aptos Display` (cover title) → **Body/UI Font:** `Aptos` — the canonical Definian faces. Fallback stack: `Arial, "Segoe UI", system-ui, sans-serif`.
+**Mono Font:** `Aptos Mono` — for all Oracle field names, table prefixes, and technical identifiers. Fallback: `ui-monospace, SFMono-Regular, Consolas, monospace`.
 
-**Character:** The system font stack is an explicit choice, not a default. These are the fonts consultants see in their terminals, IDEs, and OS interfaces every day. The report reads as a professional, technical document at home in the same environment where the work happens. Monospace for all field names draws a clear boundary between "text you read" and "text you type"; a consultant should never have to wonder whether `PERSON_ID` is a prose label or a real identifier.
+Aptos is **self-hosted and embedded**: the report inlines a vendored, subset `definian.css` (five Aptos faces base64-encoded — Aptos 400/600/700, Aptos Display 700, Aptos Mono 400) so the HTML is one portable file and the weasyprint PDF renders deterministic glyphs on any machine, Aptos installed or not. Regenerate the asset with `py tools/build_report_font_css.py`.
+
+**Character:** Aptos is Definian's brand voice; using it (not the platform sans) is what makes a Definian report recognizable at a glance. Monospace for all field names draws a clear boundary between "text you read" and "text you type"; a consultant should never have to wonder whether `PERSON_ID` is a prose label or a real identifier.
 
 ### Hierarchy
 
@@ -167,7 +179,7 @@ Six canonical Definian brand colors plus two approved semantic supplementals. Ev
 This system has no shadows, no blurs, no elevation effects. Depth is communicated entirely through tonal layering and borders:
 
 - **Canvas** (`#FFFFFF`) is the document ground — the base surface.
-- **Cloud Surface** (`#F7F7FB`) is the card layer — module cards, shift summaries, collapsible interiors.
+- **Cloud Surface** (`#F6F6F8`) is the card layer — module cards, shift summaries, collapsible interiors.
 - **Mist Divider** (`#D8D7EE`) is the structure layer — dividers, 1px borders, table row rules.
 - **Authority Blue** and **Midnight** are the authority layer — file headers, cover, summary table fills.
 
@@ -208,22 +220,23 @@ The workhorse. Every field-level change lives in a change table. Column headers 
 ### Change Block Header
 The semantic color system expressed as a section label. Each change type (Added, Removed, Modified, Renamed, Shifted) has its own color-coded h4 with a count badge. The color is the entire semantic signal.
 
-| Change Type | Header Color | Badge Color |
+| Change Type | Label text | Count badge (tint bg / text) |
 |---|---|---|
-| Added | Authority Blue text | Signal Green fill |
-| Removed | Remove Red text | Remove Red fill |
-| Modified | Caution Amber text | Caution Amber fill |
-| Renamed | Slate Annotation text | Slate Annotation fill |
-| Shifted | Slate Annotation text | Slate Annotation fill |
+| Added | Signal Green dark `#005F38` | `#E6F7EF` / `#005F38` |
+| Removed | Remove Red dark `#A12B2B` | `#FCE5E5` / `#A12B2B` |
+| Modified / Multi | Caution Amber dark `#8A6100` | `#FFF3D6` / `#8A6100` |
+| Renamed / Shifted | Slate `#3C405B` | `#EEEEF3` / `#3C405B` |
+
+Each family is a single hue; the label text uses its AA-safe dark value and the badge uses the tint/text pair. No solid-fill-with-white-text badges (fails AA at label size).
 
 - **Typography:** Label scale, uppercase, letter-spacing 1px, weight 700
 - **Layout:** flex row, align-items center, 8px gap between text and badge
 
 ### Count Badge
-- **Shape:** Pill (`12px` radius)
-- **Typography:** Label scale (11px), weight 600, white text
-- **Padding:** `1px 8px`
-- **Color:** Inherits from parent change block (Green / Red / Amber / Slate)
+- **Shape:** Pill (`999px` radius)
+- **Typography:** Label scale (11px), weight 700, tabular-nums
+- **Padding:** `3px 9px`
+- **Color:** The AA-safe tint/text pair of the parent change family (green / red / amber / slate) — never a solid fill with white text.
 
 ### Module Tag
 Small category pill used in the summary table and module grouping.
@@ -256,7 +269,7 @@ Visual placeholder for consultant action tracking. Not a real input — a styled
 - **Do** render every Oracle field name, table prefix, and filename in monospace. No exceptions.
 - **Do** use uppercase + letter-spacing ≥0.5px for all table column headers and structural sub-labels. This is the visual contract for the report's dense tabular content.
 - **Do** use `1px solid #D8D7EE` for all surface containment borders. Thin, structural, consistent.
-- **Do** use Cloud Surface (`#F7F7FB`) for all card-like backgrounds (module cards, shift summaries, collapsible interiors). It is one tonal step above Canvas and provides sufficient differentiation without a border.
+- **Do** use Cloud Surface (`#F6F6F8`) for all card-like backgrounds (module cards, shift summaries, collapsible interiors). It is one tonal step above Canvas and provides sufficient differentiation without a border.
 - **Do** treat HTML and PDF as separate design targets. The HTML may be richer, more interactive, and more spatially generous. The PDF may be denser and more compact. Optimize each for its medium.
 - **Do** use Midnight (`#02072D`) — not `#000` — for all body text. All Definian text uses the palette.
 

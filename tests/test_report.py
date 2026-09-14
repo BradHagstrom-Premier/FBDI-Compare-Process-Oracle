@@ -139,6 +139,16 @@ class TestRender:
         html = _render_report(ctx)
         assert "No field-level changes detected" in html
 
+    def test_print_mode_drops_toolbar_and_script(self):
+        catalog_old = {("F", "T"): []}
+        catalog_new = {("F", "T"): [_aligned(1, "Label", "MYFIELD", "VARCHAR2", 30)]}
+        ctx = build_report_context(catalog_old, catalog_new, {"F": "Financials"}, "26A", "26B")
+        screen = _render_report(ctx, print_mode=False)
+        assert 'class="toolbar"' in screen and "<script>" in screen
+        printed = _render_report(ctx, print_mode=True)
+        assert 'class="toolbar"' not in printed and "<script>" not in printed
+        assert "MYFIELD" in printed  # content is fully present in the print render
+
 
 class TestGenerateReportModuleGrouping:
     """Regression: catalog file_name is extension-less but file_modules.json keys
@@ -173,5 +183,50 @@ class TestGenerateReportModuleGrouping:
         html_path, pdf_path = generate_report(catalog, "26A", "26B", tmp_path)
         assert pdf_path is None
         html = html_path.read_text(encoding="utf-8")
-        assert '<h2 class="module">Financials</h2>' in html
+        assert "<h2>Financials</h2>" in html
         assert "Unclassified" not in html
+
+
+class TestSelfContained:
+    """The generated HTML must be one portable file: Definian tokens + Aptos
+    fonts inlined, and zero external CSS/font/JS references (so it renders the
+    same in a browser, in email, and through weasyprint)."""
+
+    def _generate(self, tmp_path, monkeypatch):
+        wb = Workbook()
+        wb.remove(wb.active)
+        header = ["release", "file_name", "tab_name", "position", "column_label",
+                  "column_technical", "data_type", "length", "scale", "data_type_raw", "required"]
+        ws_a = wb.create_sheet("26A")
+        ws_a.append(header)
+        ws_a.append(["26A", "AutoInvoiceImportTemplate", "RA", 1, "A", "A_F", "VARCHAR2", 30, None, "VARCHAR2(30)", "TRUE"])
+        ws_b = wb.create_sheet("26B")
+        ws_b.append(header)
+        ws_b.append(["26B", "AutoInvoiceImportTemplate", "RA", 1, "A", "A_F", "VARCHAR2", 30, None, "VARCHAR2(30)", "TRUE"])
+        ws_b.append(["26B", "AutoInvoiceImportTemplate", "RA", 2, "B", "B_F", "VARCHAR2", 30, None, "VARCHAR2(30)", "FALSE"])
+        catalog = tmp_path / "cat.xlsx"
+        wb.save(catalog)
+        wb.close()
+        monkeypatch.chdir(tmp_path)
+        from fbdi.report import generate_report
+        html_path, _ = generate_report(catalog, "26A", "26B", tmp_path)
+        return html_path.read_text(encoding="utf-8")
+
+    def test_fonts_and_tokens_inlined(self, tmp_path, monkeypatch):
+        html = self._generate(tmp_path, monkeypatch)
+        assert "<style>" in html
+        assert "@font-face" in html
+        assert "data:font/ttf;base64," in html   # Aptos embedded, not linked
+        assert "--def-blue" in html               # Definian tokens present
+
+    def test_no_external_references(self, tmp_path, monkeypatch):
+        # Check for real external-reference syntax only. A blanket "http" scan
+        # would false-positive on the base64 font blobs (case-insensitive
+        # substrings), so we look for the exact patterns that fetch a resource;
+        # none of "(", quote chars, or "<" appear inside base64.
+        html = self._generate(tmp_path, monkeypatch).lower()
+        assert "<link" not in html
+        assert 'src="http' not in html
+        assert "src='http" not in html
+        assert "url(http" not in html
+        assert "@import url(" not in html
