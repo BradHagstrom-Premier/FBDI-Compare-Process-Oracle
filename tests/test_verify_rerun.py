@@ -77,20 +77,53 @@ class TestVerifyRerun:
         )
         assert any("catalog" in r.lower() for r in result["regressions"])
 
-    def test_compare_changes_delta_exceeds_threshold(self, tmp_path):
+    def test_compare_changes_within_band_no_regression(self, tmp_path):
+        """Normal quarter-to-quarter variation must NOT flag. Both observed
+        healthy counts (26A→26B = 706, 26B→26C = 1582) sit inside the band."""
         mod = _load_module()
         _make_catalog(tmp_path / "post.xlsx", {"26B": 12000})
         _make_catalog(tmp_path / "pre.xlsx",  {"26B": 12000})
-        _make_compare_report(tmp_path / "report.xlsx", 900)  # 706 ± 50 → fail
+        for n in (706, 1582):
+            _make_compare_report(tmp_path / "report.xlsx", n)
+            result = mod.run_checks(
+                new_catalog=tmp_path / "post.xlsx",
+                baseline_catalog=tmp_path / "pre.xlsx",
+                compare_report=tmp_path / "report.xlsx",
+                release="26B",
+            )
+            assert not any("compare" in r.lower() for r in result["regressions"]), n
+
+    def test_compare_changes_below_floor_flags(self, tmp_path):
+        """A near-zero count (detection collapse / empty compare) is flagged."""
+        mod = _load_module()
+        _make_catalog(tmp_path / "post.xlsx", {"26B": 12000})
+        _make_catalog(tmp_path / "pre.xlsx",  {"26B": 12000})
+        _make_compare_report(tmp_path / "report.xlsx", 5)  # below floor (50)
 
         result = mod.run_checks(
             new_catalog=tmp_path / "post.xlsx",
             baseline_catalog=tmp_path / "pre.xlsx",
             compare_report=tmp_path / "report.xlsx",
             release="26B",
-            expected_compare_changes=706,
         )
-        assert any("compare" in r.lower() for r in result["regressions"])
+        assert any("below" in r.lower() and "compare" in r.lower()
+                   for r in result["regressions"])
+
+    def test_compare_changes_above_ceiling_flags(self, tmp_path):
+        """An implausible explosion (systematic misalignment) is flagged."""
+        mod = _load_module()
+        _make_catalog(tmp_path / "post.xlsx", {"26B": 12000})
+        _make_catalog(tmp_path / "pre.xlsx",  {"26B": 12000})
+        _make_compare_report(tmp_path / "report.xlsx", 9000)  # above ceiling (6000)
+
+        result = mod.run_checks(
+            new_catalog=tmp_path / "post.xlsx",
+            baseline_catalog=tmp_path / "pre.xlsx",
+            compare_report=tmp_path / "report.xlsx",
+            release="26B",
+        )
+        assert any("exceeds" in r.lower() and "compare" in r.lower()
+                   for r in result["regressions"])
 
     def test_baseline_catalog_missing_skips_delta(self, tmp_path):
         """If pre-rerun catalog isn't available (first run), skip the delta check."""
