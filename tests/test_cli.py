@@ -76,27 +76,33 @@ class TestCatalogCLI:
 
 
 class TestReportSubcommand:
-    def test_report_subcommand_parses_old_and_new(self, monkeypatch, tmp_path):
+    def test_report_subcommand_html_only_by_default(self, monkeypatch, tmp_path):
         from fbdi import cli
-
         called = {}
 
-        def fake_generate(catalog_path, mapping_path, old_release, new_release, out_dir):
-            called.update(dict(
-                catalog_path=catalog_path, mapping_path=mapping_path,
-                old_release=old_release, new_release=new_release, out_dir=out_dir,
-            ))
+        def fake_generate(catalog_path, old_release, new_release, out_dir, pdf=False):
+            called.update(dict(catalog_path=catalog_path, old_release=old_release,
+                               new_release=new_release, out_dir=out_dir, pdf=pdf))
+            return tmp_path / "x.html", None
+
+        (tmp_path / "cat.xlsx").write_bytes(b"stub")
+        monkeypatch.setattr("fbdi.report.generate_report", fake_generate)
+        cli.main(["report", "--old", "26B", "--new", "26C",
+                  "--out-dir", str(tmp_path), "--catalog", str(tmp_path / "cat.xlsx")])
+        assert called["old_release"] == "26B"
+        assert called["new_release"] == "26C"
+        assert called["pdf"] is False
+
+    def test_report_subcommand_pdf_flag(self, monkeypatch, tmp_path):
+        from fbdi import cli
+        called = {}
+
+        def fake_generate(catalog_path, old_release, new_release, out_dir, pdf=False):
+            called["pdf"] = pdf
             return tmp_path / "x.html", tmp_path / "x.pdf"
 
         (tmp_path / "cat.xlsx").write_bytes(b"stub")
-        (tmp_path / "map.xlsx").write_bytes(b"stub")
         monkeypatch.setattr("fbdi.report.generate_report", fake_generate)
-        cli.main([
-            "report", "--old", "26A", "--new", "26B",
-            "--out-dir", str(tmp_path),
-            "--catalog", str(tmp_path / "cat.xlsx"),
-            "--mapping", str(tmp_path / "map.xlsx"),
-        ])
-        assert called["old_release"] == "26A"
-        assert called["new_release"] == "26B"
-        assert called["out_dir"] == tmp_path
+        cli.main(["report", "--old", "26B", "--new", "26C",
+                  "--out-dir", str(tmp_path), "--catalog", str(tmp_path / "cat.xlsx"), "--pdf"])
+        assert called["pdf"] is True
