@@ -59,7 +59,7 @@ py -m pytest tests/test_clear.py -v
   - `config.py`, `utils.py` — shared configuration and helpers.
 - **`tools/download_and_clear.py`** — standalone Selenium downloader + smart clearing entry point. Imports `fbdi.clear` but lives outside the `fbdi/` package so Selenium/webdriver dependencies stay out of the comparison engine. Also writes `baselines/<ver>/file_modules.json`.
 - **`.claude/skills/fbdi-compare-release/`** — orchestrator skill that chains the full download → clear → compare → catalog → report pipeline with human-in-the-loop checkpoints. Triggers on phrases like "Compare 26A to 26B" or "Oracle released 26C". Bundles Python helpers (`check_env.py`, `verify_download.py`, `summarize_report.py`, `verify_run.py`, `verify_rerun.py`) under `scripts/` and reference docs under `references/`. See the skill's `SKILL.md` for the staged workflow. The report stage generates the HTML/PDF release change report via `py -m fbdi report`; also triggers on report-only phrases like "generate the release change report" or "regenerate the PDF".
-- **`tests/`** — 233 tests (230 pass + 3 environment-gated skips) (`py -m pytest tests/`)
+- **`tests/`** — 239 tests (`py -m pytest tests/`; a few skips are environment-gated on report/catalog presence)
 - **Outputs:**
   - `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column diff for VBA validation (unchanged)
   - `FBDI_Master_Catalog.xlsx` — per-release snapshots + Issues + Drift tabs (gitignored; regenerable via `catalog`)
@@ -72,7 +72,8 @@ py -m pytest tests/test_clear.py -v
 ## Current Frontier
 
 - **Phase 2 — Report redesign — landed (PR #2).** `fbdi/templates/report.html.j2` now implements the Definian design system at Tier B: navy cover with `ScopeTotals`, module→file/tab structure, color-coded change tables, self-contained inlined Aptos via `fbdi/templates/assets/definian.css`, HTML-first with an opt-in PDF (`--pdf`). See the `report.py` bullet above for the architecture. Design: `docs/superpowers/specs/2026-09-14-repo-cleanse-and-report-redesign-design.md` (§6).
-- **Next:** run the 26B → 26C quarterly refresh (download → clear → compare → catalog → report) once Oracle ships 26C.
+- **26B → 26C — done (2026-09-14).** Full pipeline run via the skill: 1,582 field changes across 22 files (concentrated in Lease Accounting + Manufacturing Work Orders). Housekeeping (merged to master): `verify_rerun.py`'s stale `706 ± 50` compare-count pin replaced with a plausibility band (floor 50 / ceiling 6000, flags only gross anomalies), and `baseline_files.txt` (per-release download inventory) is now git-tracked so download verification has a real prior-release reference.
+- **Next:** run the 26C → 26D quarterly refresh (download → clear → compare → catalog → report) once Oracle ships 26D.
 
 ---
 
@@ -97,6 +98,7 @@ py -m pytest tests/test_clear.py -v
 - **Diagnose is still bounded by `MAX_FILE_SIZE_BYTES` (5MB)** — it loads workbooks in full (non-read_only) mode for memory reasons. Comparison is unbounded and streams via `iter_rows`.
 - **JET `<oj-tree-view>` race in `tools/download_and_clear.py`** — Oracle docs put the TOC inside `<oj-tree-view>` under `#navigationDrawer`. The drawer container appears in DOM before the tree-view's `<li role="treeitem">` children populate. Without a wait for at least one treeitem, `find_elements(...#navigationDrawer li)` returns empty and the URL is silently skipped (no error, no SKIP log — page just immediately "Completed" with zero downloads). Fixed in commit 82cd568; keep the wait when refactoring the scraper.
 - **`RapidImplementationForCashManagement.xlsm` fallback when both baselines wiped** — skill HITL default "copy from prior baseline" assumes a prior is present. If a rerun wipes both 26A and 26B at once, fall back to an external archive (e.g., `C:/Users/10193/Definian/<old release>_*_Compare/<old>_FBDI/Manual/RapidImplementationForCashManagement.xlsm`).
+- **Master catalog is gitignored → usually absent at run start; the report needs BOTH releases' tabs.** `FBDI_Master_Catalog.xlsx` regenerates each quarter and isn't tracked, so it's typically missing when a run begins. `generate_catalog` merges (`_load_existing_release_rows` preserves other release tabs), but against no existing master, `catalog --release <NEW>` alone yields a single-release catalog — and `report --old <OLD> --new <NEW>` (which aligns both per-release sheets) then has no OLD baseline. **When the catalog is absent, build BOTH:** `py -m fbdi catalog --release <OLD>` then `--release <NEW>`. The skill's Stage 6 assumes a pre-existing catalog and doesn't spell this out.
 - **`openpyxl read_only=True` drops cell comments** — `cell.comment` is always None in read-only mode. `catalog.extract_file` uses full mode (`load_workbook(path, data_only=True)`) specifically so `_extract_metadata_from_comment` can see them; subprocess isolation in `_subprocess_util.run_worker` bounds memory for large files. Don't switch the catalog back to read_only without a replacement comment-loading path.
 - **`type_parser.parse_data_type` is intentionally permissive** — it accepts any bare alpha token as a type for forward-compat with row-based extraction (so `parse_data_type("Required")` returns `data_type="REQUIRED"`). When mining cell comments or other unknown-shape inputs, gate via `catalog._ORACLE_TYPE_ALLOWLIST` (and the `_TYPE_SPEC_PREFIX_RE` helper for "VARCHAR2(N) trailing prose" patterns).
 - **PDF rendering needs MSYS2 mingw64 GTK on Windows (only for `--pdf`)** — the default HTML path has no heavy dependency; `fbdi/report.py` imports weasyprint lazily only when `--pdf` is requested, and weasyprint depends on libgobject/libpango/libcairo. The standalone GtkD installer (winget id `GtkD.GtkPlusRuntime.x64`) ships Pango 1.43 and fails on weasyprint ≥53 with `pango_context_set_round_glyph_positions not found`. MSYS2 mingw64 ships Pango 1.56+ and works. Install: `winget install --id MSYS2.MSYS2 --silent`, then `C:/msys64/usr/bin/bash.exe -lc "pacman -S --needed --noconfirm mingw-w64-x86_64-pango mingw-w64-x86_64-gtk3 mingw-w64-x86_64-pkg-config"`. `_GTK_WINDOWS_BIN_CANDIDATES` in `report.py` probes MSYS2 first — keep that ordering. Do not lower the `weasyprint>=62.0` pin to work around an older GTK; older weasyprint lacks the flexbox/grid layout the Phase-2 report redesign needs.
@@ -132,7 +134,7 @@ Two read-only archives, distinct purposes:
 
 ## Testing
 
-- `py -m pytest tests/` — run full suite (233 tests: 230 pass + 3 environment-gated skips)
+- `py -m pytest tests/` — run full suite (239 tests; a few skips are environment-gated on report/catalog presence)
 - `py -m pytest tests/test_clear.py -v` — run one module
 - `tests/validate_against_vba.py` and `tests/vba_fieldrow_map.json` — ad-hoc validation against the legacy VBA macro's expected header rows (not pytest, kept for spot-checks against regressions)
 
@@ -155,4 +157,4 @@ Completed-project narrative docs (audit notes, one-off findings) live in `docs/a
 
 ## Plugins / Tooling
 
-Project uses the `superpowers` skill family (brainstorming, writing-plans, executing-plans, systematic-debugging, verification-before-completion). CodeRabbit is wired up for PR review. See user-level `~/.claude/` config for the full plugin list — no project-specific plugin requirements.
+Project uses the `superpowers` skill family (brainstorming, writing-plans, executing-plans, systematic-debugging, verification-before-completion). See user-level `~/.claude/` config for the full plugin list — no project-specific plugin requirements.
