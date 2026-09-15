@@ -4,11 +4,20 @@ Diffs baselines/<ver>/originals/ against the <ver> section of
 baseline_files.txt. Handles first-run bootstrap (no <ver> section yet) and
 commits an updated inventory on demand.
 
-Exit codes:
+Exit codes (default mode):
     0 = clean (missing == 0, extras == 0)
     1 = missing > 0  (triggers retry / §5 #5 prompt)
     2 = extras only  (triggers §5 #6 prompt)
     3 = first-run bootstrap required (no <ver> section in inventory)
+
+--reconcile mode (no-download audit, runnable on any invocation — the Stage 4.5
+gate, resume, or report-only): asserts baselines/<ver>/originals/ still holds
+every file its inventory reference expects. The reference is the release's own
+committed section when present, else the most-recent prior release. Asymmetric:
+only a shortfall fails (a file present last quarter but absent now); net
+additions are informational.
+    0 = clean (no expected file missing)
+    1 = one or more expected files missing (hard fail)
 """
 
 from __future__ import annotations
@@ -186,6 +195,53 @@ def diff_against_inventory(
     return {"missing": missing, "extras": extras}
 
 
+def diff_against_prior(
+    current_names: list[str],
+    inventory: dict[str, list[str]],
+    current_release: str,
+    manual_files: list[str],
+) -> dict:
+    """Reconcile a release's on-disk originals against the most-recent PRIOR
+    release's inventory section.
+
+    Used when the release has no committed section of its own yet (first-run
+    bootstrap) or as a cross-release plausibility check. The prior release is a
+    git-tracked, human-verified reference, so any file that existed last quarter
+    but is absent now is a strong signal of a silent download drop.
+
+    The match is asymmetric:
+        dropped = prior_inventory - current - manual_files   (hard-fail signal)
+        added   = current - prior_inventory                  (informational)
+    Oracle legitimately adds templates each quarter, so `added` is never a
+    failure. When no prior release exists, returns empty lists (no-op — there is
+    nothing to reconcile against, so no false positives).
+
+    Returns {prior_release, prior_count, current_count, dropped, added}.
+    """
+    current_release = current_release.upper()
+    prior = max((r for r in inventory if r < current_release), default=None)
+    if prior is None:
+        return {
+            "prior_release": None,
+            "prior_count": 0,
+            "current_count": len(current_names),
+            "dropped": [],
+            "added": [],
+        }
+    prior_set = set(inventory[prior])
+    current_set = set(current_names)
+    manual = set(manual_files)
+    dropped = sorted((prior_set - current_set) - manual)
+    added = sorted(current_set - prior_set)
+    return {
+        "prior_release": prior,
+        "prior_count": len(prior_set),
+        "current_count": len(current_names),
+        "dropped": dropped,
+        "added": added,
+    }
+
+
 def list_downloaded(originals_dir: Path) -> list[str]:
     if not originals_dir.is_dir():
         return []
@@ -290,6 +346,12 @@ def main(argv=None) -> int:
         "--commit-inventory", action="store_true",
         help="Rewrite inventory to match the downloaded files for --release",
     )
+    parser.add_argument(
+        "--reconcile", action="store_true",
+        help="No-download audit: reconcile baselines/<release>/originals/ against "
+             "its own inventory section (or the prior release when it has none). "
+             "Exit 1 if any expected file is missing.",
+    )
     args = parser.parse_args(argv)
 
     release = args.release.upper()
@@ -311,14 +373,55 @@ def main(argv=None) -> int:
         print(json.dumps(payload, indent=2))
         return 0
 
+    # --reconcile: no-download audit runnable on any invocation (Stage 4.5 gate,
+    # resume, report-only). Prefer the release's own committed section as the
+    # reference; fall back to the prior release when it has none yet. Asymmetric —
+    # only a shortfall fails; net additions are surfaced but never block.
+    if args.reconcile:
+        if release in inventory:
+            diff = diff_against_inventory(release, downloaded, inventory, MANUAL_FILES)
+            missing = diff["missing"]
+            payload = {
+                "release": release,
+                "mode": "reconcile",
+                "reference": "own-section",
+                "current_count": len(downloaded),
+                "expected_count": len(inventory[release]),
+                "dropped": missing,
+                "missing": missing,
+                "added": diff["extras"],
+                "missing_by_module": group_missing_by_module(missing),
+            }
+            print(json.dumps(payload, indent=2))
+            return 1 if missing else 0
+        prior_diff = diff_against_prior(downloaded, inventory, release, MANUAL_FILES)
+        dropped = prior_diff["dropped"]
+        prior_rel = prior_diff["prior_release"]
+        payload = {
+            "release": release,
+            "mode": "reconcile",
+            "reference": f"prior:{prior_rel}" if prior_rel else "none",
+            "current_count": prior_diff["current_count"],
+            "prior_count": prior_diff["prior_count"],
+            "dropped": dropped,
+            "added": prior_diff["added"],
+            "missing_by_module": group_missing_by_module(dropped),
+        }
+        print(json.dumps(payload, indent=2))
+        return 1 if dropped else 0
+
     # First-run: no section for this release
     if release not in inventory:
         delta = compute_first_run_delta(len(downloaded), inventory)
+        prior_diff = diff_against_prior(downloaded, inventory, release, MANUAL_FILES)
         payload = {
             "release": release,
             "first_run": True,
             "downloaded_count": len(downloaded),
             "downloaded": downloaded,
+            "dropped": prior_diff["dropped"],
+            "added": prior_diff["added"],
+            "missing_by_module": group_missing_by_module(prior_diff["dropped"]),
             **delta,
         }
         print(json.dumps(payload, indent=2))
