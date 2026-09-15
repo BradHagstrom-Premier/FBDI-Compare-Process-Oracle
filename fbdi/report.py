@@ -58,6 +58,9 @@ class FileSection:
     changes_by_type: dict[str, list[ChangeRow]] = field(default_factory=dict)
     shift_summary: str | None = None
     shift_is_uniform: bool = False
+    # True when the tab's only changes are position shifts (no add/remove/retype).
+    # Drives the condensed PDF: these collapse into one "Position shifts" rollup.
+    is_shift_only: bool = False
 
 
 @dataclass
@@ -71,6 +74,34 @@ class ScopeTotals:
 
 
 @dataclass
+class ModuleTotal:
+    """Per-module change rollup (for the executive dashboard)."""
+    module: str
+    files: int
+    tabs: int
+    add: int
+    rem: int
+    mod: int
+    shift: int
+
+
+@dataclass
+class FileTotal:
+    """Per-file change rollup (for the dashboard's 'busiest templates' list)."""
+    file: str
+    module: str
+    add: int
+    rem: int
+    mod: int
+    shift: int
+
+    @property
+    def high_signal(self) -> int:
+        """Structural changes a consultant must act on (excludes pure shifts)."""
+        return self.add + self.rem + self.mod
+
+
+@dataclass
 class ReportContext:
     """Top-level view-model passed to the Jinja2 template."""
     old_release: str
@@ -78,6 +109,8 @@ class ReportContext:
     generated_date: str
     file_sections: list[FileSection]
     totals: ScopeTotals = field(default_factory=ScopeTotals)
+    module_totals: list[ModuleTotal] = field(default_factory=list)
+    top_files: list[FileTotal] = field(default_factory=list)
 
 
 def build_report_context(
@@ -114,6 +147,10 @@ def build_report_context(
         shifted = section.changes_by_type.get("SHIFTED", [])
         section.shift_summary = _build_shift_summary(shifted)
         section.shift_is_uniform = _is_uniform_shift(shifted)
+        section.is_shift_only = (
+            bool(shifted)
+            and not any(section.changes_by_type.get(t) for t in _HIGH_SIGNAL_TYPES)
+        )
         file_sections.append(section)
 
     # Sort by (module, file, tab) — also drives the template's groupby('module').
@@ -121,19 +158,80 @@ def build_report_context(
 
     totals = ScopeTotals(
         tabs=len(file_sections),
-        add=sum(len(s.changes_by_type.get("ADDED", [])) for s in file_sections),
-        rem=sum(len(s.changes_by_type.get("REMOVED", [])) for s in file_sections),
-        mod=sum(
-            len(s.changes_by_type.get("MODIFIED", []))
-            + len(s.changes_by_type.get("MULTI", []))
-            for s in file_sections
-        ),
-        shift=sum(len(s.changes_by_type.get("SHIFTED", [])) for s in file_sections),
+        add=sum(_count(s, "ADDED") for s in file_sections),
+        rem=sum(_count(s, "REMOVED") for s in file_sections),
+        mod=sum(_count(s, "MODIFIED") + _count(s, "MULTI") for s in file_sections),
+        shift=sum(_count(s, "SHIFTED") for s in file_sections),
     )
     return ReportContext(
         old_release=old_release, new_release=new_release,
         generated_date=generated_date, file_sections=file_sections, totals=totals,
+        module_totals=_build_module_totals(file_sections),
+        top_files=_build_top_files(file_sections),
     )
+
+
+# Change types that require consultant action (everything except pure position
+# shifts). Kept in sync with ScopeTotals.mod (MODIFIED + MULTI) plus RENAMED.
+_HIGH_SIGNAL_TYPES = ("ADDED", "REMOVED", "MODIFIED", "MULTI", "RENAMED")
+
+
+def _count(s: FileSection, change_type: str) -> int:
+    return len(s.changes_by_type.get(change_type, []))
+
+
+def _section_counts(s: FileSection) -> tuple[int, int, int, int]:
+    """(add, rem, mod, shift) for one section — mod = MODIFIED + MULTI (matches
+    the cover's ScopeTotals so dashboard and cover never disagree)."""
+    return (
+        _count(s, "ADDED"),
+        _count(s, "REMOVED"),
+        _count(s, "MODIFIED") + _count(s, "MULTI"),
+        _count(s, "SHIFTED"),
+    )
+
+
+def _build_module_totals(sections: list[FileSection]) -> list[ModuleTotal]:
+    """Roll section counts up to one row per module (dashboard summary table).
+    Sections arrive sorted by module, so first-seen order is the display order."""
+    agg: dict[str, dict] = {}
+    order: list[str] = []
+    for s in sections:
+        d = agg.get(s.module)
+        if d is None:
+            d = agg[s.module] = {"files": set(), "tabs": 0, "add": 0, "rem": 0, "mod": 0, "shift": 0}
+            order.append(s.module)
+        add, rem, mod, shift = _section_counts(s)
+        d["files"].add(s.file)
+        d["tabs"] += 1
+        d["add"] += add; d["rem"] += rem; d["mod"] += mod; d["shift"] += shift
+    return [
+        ModuleTotal(module=m, files=len(agg[m]["files"]), tabs=agg[m]["tabs"],
+                    add=agg[m]["add"], rem=agg[m]["rem"], mod=agg[m]["mod"], shift=agg[m]["shift"])
+        for m in order
+    ]
+
+
+def _build_top_files(sections: list[FileSection], limit: int = 8) -> list[FileTotal]:
+    """Files with the most structural (high-signal) change, most first — the
+    dashboard's 'where the work is' shortlist. Shift-only files are excluded."""
+    agg: dict[str, dict] = {}
+    order: list[str] = []
+    for s in sections:
+        d = agg.get(s.file)
+        if d is None:
+            d = agg[s.file] = {"module": s.module, "add": 0, "rem": 0, "mod": 0, "shift": 0}
+            order.append(s.file)
+        add, rem, mod, shift = _section_counts(s)
+        d["add"] += add; d["rem"] += rem; d["mod"] += mod; d["shift"] += shift
+    files = [
+        FileTotal(file=f, module=agg[f]["module"], add=agg[f]["add"],
+                  rem=agg[f]["rem"], mod=agg[f]["mod"], shift=agg[f]["shift"])
+        for f in order
+    ]
+    files = [f for f in files if f.high_signal > 0]
+    files.sort(key=lambda f: (-f.high_signal, f.file))
+    return files[:limit]
 
 
 def _oracle_type_str(f: AlignedField | None) -> str:
