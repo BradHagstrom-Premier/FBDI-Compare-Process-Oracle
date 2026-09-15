@@ -1,5 +1,7 @@
 """Tests for fbdi.detect_header — dynamic header row detection."""
 
+from datetime import datetime
+
 import pytest
 from openpyxl import Workbook
 from openpyxl.cell.cell import MergedCell
@@ -200,6 +202,55 @@ class TestDetectHeaderRow:
         ws.cell(row=5, column=3, value="RECLASS")    # UPPER_SNAKE
 
         assert detect_header_row(ws) == 4
+
+    def test_full_width_sample_data_row_does_not_beat_label_header(self):
+        """Regression: 26C Lease templates — a full-width sample DATA row must not
+        beat the real Title-Case label header directly above it.
+
+        Oracle 26C inserted an example/sample data row directly below the header
+        on the Lease-cluster tabs (e.g. RevenueLeaseContractAmendTemplate::Payments).
+        Unlike the sparse FA_ADJUSTMENTS_T data row, this one spans the FULL width
+        (fill=1.0), so the TIER1_MIN_FILL floor cannot exclude it. Its tell is
+        str_ratio: it carries numeric IDs and dates, so it is NOT all-string.
+
+          Row 3 (real header): 12 Title-Case labels
+            → snake=0.00, header_like=1.00, fill=1.00, str=1.00  (Tier-2 winner)
+          Row 4 (sample data): numeric IDs + a date + UPPER_SNAKE enum codes
+            → snake=0.75, fill=1.00, str≈0.83
+              OLD: sole Tier-1 candidate (snake>=0.5, fill>=0.15) → wins → catalog
+                   stores sample values (NEW / REV_TEMPLATE_STD / BASE_RENT) as
+                   field names → alignment reports every real field REMOVED and
+                   every sample value ADDED.
+              NEW: excluded from Tier-1 by TIER1_MIN_STR_RATIO (a technical header
+                   row is 100% strings); detection falls to Tier-2, which returns
+                   the label row.
+        """
+        wb = Workbook()
+        ws = wb.active
+        # Row 1: sheet title (1 cell — below MIN_CELLS, not a candidate)
+        ws.cell(row=1, column=1, value="Payments")
+        # Row 2: legend (1 cell — not a candidate)
+        ws.cell(row=2, column=1, value="* Required")
+        # Row 3: the real header — Title-Case labels, all strings, snake=0
+        label_header = [
+            "*Interface Lease ID", "*Interface Payment ID", "*Amendment Action",
+            "Payment Number", "Interface Asset ID", "Asset Number",
+            "Payment Template", "Payment Purpose", "Payment Type",
+            "Customer Account", "Bill-to Site", "Ship-to Site",
+        ]
+        for col, val in enumerate(label_header, start=1):
+            ws.cell(row=3, column=col, value=val)
+        # Row 4: full-width sample data — numeric IDs, a date, and UPPER_SNAKE
+        # enum codes. >= 50% UPPER_SNAKE (trips old Tier-1) but str_ratio < 0.9.
+        sample_data = [
+            7001001, "NEW", "USD", "MONTHLY", "REV_TEMPLATE_STD", "BASE_RENT",
+            "ABATEMENT", "ACTIVE", "STANDARD", datetime(2026, 4, 1),
+            "CUST-1001", "STD",
+        ]
+        for col, val in enumerate(sample_data, start=1):
+            ws.cell(row=4, column=col, value=val)
+
+        assert detect_header_row(ws) == 3
 
     def test_phantom_wide_columns_do_not_suppress_detection(self):
         """Headers should be detected even when max_column is phantom-wide."""

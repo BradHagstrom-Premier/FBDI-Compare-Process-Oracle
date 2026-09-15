@@ -37,6 +37,16 @@ TIER1_PATTERN_THRESHOLD = 0.5
 # non-empty cells happen to be UPPER_SNAKE_CASE; real header rows fill the sheet.
 TIER1_MIN_FILL = 0.15
 
+# Tier 1 all-string floor: a genuine technical-header row is 100% text — Oracle
+# UPPER_SNAKE column names and human labels are never numbers or dates.  Only
+# *data* rows carry numeric IDs / dates.  This excludes a full-width sample/example
+# data row (fill=1.0, so TIER1_MIN_FILL can't catch it) that happens to be >=50%
+# UPPER_SNAKE enum codes.  Oracle 26C inserted exactly such a row below the header
+# on the Lease-cluster tabs (e.g. RevenueLeaseContractAmendTemplate::Payments,
+# str~0.74); without this floor Tier 1 picked the sample row and the catalog stored
+# its data values (NEW / REV_TEMPLATE_STD / BASE_RENT) as column names.
+TIER1_MIN_STR_RATIO = 0.9
+
 # Tier 2 threshold: minimum combined score for header-like rows
 TIER2_SCORE_THRESHOLD = 0.35
 
@@ -152,10 +162,15 @@ def detect_header_row(ws: Worksheet, max_scan: int = 20) -> int | None:
     # (e.g. a data row with BMRX / RECLASS / POST / ACK out of 12 cells in a
     # 260-column sheet scores snake=0.50, fill=0.05 and would otherwise beat
     # the real 260-column mixed header at snake=0.49).
+    # Require str_ratio >= TIER1_MIN_STR_RATIO to exclude a *full-width* sample
+    # data row (fill=1.0) that carries numeric IDs / dates: a real technical
+    # header row is all-string, so any row with non-string cells is data, not a
+    # header (Oracle 26C Lease-cluster sample rows, str~0.74).
     tier1_candidates = [
         r for r in rows
         if r["upper_snake_ratio"] >= TIER1_PATTERN_THRESHOLD
         and r["fill_ratio"] >= TIER1_MIN_FILL
+        and r["str_ratio"] >= TIER1_MIN_STR_RATIO
     ]
     if tier1_candidates:
         # Among tier1 candidates, prefer highest upper_snake_ratio * fill_ratio
