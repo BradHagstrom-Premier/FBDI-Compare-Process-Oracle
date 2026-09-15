@@ -25,6 +25,7 @@ graphify-out/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/skills/impeccable/
+.claude/agents/
 .superpowers/
 *.mdb
 Archive/
