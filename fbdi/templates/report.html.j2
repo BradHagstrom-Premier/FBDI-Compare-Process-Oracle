@@ -204,6 +204,27 @@ details.shift>summary .file__chev{ transition:transform var(--dur-fast) var(--ea
 details.shift[open]>summary .file__chev{ transform:rotate(0deg); }
 details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
 
+/* ── Executive dashboard (both surfaces) ───────────────────────────────────
+   A data table, not a second row of hero tiles — the cover already carries the
+   magnitude; this answers "which modules and files hold the work". */
+.dash{ margin-top:var(--space-10); }
+.dash-table th[scope="row"], .dash-table tfoot th{ text-transform:none; letter-spacing:0;
+  background:transparent; }
+.dash-table tbody td:first-child, .dash-table tfoot th{ color:var(--def-ink); font-weight:600; }
+.dash-table tfoot td, .dash-table tfoot th{ font-size:var(--fs-small); padding:8px 10px;
+  border-top:2px solid var(--rpt-border); font-weight:700; }
+.dash-table .n-add{ color:var(--rpt-added-strong); font-weight:600; }
+.dash-table .n-rem{ color:var(--rpt-removed-strong); font-weight:600; }
+.dash-table .n-mod{ color:var(--rpt-modified-strong); font-weight:600; }
+.dash-table .n-zero{ color:var(--def-neutral-400); font-weight:400; }
+.dash-lead{ margin:var(--space-4) 0 0; display:flex; flex-wrap:wrap;
+  gap:var(--space-2) var(--space-4); align-items:baseline; }
+.dash-lead__k{ font-size:var(--fs-overline); line-height:var(--lh-overline);
+  letter-spacing:var(--ls-overline); text-transform:uppercase; font-weight:700;
+  color:var(--def-neutral-500); }
+.dash-chip code{ font-family:var(--font-mono); font-size:var(--fs-caption); color:var(--def-blue-700); }
+.dash-chip b{ font-variant-numeric:tabular-nums; color:var(--def-ink); font-weight:700; }
+
 .empty{ text-align:center; color:var(--def-neutral-600); padding:var(--space-16) var(--space-6); }
 .empty__mark{ font-family:var(--font-display); font-weight:700; font-size:var(--fs-h3);
   color:var(--def-green); margin-bottom:var(--space-3); }
@@ -216,8 +237,27 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
   .wrap{ max-width:none; padding:0 0 var(--space-6); }
   .cover{ padding:var(--space-10) var(--space-8); }
   .cover__grid{ display:none; }
-  .file{ break-inside:avoid; }
-  .chg{ break-inside:avoid; }
+  .dash{ break-inside:avoid; margin-top:var(--space-6); }
+  /* Dense record: let file cards flow across page breaks instead of reserving a
+     whole page each (break-inside:avoid wasted every page bottom). Small change
+     blocks still stay whole; a table taller than a page breaks and repeats its
+     header. */
+  .module{ margin:var(--space-6) 0 var(--space-3); }
+  /* Per-tab heading becomes a tight ruled title (no blue card): the card is for
+     on-screen scanning; in print it wastes a header-bar of height per tab. */
+  .file{ border:0; border-radius:0; overflow:visible; margin-bottom:var(--space-3);
+    break-inside:auto; }
+  .file__head{ background:transparent; padding:0 0 3px; margin-bottom:var(--space-2);
+    border-bottom:1.5px solid var(--def-blue); break-after:avoid; }
+  .file__name{ color:var(--def-blue); font-size:var(--fs-caption); }
+  .file__tab{ color:var(--def-neutral-600); }
+  .file__tab code{ color:var(--def-blue-700); }
+  .file__mini, .file__pill, .file__chev{ display:none; }
+  .file__body{ padding:0; }
+  .chg{ margin-bottom:var(--space-2); }
+  .chg__head{ margin-bottom:var(--space-1); break-after:avoid; }
+  thead th, tbody td{ padding:3px 10px; }
+  .shift-note{ padding:var(--space-2) var(--space-3); margin-bottom:var(--space-2); }
   .tablewrap{ overflow:visible; }
   thead{ display:table-header-group; }
   tbody tr:hover td{ background:transparent; }
@@ -269,7 +309,48 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
 
 <main class="wrap">
 {% if ctx.file_sections %}
-  {% for module, sections in ctx.file_sections | groupby("module") %}
+  <section class="dash">
+    <div class="module"><h2>Summary by module</h2><span class="module__rule"></span></div>
+    <div class="tablewrap"><table class="dash-table">
+      <thead><tr>
+        <th scope="col">Module</th>
+        <th class="c-num" scope="col">Tabs</th>
+        <th class="c-num" scope="col">Added</th>
+        <th class="c-num" scope="col">Removed</th>
+        <th class="c-num" scope="col">Modified</th>
+        <th class="c-num" scope="col">Shifted</th>
+      </tr></thead>
+      <tbody>
+      {% for mt in ctx.module_totals %}
+        <tr>
+          <td>{{ mt.module }}</td>
+          <td class="c-num">{{ mt.tabs }}</td>
+          <td class="c-num {{ 'n-add' if mt.add else 'n-zero' }}">{{ mt.add or "—" }}</td>
+          <td class="c-num {{ 'n-rem' if mt.rem else 'n-zero' }}">{{ mt.rem or "—" }}</td>
+          <td class="c-num {{ 'n-mod' if mt.mod else 'n-zero' }}">{{ mt.mod or "—" }}</td>
+          <td class="c-num {{ '' if mt.shift else 'n-zero' }}">{{ mt.shift or "—" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot><tr>
+        <th scope="row">All modules</th>
+        <td class="c-num">{{ ctx.totals.tabs }}</td>
+        <td class="c-num {{ 'n-add' if ctx.totals.add else 'n-zero' }}">{{ ctx.totals.add or "—" }}</td>
+        <td class="c-num {{ 'n-rem' if ctx.totals.rem else 'n-zero' }}">{{ ctx.totals.rem or "—" }}</td>
+        <td class="c-num {{ 'n-mod' if ctx.totals.mod else 'n-zero' }}">{{ ctx.totals.mod or "—" }}</td>
+        <td class="c-num {{ '' if ctx.totals.shift else 'n-zero' }}">{{ ctx.totals.shift or "—" }}</td>
+      </tr></tfoot>
+    </table></div>
+    {% if ctx.top_files %}
+    <p class="dash-lead">
+      <span class="dash-lead__k">Busiest templates</span>
+      {% for f in ctx.top_files %}<span class="dash-chip"><code>{{ f.file }}</code> <b>{{ f.high_signal }}</b></span>{% if not loop.last %}<span aria-hidden="true">·</span>{% endif %}{% endfor %}
+    </p>
+    {% endif %}
+  </section>
+
+  {% set detail_sections = ctx.file_sections if not print_mode else (ctx.file_sections | rejectattr("is_shift_only") | list) %}
+  {% for module, sections in detail_sections | groupby("module") %}
   <section class="module-group" data-module="{{ module }}">
     <div class="module"><h2>{{ module }}</h2><span class="module__rule"></span></div>
     {% for s in sections %}
@@ -302,7 +383,7 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
             {% else %}{% set cls = "neutral" %}{% endif %}
             {% set diff = change_type in ["MODIFIED", "RENAMED", "MULTI"] %}
         <div class="chg chg--{{ cls }}">
-          {% if change_type == "SHIFTED" and s.shift_is_uniform %}
+          {% if change_type == "SHIFTED" and (print_mode or s.shift_is_uniform) %}
           <p class="shift-note"><em>{{ s.shift_summary }}</em> — position shift only; no database impact.</p>
           {% elif change_type == "SHIFTED" %}
           <div class="chg__head"><span class="chg__label">Shifted</span><span class="chg__badge">{{ rows | length }}</span></div>
@@ -322,6 +403,33 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
     {% endfor %}
   </section>
   {% endfor %}
+  {% if print_mode %}
+    {% set shift_only = ctx.file_sections | selectattr("is_shift_only") | list %}
+    {% if shift_only %}
+  <section class="module-group">
+    <div class="module"><h2>Position shifts</h2><span class="module__rule"></span></div>
+    <p class="shift-note">The {{ shift_only | length }} tab{{ "s" if shift_only | length != 1 else "" }} below shifted column positions only — no fields were added, removed, or retyped, so there is no database impact. Full per-field detail is in the interactive HTML report.</p>
+    <div class="tablewrap"><table>
+      <thead><tr>
+        <th scope="col">Module</th>
+        <th class="c-field" scope="col">File</th>
+        <th scope="col">Tab</th>
+        <th scope="col">Shift</th>
+      </tr></thead>
+      <tbody>
+      {% for s in shift_only %}
+        <tr>
+          <td>{{ s.module }}</td>
+          <td class="c-field">{{ s.file }}</td>
+          <td>{{ s.tab }}</td>
+          <td>{{ s.shift_summary }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+    {% endif %}
+  {% endif %}
   <p class="noresults" id="noresults" hidden>No fields match your search.</p>
 {% else %}
   <div class="empty">

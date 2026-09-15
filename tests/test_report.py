@@ -7,6 +7,7 @@ import jinja2
 from openpyxl import Workbook
 
 from fbdi.report import (
+    ChangeRow,
     FileSection,
     ReportContext,
     build_report_context,
@@ -185,6 +186,85 @@ class TestGenerateReportModuleGrouping:
         html = html_path.read_text(encoding="utf-8")
         assert "<h2>Financials</h2>" in html
         assert "Unclassified" not in html
+
+
+class TestDashboardAggregates:
+    def test_module_totals_roll_up_per_module(self):
+        catalog_old = {("F1", "T"): [], ("F2", "T"): []}
+        catalog_new = {
+            ("F1", "T"): [_aligned(1, "A", "A_F"), _aligned(2, "B", "B_F")],  # +2, Financials
+            ("F2", "T"): [_aligned(1, "C", "C_F")],                           # +1, Supply Chain
+        }
+        ctx = build_report_context(
+            catalog_old, catalog_new,
+            {"F1": "Financials", "F2": "Supply Chain"}, "26A", "26B",
+        )
+        mods = {mt.module: mt for mt in ctx.module_totals}
+        assert mods["Financials"].add == 2
+        assert mods["Financials"].files == 1 and mods["Financials"].tabs == 1
+        assert mods["Supply Chain"].add == 1
+        # The dashboard must reconcile with the cover totals — never disagree.
+        assert sum(mt.add for mt in ctx.module_totals) == ctx.totals.add
+        assert sum(mt.shift for mt in ctx.module_totals) == ctx.totals.shift
+
+    def test_top_files_sorted_by_high_signal_desc(self):
+        catalog_old = {("Big", "T"): [], ("Small", "T"): []}
+        catalog_new = {
+            ("Big", "T"): [_aligned(i, f"L{i}", f"F{i}") for i in range(1, 6)],  # +5
+            ("Small", "T"): [_aligned(1, "L", "F")],                             # +1
+        }
+        ctx = build_report_context(catalog_old, catalog_new, {}, "26A", "26B")
+        assert [f.file for f in ctx.top_files] == ["Big", "Small"]
+        assert ctx.top_files[0].high_signal == 5
+
+    def test_dashboard_rendered_in_both_surfaces(self):
+        catalog_old = {("F", "T"): []}
+        catalog_new = {("F", "T"): [_aligned(1, "Label", "MYFIELD", "VARCHAR2", 30)]}
+        ctx = build_report_context(catalog_old, catalog_new, {"F": "Financials"}, "26A", "26B")
+        assert "Summary by module" in _render_report(ctx, print_mode=False)
+        assert "Summary by module" in _render_report(ctx, print_mode=True)
+
+
+class TestShiftOnlyRollup:
+    """Condensed PDF: tabs whose only change is a position shift collapse into a
+    single 'Position shifts' rollup in print mode, while the interactive HTML
+    keeps them as full, browsable file cards (two surfaces, two truths)."""
+
+    def _row(self, **kw):
+        base = dict(change_type="ADDED", field_name="F", label="L", oracle_type_str="",
+                    old_position=None, new_position=None, required=None, axes=(), sub_kinds=())
+        base.update(kw)
+        return ChangeRow(**base)
+
+    def _ctx(self):
+        hi = FileSection(
+            file="HiFile", tab="T1", module="SCM",
+            changes_by_type={"ADDED": [self._row(field_name="NEW_F", new_position=3)]},
+        )
+        sh = FileSection(
+            file="ShiftFile", tab="T2", module="SCM",
+            changes_by_type={"SHIFTED": [self._row(
+                change_type="SHIFTED", field_name="MOVED", old_position=2,
+                new_position=5, axes=("position",))]},
+            shift_summary="1 field shifted from positions 2-2 to 5-5.",
+            is_shift_only=True,
+        )
+        return ReportContext(old_release="26A", new_release="26B",
+                             generated_date="2026-01-01", file_sections=[hi, sh])
+
+    def test_print_collapses_shift_only_into_rollup(self):
+        printed = _render_report(self._ctx(), print_mode=True)
+        assert "Position shifts" in printed
+        # Shift-only tab is NOT rendered as a detail card, but IS in the rollup.
+        assert 'data-file="ShiftFile"' not in printed
+        assert "ShiftFile" in printed
+        # High-signal tab is still rendered in full.
+        assert 'data-file="HiFile"' in printed
+
+    def test_screen_keeps_shift_only_as_full_card(self):
+        screen = _render_report(self._ctx(), print_mode=False)
+        assert 'data-file="ShiftFile"' in screen   # normal, browsable card
+        assert "Position shifts" not in screen      # no print-only rollup on screen
 
 
 class TestSelfContained:
