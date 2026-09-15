@@ -403,6 +403,203 @@ def test_format_section_singular_for_one_file():
     assert "1 files)" not in text
 
 
+# --- Baseline inventory reconciliation (diff_against_prior + --reconcile) ---
+# Guards the silent-baseline-drift class of bug: originals/ short vs a stable
+# inventory reference (the release's own committed section, else the prior
+# release). See SKILL.md Stage 4.5 and verify_run.check_baseline_inventory.
+
+def _make_originals(tmp_path, release, names):
+    """Build baselines/<release>/originals/ with empty files. Returns the dir."""
+    originals = tmp_path / "baselines" / release / "originals"
+    originals.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (originals / name).touch()
+    return originals
+
+
+def test_diff_against_prior_clean():
+    inventory = {"26B": ["A.xlsm", "B.xlsm", "C.xlsm"]}
+    result = verify_download.diff_against_prior(
+        current_names=["A.xlsm", "B.xlsm", "C.xlsm"],
+        inventory=inventory, current_release="26C", manual_files=[],
+    )
+    assert result["prior_release"] == "26B"
+    assert result["dropped"] == []
+    assert result["added"] == []
+
+
+def test_diff_against_prior_detects_dropped():
+    """A file present in the prior release but absent now is the hard-fail signal."""
+    inventory = {"26B": ["A.xlsm", "B.xlsm", "C.xlsm"]}
+    result = verify_download.diff_against_prior(
+        current_names=["A.xlsm", "C.xlsm"],  # B.xlsm silently dropped
+        inventory=inventory, current_release="26C", manual_files=[],
+    )
+    assert result["dropped"] == ["B.xlsm"]
+    assert result["prior_count"] == 3
+    assert result["current_count"] == 2
+
+
+def test_diff_against_prior_additions_are_informational():
+    """Net additions never fail — Oracle legitimately adds templates each quarter."""
+    inventory = {"26B": ["A.xlsm", "B.xlsm"]}
+    result = verify_download.diff_against_prior(
+        current_names=["A.xlsm", "B.xlsm", "NewTemplate.xlsm"],
+        inventory=inventory, current_release="26C", manual_files=[],
+    )
+    assert result["dropped"] == []
+    assert result["added"] == ["NewTemplate.xlsm"]
+
+
+def test_diff_against_prior_excludes_manual_files():
+    inventory = {"26B": ["A.xlsm", "RapidImplementationForCashManagement.xlsm"]}
+    result = verify_download.diff_against_prior(
+        current_names=["A.xlsm"], inventory=inventory, current_release="26C",
+        manual_files=["RapidImplementationForCashManagement.xlsm"],
+    )
+    assert result["dropped"] == []  # manual file is not a "dropped" download
+
+
+def test_diff_against_prior_no_prior_is_noop():
+    """First-ever release: nothing to reconcile against → no false positives."""
+    result = verify_download.diff_against_prior(
+        current_names=["A.xlsm"], inventory={}, current_release="26A", manual_files=[],
+    )
+    assert result["prior_release"] is None
+    assert result["dropped"] == []
+    assert result["added"] == []
+
+
+def test_diff_against_prior_selects_most_recent_prior():
+    """With multiple priors, the immediately-preceding release is the reference."""
+    inventory = {"26A": ["A.xlsm"], "26B": ["A.xlsm", "B.xlsm"]}
+    result = verify_download.diff_against_prior(
+        current_names=["A.xlsm"],  # B.xlsm dropped vs 26B
+        inventory=inventory, current_release="26C", manual_files=[],
+    )
+    assert result["prior_release"] == "26B"
+    assert result["dropped"] == ["B.xlsm"]
+
+
+def test_reconcile_cli_own_section_clean(tmp_path, capsys):
+    inv = tmp_path / "baseline_files.txt"
+    inv.write_text(INVENTORY_FIXTURE, encoding="utf-8")
+    # 26B section lists 4 files; the FSM manual file is excluded, so 3 on disk is clean.
+    originals = _make_originals(tmp_path, "26B", [
+        "AccountCombinationsImportTemplate.xlsm",
+        "BudgetImportTemplate.xlsm",
+        "ItemImportReferenceOrgTemplate.xlsm",
+    ])
+    exit_code = verify_download.main([
+        "--release", "26B", "--reconcile",
+        "--inventory", str(inv), "--originals", str(originals),
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reference"] == "own-section"
+    assert payload["dropped"] == []
+
+
+def test_reconcile_cli_own_section_short_hard_fails(tmp_path, capsys):
+    inv = tmp_path / "baseline_files.txt"
+    inv.write_text(INVENTORY_FIXTURE, encoding="utf-8")
+    # Drop a real (non-manual) file the 26B section expects.
+    originals = _make_originals(tmp_path, "26B", [
+        "AccountCombinationsImportTemplate.xlsm",
+        "ItemImportReferenceOrgTemplate.xlsm",
+    ])
+    exit_code = verify_download.main([
+        "--release", "26B", "--reconcile",
+        "--inventory", str(inv), "--originals", str(originals),
+    ])
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reference"] == "own-section"
+    assert "BudgetImportTemplate.xlsm" in payload["dropped"]
+    assert "BudgetImportTemplate.xlsm" in payload["missing"]
+
+
+def test_reconcile_cli_prior_fallback_short_hard_fails(tmp_path, capsys):
+    inv = tmp_path / "baseline_files.txt"
+    inv.write_text(INVENTORY_FIXTURE, encoding="utf-8")
+    # 26C has no section → reference is prior 26B. Drop BudgetImportTemplate.xlsm.
+    originals = _make_originals(tmp_path, "26C", [
+        "AccountCombinationsImportTemplate.xlsm",
+        "ItemImportReferenceOrgTemplate.xlsm",
+        "RapidImplementationForCashManagement.xlsm",
+    ])
+    exit_code = verify_download.main([
+        "--release", "26C", "--reconcile",
+        "--inventory", str(inv), "--originals", str(originals),
+    ])
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reference"] == "prior:26B"
+    assert payload["dropped"] == ["BudgetImportTemplate.xlsm"]
+
+
+def test_reconcile_cli_prior_fallback_clean_with_additions(tmp_path, capsys):
+    inv = tmp_path / "baseline_files.txt"
+    inv.write_text(INVENTORY_FIXTURE, encoding="utf-8")
+    # 26C keeps every prior non-manual file and adds a new one (added, not a fail).
+    originals = _make_originals(tmp_path, "26C", [
+        "AccountCombinationsImportTemplate.xlsm",
+        "BudgetImportTemplate.xlsm",
+        "ItemImportReferenceOrgTemplate.xlsm",
+        "NewTemplateForThisRelease.xlsm",
+    ])
+    exit_code = verify_download.main([
+        "--release", "26C", "--reconcile",
+        "--inventory", str(inv), "--originals", str(originals),
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reference"] == "prior:26B"
+    assert payload["dropped"] == []
+    assert "NewTemplateForThisRelease.xlsm" in payload["added"]
+
+
+def test_first_run_payload_includes_dropped_and_added(tmp_path, capsys):
+    """Root-cause guard: the exit-3 bootstrap payload now names files dropped vs
+    the prior release, so a small shortfall can no longer sail under the 15% band."""
+    inv = tmp_path / "baseline_files.txt"
+    inv.write_text(INVENTORY_FIXTURE, encoding="utf-8")
+    originals = _make_originals(tmp_path, "26C", [
+        "AccountCombinationsImportTemplate.xlsm",
+        "ItemImportReferenceOrgTemplate.xlsm",
+        "RapidImplementationForCashManagement.xlsm",
+        "NewTemplate.xlsm",
+    ])
+    exit_code = verify_download.main([
+        "--release", "26C",
+        "--inventory", str(inv), "--originals", str(originals),
+    ])
+    assert exit_code == 3  # first-run bootstrap
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["first_run"] is True
+    assert payload["dropped"] == ["BudgetImportTemplate.xlsm"]
+    assert "NewTemplate.xlsm" in payload["added"]
+
+
+def test_reconcile_real_inventory_26c_vs_26b_no_drop():
+    """Real-data guard: no template was dropped 26B→26C in the committed
+    inventory. A future edit that introduces a spurious drop fails here."""
+    inv_path = Path(__file__).resolve().parent.parent / "baseline_files.txt"
+    if not inv_path.is_file():
+        import pytest
+        pytest.skip("baseline_files.txt not present")
+    inventory = verify_download.parse_inventory(inv_path.read_text(encoding="utf-8"))
+    if "26C" not in inventory or "26B" not in inventory:
+        import pytest
+        pytest.skip("expected 26B and 26C sections")
+    result = verify_download.diff_against_prior(
+        current_names=inventory["26C"], inventory=inventory,
+        current_release="26C", manual_files=verify_download.MANUAL_FILES,
+    )
+    assert result["prior_release"] == "26B"
+    assert result["dropped"] == []
+
+
 from openpyxl import Workbook
 from scripts import summarize_report  # noqa: E402
 
@@ -552,3 +749,93 @@ def test_verify_run_catalog_check_no_prior(tmp_path):
     result = verify_run.check_catalog_issues(catalog, release="26B")
     assert result["prior_release"] is None
     assert result["regression"] is False
+
+
+# --- Stage-8 baseline inventory reconciliation (hard gate) ---
+
+def test_check_baseline_inventory_clean(tmp_path):
+    inv = tmp_path / "baseline_files.txt"
+    inv.write_text(INVENTORY_FIXTURE, encoding="utf-8")
+    _make_originals(tmp_path, "26B", [
+        "AccountCombinationsImportTemplate.xlsm",
+        "BudgetImportTemplate.xlsm",
+        "ItemImportReferenceOrgTemplate.xlsm",
+    ])
+    result = verify_run.check_baseline_inventory("26B", tmp_path / "baselines", inv)
+    assert result["reference"] == "own-section"
+    assert result["dropped"] == []
+    assert result["hard_fail"] is False
+
+
+def test_check_baseline_inventory_detects_shortfall(tmp_path):
+    inv = tmp_path / "baseline_files.txt"
+    inv.write_text(INVENTORY_FIXTURE, encoding="utf-8")
+    _make_originals(tmp_path, "26B", [
+        "AccountCombinationsImportTemplate.xlsm",
+        # BudgetImportTemplate.xlsm silently missing
+        "ItemImportReferenceOrgTemplate.xlsm",
+    ])
+    result = verify_run.check_baseline_inventory("26B", tmp_path / "baselines", inv)
+    assert result["hard_fail"] is True
+    assert "BudgetImportTemplate.xlsm" in result["dropped"]
+
+
+def test_verify_run_main_exit_2_on_inventory_shortfall(tmp_path, capsys):
+    """A baseline shortfall is a HARD failure — exit 2, distinct from the
+    non-blocking soft-regression exit 1."""
+    inv = tmp_path / "baseline_files.txt"
+    inv.write_text(INVENTORY_FIXTURE, encoding="utf-8")
+    catalog = tmp_path / "cat.xlsx"
+    _make_catalog_with_issues(catalog, {"26B": []})  # no soft regression
+    _make_originals(tmp_path, "26B", [
+        "AccountCombinationsImportTemplate.xlsm",
+        # BudgetImportTemplate.xlsm dropped
+        "ItemImportReferenceOrgTemplate.xlsm",
+    ])
+    exit_code = verify_run.main([
+        "--release", "26B", "--skip-diagnose",
+        "--catalog", str(catalog),
+        "--originals-root", str(tmp_path / "baselines"),
+        "--inventory", str(inv),
+    ])
+    assert exit_code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["inventory_hard_fail"] is True
+    assert "BudgetImportTemplate.xlsm" in payload["baseline_inventory"]["dropped"]
+
+
+def test_verify_run_main_exit_0_when_inventory_clean(tmp_path, capsys):
+    inv = tmp_path / "baseline_files.txt"
+    inv.write_text(INVENTORY_FIXTURE, encoding="utf-8")
+    catalog = tmp_path / "cat.xlsx"
+    _make_catalog_with_issues(catalog, {"26B": []})
+    _make_originals(tmp_path, "26B", [
+        "AccountCombinationsImportTemplate.xlsm",
+        "BudgetImportTemplate.xlsm",
+        "ItemImportReferenceOrgTemplate.xlsm",
+    ])
+    exit_code = verify_run.main([
+        "--release", "26B", "--skip-diagnose",
+        "--catalog", str(catalog),
+        "--originals-root", str(tmp_path / "baselines"),
+        "--inventory", str(inv),
+    ])
+    assert exit_code == 0
+
+
+def test_verify_run_skip_inventory_bypasses_check(tmp_path, capsys):
+    """--skip-inventory disables the hard gate (unit-test / quick-run escape hatch)."""
+    inv = tmp_path / "baseline_files.txt"
+    inv.write_text(INVENTORY_FIXTURE, encoding="utf-8")
+    catalog = tmp_path / "cat.xlsx"
+    _make_catalog_with_issues(catalog, {"26B": []})
+    _make_originals(tmp_path, "26B", ["AccountCombinationsImportTemplate.xlsm"])  # very short
+    exit_code = verify_run.main([
+        "--release", "26B", "--skip-diagnose", "--skip-inventory",
+        "--catalog", str(catalog),
+        "--originals-root", str(tmp_path / "baselines"),
+        "--inventory", str(inv),
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["baseline_inventory"]["skipped"] is True

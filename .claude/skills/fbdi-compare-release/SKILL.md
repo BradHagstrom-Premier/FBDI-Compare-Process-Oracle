@@ -157,13 +157,20 @@ decision.
 
 **First-run bootstrap** (exit code 3): Read the JSON payload.
 
-- If `over_threshold: true`, show the delta and ask:
+- **If `dropped` is non-empty — hard block, regardless of `over_threshold`.**
+  The download is missing specific files that existed in the prior release, so
+  the loose count delta must not be allowed to wave it through (this is the exact
+  failure that let two 26C templates go missing silently — a ~1% count delta
+  sailed under the 15% band). Do **not** commit the inventory. Present **HITL #9**
+  (see Stage 4.5) with `dropped` / `missing_by_module`, offering re-download,
+  abort, or explicit override.
+- Else if `over_threshold: true`, show the delta and ask:
   > "Bootstrapping `<ver>` inventory from <N> downloaded files. The most
   > recent prior release (`<prior>`) has <P> files — that's a <Δ%>
   > change. Oracle rarely adds or removes more than ~5–10 templates in a
   > quarterly release, so this is worth a second look. Proceed with
   > bootstrap, retry the download, or abort?"
-- If `over_threshold: false`, proceed without prompting.
+- Else (`dropped` empty and `over_threshold: false`), proceed without prompting.
 
 On "proceed", run `verify_download.py --release <ver> --commit-inventory`
 to write the new section, then re-verify (should exit 0).
@@ -209,6 +216,52 @@ the filenames for Stage 7. Example stdout pattern:
 
 Expected wall time: ~2–4 min. Per-file timeouts are **not a blocker** —
 compare reads `originals/`, not `blanks/`.
+
+## Stage 4.5 — Baseline inventory reconciliation (hard gate)
+
+Runs on **every** invocation of the pipeline — including a resume that skips
+Stages 1–4, where the Stage-3 download check never fires. This is the safety net
+for silent baseline drift: a template that failed to download (or was later
+deleted) and left `baselines/<ver>/originals/` short of what the git-tracked
+`baseline_files.txt` inventory expects. It runs **before** compare so no compute
+is spent on incomplete data.
+
+For **both** `<OLD>` and `<NEW>`:
+
+```
+python .claude/skills/fbdi-compare-release/scripts/verify_download.py --release <ver> --reconcile
+```
+
+The check is asymmetric — a file the reference expects but the folder lacks is a
+hard failure; net additions are reported but never block. The reference is the
+release's own `baseline_files.txt` section when present, else the most-recent
+prior release (payload field `reference`).
+
+Interpret the exit code:
+
+- `0` → clean, proceed.
+- `1` → **hard block.** The folder is short. Read the JSON payload (`dropped`,
+  `missing_by_module`) and present **HITL #9**.
+
+**HITL #9 — baseline folder short vs inventory:** Ask:
+
+> "`baselines/<ver>/originals/` is missing N file(s) that its inventory
+> reference (`<reference>`) expects — this is exactly the silent-drop class of
+> bug the reconciliation gate guards against. Missing, by module:
+>   - financials: <file>, <file>, …
+>   - procurement: <file>, …
+>
+> Options:
+>   (a) Re-download `<ver>` to recover the missing files (re-run Stage 3 —
+>       destructive, wipes `originals/` first). [default]
+>   (b) Abort so the gap can be investigated by hand.
+>   (c) Override and proceed anyway — the comparison will be built on an
+>       incomplete baseline (not recommended; note the gap in the summary).
+>
+> Which?"
+
+Do **not** proceed to Stage 5 on a hard block without an explicit choice. On
+(a), run Stage 3a + 3b for `<ver>`, then re-run this gate.
 
 ## Stage 5 — Compare
 
@@ -287,7 +340,20 @@ If the `stage4_timeouts` list is empty, omit that section.
 python .claude/skills/fbdi-compare-release/scripts/verify_run.py --release <NEW>
 ```
 
-If `overall_regression: true`, append a warning block to the summary:
+`verify_run.py` returns:
+- `0` → clean.
+- `1` → **soft regression** (diagnose / catalog Issues) — non-blocking; surface
+  as a warning (below).
+- `2` → **baseline inventory hard-fail** — `baselines/<NEW>/originals/` is short
+  vs its inventory reference (`baseline_inventory.dropped` in the payload). This
+  is **fatal**: the report and catalog were built on an incomplete baseline.
+  Present **HITL #9** (see Stage 4.5) with the dropped files and require an
+  explicit choice (re-download + re-run the affected stages, abort, or override).
+  Do not silently continue. (A well-behaved run reconciles at Stage 4.5, so a
+  Stage-8 exit 2 means the baseline drifted mid-run or the earlier gate was
+  overridden.)
+
+If `overall_regression: true` (exit 1), append a warning block to the summary:
 
 ```
 WARNING: post-run verification flagged potential regressions:
@@ -320,7 +386,9 @@ Exit code 1 from either `verify_run.py` or `verify_rerun.py` does **not**
 make the skill fail — the report and catalog are already produced. Surface
 the warnings: append `verify_run.py`'s regression list and any
 `verify_rerun.py` regressions to the Stage 7 summary as a final WARNING
-block.
+block. **Exit code 2 from `verify_run.py` is the exception** — it is the
+baseline inventory hard-fail (HITL #9), which is fatal and must not be
+downgraded to a warning.
 
 ---
 
@@ -341,11 +409,14 @@ block.
 Each stage is idempotent on output-existence terms:
 - Stage 3: re-running **wipes** `originals/` first (destructive). The skill
   warns before retrying.
+- Stage 4.5: safe and cheap — the reconciliation gate is read-only. It runs on
+  **every** invocation, including resume, so a baseline that drifted while Stages
+  1–4 were skipped is still caught before compare.
 - Stages 4-6: re-running is safe; they overwrite their outputs.
 
 If interrupted at Stage 5, re-invoking the skill skips 1-4 (env still
-healthy, downloads still present, blanks still cleared) and resumes from
-compare.
+healthy, downloads still present, blanks still cleared) but **still runs Stage
+4.5** before resuming compare.
 
 ## Stage 9 — Release Change Report
 

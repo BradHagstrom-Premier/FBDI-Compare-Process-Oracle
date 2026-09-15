@@ -5,8 +5,16 @@
 - Reads FBDI_Master_Catalog.xlsx Issues tab, filters by release, and flags
   catalog Issues-tab regression if:
       new_count > 2 * prior_count   OR   new_count - prior_count > 50
+- Reconciles baselines/<ver>/originals/ against baseline_files.txt (the
+  release's own section, else the prior release). A file the reference expects
+  but the folder lacks is a HARD failure — this is the safety net for the
+  silent-baseline-drift class of bug (a template that failed to download and was
+  never noticed).
 
-Never blocks. Exit 0 = clean, 1 = regression detected.
+Exit codes:
+    0 = clean
+    1 = soft regression detected (diagnose / catalog Issues) — non-blocking
+    2 = baseline inventory hard-fail (originals folder short vs reference) — blocking
 """
 
 from __future__ import annotations
@@ -20,6 +28,11 @@ from contextlib import closing
 from pathlib import Path
 
 from openpyxl import load_workbook
+
+# verify_download lives beside this script; reuse its inventory helpers rather
+# than duplicating the reconciliation logic.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import verify_download  # noqa: E402
 
 ISSUE_MULTIPLIER_THRESHOLD = 2.0
 ISSUE_ABSOLUTE_THRESHOLD = 50
@@ -109,6 +122,56 @@ def run_diagnose(release: str, repo_root: Path) -> dict:
     }
 
 
+def check_baseline_inventory(
+    new_release: str,
+    originals_root: Path,
+    inventory_path: Path,
+) -> dict:
+    """Reconcile baselines/<new_release>/originals/ against baseline_files.txt.
+
+    Prefers the release's own committed section as the reference; falls back to
+    the most-recent prior release when it has none. Asymmetric: only a shortfall
+    (a file the reference expects but the folder lacks, excluding MANUAL_FILES)
+    is a hard failure; net additions are surfaced but never block. Reuses the
+    reconciliation helpers in verify_download so there is a single source of
+    truth for inventory logic.
+    """
+    new_release = new_release.upper()
+    originals = originals_root / new_release / "originals"
+    current = verify_download.list_downloaded(originals)
+    inventory_text = (
+        inventory_path.read_text(encoding="utf-8") if inventory_path.is_file() else ""
+    )
+    inventory = verify_download.parse_inventory(inventory_text)
+
+    if new_release in inventory:
+        diff = verify_download.diff_against_inventory(
+            new_release, current, inventory, verify_download.MANUAL_FILES,
+        )
+        dropped = diff["missing"]
+        added = diff["extras"]
+        reference = "own-section"
+    else:
+        prior_diff = verify_download.diff_against_prior(
+            current, inventory, new_release, verify_download.MANUAL_FILES,
+        )
+        dropped = prior_diff["dropped"]
+        added = prior_diff["added"]
+        prior_rel = prior_diff["prior_release"]
+        reference = f"prior:{prior_rel}" if prior_rel else "none"
+
+    return {
+        "release": new_release,
+        "reference": reference,
+        "current_count": len(current),
+        "dropped": dropped,
+        "added": added,
+        "missing_by_module": verify_download.group_missing_by_module(dropped),
+        "hard_fail": bool(dropped),
+        "inventory_present": bool(inventory),
+    }
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Stage 8 post-run verification")
     parser.add_argument("--release", required=True)
@@ -122,6 +185,18 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--skip-diagnose", action="store_true",
         help="Skip the diagnose subprocess (for unit tests / quick runs)",
+    )
+    parser.add_argument(
+        "--originals-root", type=Path, default=Path("baselines"),
+        help="Root of the per-release baseline folders (default: ./baselines)",
+    )
+    parser.add_argument(
+        "--inventory", type=Path, default=Path("baseline_files.txt"),
+        help="Path to baseline_files.txt (default: ./baseline_files.txt)",
+    )
+    parser.add_argument(
+        "--skip-inventory", action="store_true",
+        help="Skip the baseline inventory reconciliation check",
     )
     args = parser.parse_args(argv)
 
@@ -139,15 +214,29 @@ def main(argv=None) -> int:
 
     cat = check_catalog_issues(args.catalog, release)
 
-    overall = bool(diag.get("regression")) or bool(cat.get("regression"))
+    if args.skip_inventory:
+        inv = {"skipped": True, "hard_fail": False}
+    else:
+        inv = check_baseline_inventory(release, args.originals_root, args.inventory)
+
+    # Soft regressions (diagnose / catalog Issues) stay non-blocking — exit 1,
+    # surfaced by the skill as a warning. A baseline inventory shortfall is a
+    # HARD failure — exit 2, which the skill treats as fatal. Exit 2 takes
+    # precedence so a shortfall is never masked by a concurrent soft regression.
+    soft_regression = bool(diag.get("regression")) or bool(cat.get("regression"))
+    inventory_hard_fail = bool(inv.get("hard_fail"))
     payload = {
         "release": release,
         "diagnose": diag,
         "catalog_issues": cat,
-        "overall_regression": overall,
+        "baseline_inventory": inv,
+        "overall_regression": soft_regression,
+        "inventory_hard_fail": inventory_hard_fail,
     }
     print(json.dumps(payload, indent=2))
-    return 1 if overall else 0
+    if inventory_hard_fail:
+        return 2
+    return 1 if soft_regression else 0
 
 
 if __name__ == "__main__":
