@@ -3,12 +3,15 @@
     design_css carries the vendored self-contained Definian tokens + Aptos faces;
     it is injected by report.generate_report and omitted by unit render tests. -#}
 {%- import "_report_macros.j2" as m -%}
+{#- Consultant-facing names for the internal change-type codes (align.py stays
+    authoritative for the codes; "MULTI" only ever surfaces here as prose). -#}
+{%- set CHANGE_LABELS = {"ADDED":"Added","REMOVED":"Removed","MODIFIED":"Modified","RENAMED":"Renamed","MULTI":"Multiple changes","SHIFTED":"Shifted"} -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FBDI Release Change Report — {{ ctx.old_release }} → {{ ctx.new_release }}</title>
+<title>FBDI Release Change Report: {{ ctx.old_release }} → {{ ctx.new_release }}</title>
 <style>
 {% if design_css %}{{ design_css | safe }}{% endif %}
 
@@ -76,6 +79,11 @@ a{ color:var(--def-blue); }
 .cover__sub .rel{ color:var(--def-white); font-weight:600; }
 .cover__date{ font-size:var(--fs-caption); color:var(--def-cool-gray); margin:0 0 var(--space-8);
   letter-spacing:var(--ls-wide); text-transform:uppercase; }
+/* Reading key: names which counts demand work vs. which are position-only, so the
+   large Shifted number reads as context, not alarm. */
+.cover__key{ margin:var(--space-4) 0 0; max-width:64ch; font-size:var(--fs-caption);
+  line-height:var(--lh-body); color:var(--def-cool-gray); }
+.cover__key b{ color:var(--def-white); font-weight:600; }
 
 /* Brand grid-dot motif, top-right (decorative, from the design system hero). */
 .cover__grid{ position:absolute; top:var(--space-10); right:var(--space-10);
@@ -173,18 +181,31 @@ a{ color:var(--def-blue); }
 table{ border-collapse:collapse; width:100%; }
 thead th{ text-align:left; font-size:var(--fs-overline); line-height:var(--lh-overline);
   letter-spacing:var(--ls-overline); text-transform:uppercase; font-weight:700;
-  color:var(--def-neutral-600); background:var(--rpt-surface);
+  color:var(--def-neutral-600); background:var(--rpt-surface); white-space:nowrap;
   padding:7px 10px; border-bottom:1px solid var(--rpt-border); }
 tbody td{ font-size:var(--fs-small); color:var(--def-ink); padding:7px 10px;
   border-bottom:1px solid var(--rpt-row-rule); vertical-align:top; }
 tbody tr:last-child td{ border-bottom:0; }
 tbody tr:hover td{ background:var(--rpt-surface); }
 .c-field{ font-family:var(--font-mono); font-size:var(--fs-caption); color:var(--def-blue-700); }
-.c-type{ font-family:var(--font-mono); font-size:var(--fs-caption); color:var(--def-neutral-700); }
+/* Oracle types are short (VARCHAR2(30 CHAR), Date(YYYY/MM/DD)); keep them whole
+   so they don't break at '(' into ragged two- and three-line rows. */
+.c-type{ font-family:var(--font-mono); font-size:var(--fs-caption); color:var(--def-neutral-700);
+  white-space:nowrap; }
 .c-num{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap;
   color:var(--def-neutral-600); width:1%; }
+.c-num .arrow{ color:var(--def-neutral-400); padding:0 3px; }
 .c-req{ text-align:center; white-space:nowrap; width:1%; }
+/* Only required fields carry a mark — the common not-required case stays blank so
+   the rare must-handle field is what the eye lands on. */
+.c-req-yes{ display:inline-block; font-size:var(--fs-overline); line-height:1;
+  letter-spacing:var(--ls-overline); text-transform:uppercase; font-weight:700;
+  color:var(--def-blue-700); background:var(--rpt-neutral-tint);
+  padding:2px 8px; border-radius:var(--r-pill); white-space:nowrap; }
 .arrow{ color:var(--def-neutral-400); padding:0 4px; }
+/* Empty-cell nil marker: a muted middle dot means "no value" without reading as a
+   dash or as content. Never a hyphen — that collides with real Oracle types. */
+.nil{ color:var(--def-neutral-400); user-select:none; }
 .was{ color:var(--def-neutral-500); }
 .now{ color:var(--def-ink); font-weight:600; }
 th.c-num, th.c-req{ text-align:right; }
@@ -224,6 +245,7 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
   color:var(--def-neutral-500); }
 .dash-chip code{ font-family:var(--font-mono); font-size:var(--fs-caption); color:var(--def-blue-700); }
 .dash-chip b{ font-variant-numeric:tabular-nums; color:var(--def-ink); font-weight:700; }
+.dash-note{ margin:var(--space-2) 0 0; font-size:var(--fs-caption); color:var(--def-neutral-500); }
 
 .empty{ text-align:center; color:var(--def-neutral-600); padding:var(--space-16) var(--space-6); }
 .empty__mark{ font-family:var(--font-display); font-weight:700; font-size:var(--fs-h3);
@@ -243,16 +265,20 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
      blocks still stay whole; a table taller than a page breaks and repeats its
      header. */
   .module{ margin:var(--space-6) 0 var(--space-3); }
-  /* Per-tab heading becomes a tight ruled title (no blue card): the card is for
-     on-screen scanning; in print it wastes a header-bar of height per tab. */
+  /* Card border is dropped in print, but the per-tab heading stays a compact navy
+     chip so each FBDI template unmistakably anchors its change group. The impact
+     strip (add/remove/modify/shift counts) rides in the chip so "am I impacted,
+     and how much?" is answered before reading a single field row. */
   .file{ border:0; border-radius:0; overflow:visible; margin-bottom:var(--space-3);
     break-inside:auto; }
-  .file__head{ background:transparent; padding:0 0 3px; margin-bottom:var(--space-2);
-    border-bottom:1.5px solid var(--def-blue); break-after:avoid; }
-  .file__name{ color:var(--def-blue); font-size:var(--fs-caption); }
-  .file__tab{ color:var(--def-neutral-600); }
-  .file__tab code{ color:var(--def-blue-700); }
-  .file__mini, .file__pill, .file__chev{ display:none; }
+  .file__head{ background:var(--def-blue); color:var(--def-white);
+    padding:4px var(--space-3); margin-bottom:var(--space-2);
+    border-radius:var(--r-sm); break-after:avoid; }
+  .file__name{ color:var(--def-white); font-size:var(--fs-small); font-weight:600; }
+  .file__tab{ color:var(--def-cool-gray); }
+  .file__tab code{ color:var(--def-white); }
+  .file__mini{ display:flex; }
+  .file__pill, .file__chev{ display:none; }
   .file__body{ padding:0; }
   .chg{ margin-bottom:var(--space-2); }
   .chg__head{ margin-bottom:var(--space-1); break-after:avoid; }
@@ -286,6 +312,7 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
       <div class="tile tile--mod"><span class="tile__n">{{ ctx.totals.mod }}</span><span class="tile__l">Modified</span></div>
       <div class="tile tile--shift"><span class="tile__n">{{ ctx.totals.shift }}</span><span class="tile__l">Shifted</span></div>
     </div>
+    <p class="cover__key"><b>Added</b>, <b>Removed</b> and <b>Modified</b> fields need integration work. <b>Shifted</b> fields only changed position, with no database impact.</p>
   </div>
 </header>
 
@@ -325,20 +352,20 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
         <tr>
           <td>{{ mt.module }}</td>
           <td class="c-num">{{ mt.tabs }}</td>
-          <td class="c-num {{ 'n-add' if mt.add else 'n-zero' }}">{{ mt.add or "—" }}</td>
-          <td class="c-num {{ 'n-rem' if mt.rem else 'n-zero' }}">{{ mt.rem or "—" }}</td>
-          <td class="c-num {{ 'n-mod' if mt.mod else 'n-zero' }}">{{ mt.mod or "—" }}</td>
-          <td class="c-num {{ '' if mt.shift else 'n-zero' }}">{{ mt.shift or "—" }}</td>
+          <td class="c-num {{ 'n-add' if mt.add else 'n-zero' }}">{{ mt.add or "·" }}</td>
+          <td class="c-num {{ 'n-rem' if mt.rem else 'n-zero' }}">{{ mt.rem or "·" }}</td>
+          <td class="c-num {{ 'n-mod' if mt.mod else 'n-zero' }}">{{ mt.mod or "·" }}</td>
+          <td class="c-num {{ '' if mt.shift else 'n-zero' }}">{{ mt.shift or "·" }}</td>
         </tr>
       {% endfor %}
       </tbody>
       <tfoot><tr>
         <th scope="row">All modules</th>
         <td class="c-num">{{ ctx.totals.tabs }}</td>
-        <td class="c-num {{ 'n-add' if ctx.totals.add else 'n-zero' }}">{{ ctx.totals.add or "—" }}</td>
-        <td class="c-num {{ 'n-rem' if ctx.totals.rem else 'n-zero' }}">{{ ctx.totals.rem or "—" }}</td>
-        <td class="c-num {{ 'n-mod' if ctx.totals.mod else 'n-zero' }}">{{ ctx.totals.mod or "—" }}</td>
-        <td class="c-num {{ '' if ctx.totals.shift else 'n-zero' }}">{{ ctx.totals.shift or "—" }}</td>
+        <td class="c-num {{ 'n-add' if ctx.totals.add else 'n-zero' }}">{{ ctx.totals.add or "·" }}</td>
+        <td class="c-num {{ 'n-rem' if ctx.totals.rem else 'n-zero' }}">{{ ctx.totals.rem or "·" }}</td>
+        <td class="c-num {{ 'n-mod' if ctx.totals.mod else 'n-zero' }}">{{ ctx.totals.mod or "·" }}</td>
+        <td class="c-num {{ '' if ctx.totals.shift else 'n-zero' }}">{{ ctx.totals.shift or "·" }}</td>
       </tr></tfoot>
     </table></div>
     {% if ctx.top_files %}
@@ -346,6 +373,7 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
       <span class="dash-lead__k">Busiest templates</span>
       {% for f in ctx.top_files %}<span class="dash-chip"><code>{{ f.file }}</code> <b>{{ f.high_signal }}</b></span>{% if not loop.last %}<span aria-hidden="true">·</span>{% endif %}{% endfor %}
     </p>
+    <p class="dash-note">Count = added + removed + modified fields per template; position shifts excluded.</p>
     {% endif %}
   </section>
 
@@ -384,15 +412,15 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
             {% set diff = change_type in ["MODIFIED", "RENAMED", "MULTI"] %}
         <div class="chg chg--{{ cls }}">
           {% if change_type == "SHIFTED" and (print_mode or s.shift_is_uniform) %}
-          <p class="shift-note"><em>{{ s.shift_summary }}</em> — position shift only; no database impact.</p>
+          <p class="shift-note"><em>{{ s.shift_summary }}</em> (position shift only; no database impact).</p>
           {% elif change_type == "SHIFTED" %}
           <div class="chg__head"><span class="chg__label">Shifted</span><span class="chg__badge">{{ rows | length }}</span></div>
           <details class="shift"{% if print_mode %} open{% endif %}>
-            <summary><svg class="file__chev" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#0D2C71" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ s.shift_summary or (rows | length ~ " shifted fields") }} — show detail</summary>
+            <summary><svg class="file__chev" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#0D2C71" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ s.shift_summary or (rows | length ~ " shifted fields") }} &middot; show detail</summary>
             <div class="shift-body">{{ m.shift_table(rows) }}</div>
           </details>
           {% else %}
-          <div class="chg__head"><span class="chg__label">{{ change_type | capitalize }}</span><span class="chg__badge">{{ rows | length }}</span></div>
+          <div class="chg__head"><span class="chg__label">{{ CHANGE_LABELS.get(change_type, change_type | capitalize) }}</span><span class="chg__badge">{{ rows | length }}</span></div>
           {{ m.change_table(rows, change_type, diff) }}
           {% endif %}
         </div>
@@ -408,7 +436,7 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
     {% if shift_only %}
   <section class="module-group">
     <div class="module"><h2>Position shifts</h2><span class="module__rule"></span></div>
-    <p class="shift-note">The {{ shift_only | length }} tab{{ "s" if shift_only | length != 1 else "" }} below shifted column positions only — no fields were added, removed, or retyped, so there is no database impact. Full per-field detail is in the interactive HTML report.</p>
+    <p class="shift-note">The {{ shift_only | length }} tab{{ "s" if shift_only | length != 1 else "" }} below shifted column positions only; no fields were added, removed, or retyped, so there is no database impact. Full per-field detail is in the interactive HTML report.</p>
     <div class="tablewrap"><table>
       <thead><tr>
         <th scope="col">Module</th>
