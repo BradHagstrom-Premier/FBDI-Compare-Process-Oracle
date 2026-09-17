@@ -84,6 +84,15 @@ def parse_data_type(raw: str | None) -> ParsedType:
 
     s = str(raw)
 
+    # A deliberate "no type" marker — a bare dash of any width (-, –, —), other
+    # pure punctuation, or 'n/a' — is a blank cell, not a malformed type. Treat it
+    # like empty (no parse_warning) so it never lands as a bogus type or clutters
+    # the catalog Issues tab. Bare alpha tokens stay permissive by design (see
+    # module docstring / catalog._ORACLE_TYPE_ALLOWLIST gating).
+    stripped = s.strip()
+    if stripped.lower() == "n/a" or not any(ch.isalnum() for ch in stripped):
+        return ParsedType("", None, None, False)
+
     m = _TYPE_RE.match(s)
     if m:
         dtype = m.group(1).upper()

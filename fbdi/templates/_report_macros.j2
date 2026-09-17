@@ -1,7 +1,8 @@
 {#- Change-table macros for report.html.j2. Imported (not included) so they are
     in scope before their call sites. Autoescaped (.j2) — macro output is safe,
-    interpolated values are escaped. Kept whitespace-tight so the required=None
-    cell renders `>—<` (asserted by tests/test_report.py). Each table is wrapped
+    interpolated values are escaped. Kept whitespace-tight so an empty cell
+    renders a muted nil dot `<span class="nil">&middot;</span>` with no stray
+    whitespace (asserted by tests/test_report.py). Each table is wrapped
     in .tablewrap (overflow-x:auto) so wide tables scroll instead of being
     clipped by the file card at narrow widths. -#}
 {#- One "Position" column carries every change type: the new position for an
@@ -21,10 +22,10 @@
   {% for r in rows %}
     <tr data-field="{{ (r.field_name ~ ' ' ~ r.label) | lower }}">
       <td class="c-field">{{ r.field_name }}</td>
-      <td>{% if change_type in ["RENAMED", "MULTI"] and r.old_label and r.new_label and r.old_label != r.new_label %}<span class="was">{{ r.old_label }}</span><span class="arrow">&rarr;</span><span class="now">{{ r.new_label }}</span>{% elif r.label and r.label != r.field_name %}{{ r.label }}{% else %}—{% endif %}</td>
-      <td class="c-type">{% if diff %}{{ r.old_oracle_type_str or "—" }}<span class="arrow">&rarr;</span>{{ r.new_oracle_type_str or "—" }}{% else %}{{ r.oracle_type_str or "—" }}{% endif %}</td>
-      <td class="c-num">{% if r.old_position is not none and r.new_position is not none and r.old_position != r.new_position %}{{ r.old_position }}<span class="arrow">&rarr;</span>{{ r.new_position }}{% elif r.new_position is not none %}{{ r.new_position }}{% elif r.old_position is not none %}{{ r.old_position }}{% else %}—{% endif %}</td>
-      <td class="c-req">{% if r.required is none %}—{% elif r.required %}<span class="c-req-yes">Required</span>{% endif %}</td>
+      <td>{% if change_type in ["RENAMED", "MULTI"] and r.old_label and r.new_label and r.old_label != r.new_label %}<span class="was">{{ r.old_label }}</span><span class="arrow">&rarr;</span><span class="now">{{ r.new_label }}</span>{% elif r.label and r.label != r.field_name %}{{ r.label }}{% else %}<span class="nil">&middot;</span>{% endif %}</td>
+      <td class="c-type">{% if diff %}{% if r.old_oracle_type_str %}{{ r.old_oracle_type_str }}{% else %}<span class="nil">&middot;</span>{% endif %}<span class="arrow">&rarr;</span>{% if r.new_oracle_type_str %}{{ r.new_oracle_type_str }}{% else %}<span class="nil">&middot;</span>{% endif %}{% else %}{% if r.oracle_type_str %}{{ r.oracle_type_str }}{% else %}<span class="nil">&middot;</span>{% endif %}{% endif %}</td>
+      <td class="c-num">{% if r.old_position is not none and r.new_position is not none and r.old_position != r.new_position %}{{ r.old_position }}<span class="arrow">&rarr;</span>{{ r.new_position }}{% elif r.new_position is not none %}{{ r.new_position }}{% elif r.old_position is not none %}{{ r.old_position }}{% else %}<span class="nil">&middot;</span>{% endif %}</td>
+      <td class="c-req">{% if r.required is none %}<span class="nil">&middot;</span>{% elif r.required %}<span class="c-req-yes">Required</span>{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>
@@ -43,9 +44,9 @@
   {% for r in rows %}
     <tr data-field="{{ (r.field_name ~ ' ' ~ r.label) | lower }}">
       <td class="c-field">{{ r.field_name }}</td>
-      <td>{{ r.label or "—" }}</td>
-      <td class="c-num">{% if r.old_position is not none %}{{ r.old_position }}{% else %}—{% endif %}</td>
-      <td class="c-num">{% if r.new_position is not none %}{{ r.new_position }}{% else %}—{% endif %}</td>
+      <td>{% if r.label %}{{ r.label }}{% else %}<span class="nil">&middot;</span>{% endif %}</td>
+      <td class="c-num">{% if r.old_position is not none %}{{ r.old_position }}{% else %}<span class="nil">&middot;</span>{% endif %}</td>
+      <td class="c-num">{% if r.new_position is not none %}{{ r.new_position }}{% else %}<span class="nil">&middot;</span>{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>

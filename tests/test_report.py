@@ -133,7 +133,7 @@ class TestRender:
         assert "FBDI Release Change Report" in html
         assert "MYFIELD" in html
         assert "applaud" not in html.lower()
-        assert ">—<" in html  # required=None renders a dash cell
+        assert 'class="nil">&middot;</span>' in html  # required=None renders a muted nil dot
 
     def test_empty_context_renders_no_changes_message(self):
         ctx = build_report_context({}, {}, {}, "26A", "26B")
@@ -149,6 +149,11 @@ class TestRender:
         printed = _render_report(ctx, print_mode=True)
         assert 'class="toolbar"' not in printed and "<script>" not in printed
         assert "MYFIELD" in printed  # content is fully present in the print render
+        # Each template's impact strip rides in the (print) navy chip so "am I
+        # impacted, and how much?" is answerable without reading the field rows.
+        assert 'class="file__mini"' in printed  # strip markup emitted
+        assert '<span class="m-add">+1</span>' in printed  # ...with the add count
+        assert ".file__mini{ display:flex; }" in printed  # ...and un-hidden in print
 
 
 class TestGenerateReportModuleGrouping:

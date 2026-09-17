@@ -62,6 +62,15 @@ class TestParseDataType:
         result = parse_data_type("   ")
         assert result == ParsedType("", None, None, False)
 
+    def test_bare_dash_is_blank_not_warning(self):
+        # A deliberate "no type" marker — a dash of any width, other pure
+        # punctuation, or 'n/a' — is a blank cell, not a malformed type. It must
+        # not warn or produce a bogus data_type (it would otherwise surface as a
+        # confusing placeholder and clutter the catalog Issues tab).
+        for marker in ("-", "–", "—", "--", ".", "/", "n/a", "N/A", "  -  "):
+            result = parse_data_type(marker)
+            assert result == ParsedType("", None, None, False), marker
+
     def test_garbage_string_sets_warning(self):
         result = parse_data_type("???weird junk???")
         assert result.parse_warning is True

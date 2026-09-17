@@ -11,7 +11,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FBDI Release Change Report — {{ ctx.old_release }} → {{ ctx.new_release }}</title>
+<title>FBDI Release Change Report: {{ ctx.old_release }} → {{ ctx.new_release }}</title>
 <style>
 {% if design_css %}{{ design_css | safe }}{% endif %}
 
@@ -203,6 +203,9 @@ tbody tr:hover td{ background:var(--rpt-surface); }
   color:var(--def-blue-700); background:var(--rpt-neutral-tint);
   padding:2px 8px; border-radius:var(--r-pill); white-space:nowrap; }
 .arrow{ color:var(--def-neutral-400); padding:0 4px; }
+/* Empty-cell nil marker: a muted middle dot means "no value" without reading as a
+   dash or as content. Never a hyphen — that collides with real Oracle types. */
+.nil{ color:var(--def-neutral-400); user-select:none; }
 .was{ color:var(--def-neutral-500); }
 .now{ color:var(--def-ink); font-weight:600; }
 th.c-num, th.c-req{ text-align:right; }
@@ -262,16 +265,20 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
      blocks still stay whole; a table taller than a page breaks and repeats its
      header. */
   .module{ margin:var(--space-6) 0 var(--space-3); }
-  /* Per-tab heading becomes a tight ruled title (no blue card): the card is for
-     on-screen scanning; in print it wastes a header-bar of height per tab. */
+  /* Card border is dropped in print, but the per-tab heading stays a compact navy
+     chip so each FBDI template unmistakably anchors its change group. The impact
+     strip (add/remove/modify/shift counts) rides in the chip so "am I impacted,
+     and how much?" is answered before reading a single field row. */
   .file{ border:0; border-radius:0; overflow:visible; margin-bottom:var(--space-3);
     break-inside:auto; }
-  .file__head{ background:transparent; padding:0 0 3px; margin-bottom:var(--space-2);
-    border-bottom:1.5px solid var(--def-blue); break-after:avoid; }
-  .file__name{ color:var(--def-blue); font-size:var(--fs-caption); }
-  .file__tab{ color:var(--def-neutral-600); }
-  .file__tab code{ color:var(--def-blue-700); }
-  .file__mini, .file__pill, .file__chev{ display:none; }
+  .file__head{ background:var(--def-blue); color:var(--def-white);
+    padding:4px var(--space-3); margin-bottom:var(--space-2);
+    border-radius:var(--r-sm); break-after:avoid; }
+  .file__name{ color:var(--def-white); font-size:var(--fs-small); font-weight:600; }
+  .file__tab{ color:var(--def-cool-gray); }
+  .file__tab code{ color:var(--def-white); }
+  .file__mini{ display:flex; }
+  .file__pill, .file__chev{ display:none; }
   .file__body{ padding:0; }
   .chg{ margin-bottom:var(--space-2); }
   .chg__head{ margin-bottom:var(--space-1); break-after:avoid; }
@@ -305,7 +312,7 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
       <div class="tile tile--mod"><span class="tile__n">{{ ctx.totals.mod }}</span><span class="tile__l">Modified</span></div>
       <div class="tile tile--shift"><span class="tile__n">{{ ctx.totals.shift }}</span><span class="tile__l">Shifted</span></div>
     </div>
-    <p class="cover__key"><b>Added</b>, <b>Removed</b> and <b>Modified</b> fields need integration work. <b>Shifted</b> fields only changed position — no database impact.</p>
+    <p class="cover__key"><b>Added</b>, <b>Removed</b> and <b>Modified</b> fields need integration work. <b>Shifted</b> fields only changed position, with no database impact.</p>
   </div>
 </header>
 
@@ -345,20 +352,20 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
         <tr>
           <td>{{ mt.module }}</td>
           <td class="c-num">{{ mt.tabs }}</td>
-          <td class="c-num {{ 'n-add' if mt.add else 'n-zero' }}">{{ mt.add or "—" }}</td>
-          <td class="c-num {{ 'n-rem' if mt.rem else 'n-zero' }}">{{ mt.rem or "—" }}</td>
-          <td class="c-num {{ 'n-mod' if mt.mod else 'n-zero' }}">{{ mt.mod or "—" }}</td>
-          <td class="c-num {{ '' if mt.shift else 'n-zero' }}">{{ mt.shift or "—" }}</td>
+          <td class="c-num {{ 'n-add' if mt.add else 'n-zero' }}">{{ mt.add or "·" }}</td>
+          <td class="c-num {{ 'n-rem' if mt.rem else 'n-zero' }}">{{ mt.rem or "·" }}</td>
+          <td class="c-num {{ 'n-mod' if mt.mod else 'n-zero' }}">{{ mt.mod or "·" }}</td>
+          <td class="c-num {{ '' if mt.shift else 'n-zero' }}">{{ mt.shift or "·" }}</td>
         </tr>
       {% endfor %}
       </tbody>
       <tfoot><tr>
         <th scope="row">All modules</th>
         <td class="c-num">{{ ctx.totals.tabs }}</td>
-        <td class="c-num {{ 'n-add' if ctx.totals.add else 'n-zero' }}">{{ ctx.totals.add or "—" }}</td>
-        <td class="c-num {{ 'n-rem' if ctx.totals.rem else 'n-zero' }}">{{ ctx.totals.rem or "—" }}</td>
-        <td class="c-num {{ 'n-mod' if ctx.totals.mod else 'n-zero' }}">{{ ctx.totals.mod or "—" }}</td>
-        <td class="c-num {{ '' if ctx.totals.shift else 'n-zero' }}">{{ ctx.totals.shift or "—" }}</td>
+        <td class="c-num {{ 'n-add' if ctx.totals.add else 'n-zero' }}">{{ ctx.totals.add or "·" }}</td>
+        <td class="c-num {{ 'n-rem' if ctx.totals.rem else 'n-zero' }}">{{ ctx.totals.rem or "·" }}</td>
+        <td class="c-num {{ 'n-mod' if ctx.totals.mod else 'n-zero' }}">{{ ctx.totals.mod or "·" }}</td>
+        <td class="c-num {{ '' if ctx.totals.shift else 'n-zero' }}">{{ ctx.totals.shift or "·" }}</td>
       </tr></tfoot>
     </table></div>
     {% if ctx.top_files %}
@@ -405,11 +412,11 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
             {% set diff = change_type in ["MODIFIED", "RENAMED", "MULTI"] %}
         <div class="chg chg--{{ cls }}">
           {% if change_type == "SHIFTED" and (print_mode or s.shift_is_uniform) %}
-          <p class="shift-note"><em>{{ s.shift_summary }}</em> — position shift only; no database impact.</p>
+          <p class="shift-note"><em>{{ s.shift_summary }}</em> (position shift only; no database impact).</p>
           {% elif change_type == "SHIFTED" %}
           <div class="chg__head"><span class="chg__label">Shifted</span><span class="chg__badge">{{ rows | length }}</span></div>
           <details class="shift"{% if print_mode %} open{% endif %}>
-            <summary><svg class="file__chev" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#0D2C71" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ s.shift_summary or (rows | length ~ " shifted fields") }} — show detail</summary>
+            <summary><svg class="file__chev" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="#0D2C71" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ s.shift_summary or (rows | length ~ " shifted fields") }} &middot; show detail</summary>
             <div class="shift-body">{{ m.shift_table(rows) }}</div>
           </details>
           {% else %}
@@ -429,7 +436,7 @@ details.shift .shift-body{ border-top:1px solid var(--rpt-border); }
     {% if shift_only %}
   <section class="module-group">
     <div class="module"><h2>Position shifts</h2><span class="module__rule"></span></div>
-    <p class="shift-note">The {{ shift_only | length }} tab{{ "s" if shift_only | length != 1 else "" }} below shifted column positions only — no fields were added, removed, or retyped, so there is no database impact. Full per-field detail is in the interactive HTML report.</p>
+    <p class="shift-note">The {{ shift_only | length }} tab{{ "s" if shift_only | length != 1 else "" }} below shifted column positions only; no fields were added, removed, or retyped, so there is no database impact. Full per-field detail is in the interactive HTML report.</p>
     <div class="tablewrap"><table>
       <thead><tr>
         <th scope="col">Module</th>
