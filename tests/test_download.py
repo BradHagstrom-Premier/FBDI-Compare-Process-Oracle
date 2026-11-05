@@ -192,3 +192,91 @@ class TestDownloadAll:
         assert [n for n, _ in failures] == ["Bad.xlsm"]
         assert (tmp_path / "Good.xlsm").read_bytes() == b"PK\x03\x04"
         assert sorted(p.name for p in tmp_path.iterdir()) == ["Good.xlsm"]
+
+
+class TestXlsmFilenameSafety:
+    def test_encoded_path_separators_cannot_escape_dest(self, dac):
+        assert dac.xlsm_filename(WEB + "..%2F..%2Fevil.xlsm") == "evil.xlsm"
+
+
+class TestDiscoverDuplicates:
+    def test_same_name_different_url_is_a_warning_first_wins(self, dac):
+        other = "https://www.oracle.com/elsewhere/ChangeOrderImportTemplate.xlsm"
+        pages = {
+            PPM + "toc.htm": _toc("a.html"),
+            PPM + "a.html": f'<a href="{WEB}ChangeOrderImportTemplate.xlsm">x</a>',
+            FIN + "toc.htm": _toc("b.html"),
+            FIN + "b.html": f'<a href="{other}">x</a>',
+            PRC + "toc.htm": _toc("c.html"),
+            PRC + "c.html": "",
+            SCM + "toc.htm": _toc("d.html"),
+            SCM + "d.html": f'<a href="{WEB}changeorderimporttemplate.xlsm">x</a>',
+        }
+        disc = dac.discover("26D", _site(pages), workers=2)
+        assert disc.errors == []
+        assert disc.files == {"ChangeOrderImportTemplate.xlsm": (WEB + "ChangeOrderImportTemplate.xlsm", "Project Management")}
+        assert len(disc.warnings) == 2  # different URL; case-only name collision
+
+
+class TestDownloadAllRejectsNonZip:
+    def test_html_error_page_body_is_a_failure(self, dac, tmp_path):
+        files = {"Page.xlsm": (WEB + "Page.xlsm", "Financials")}
+        session = TestDownloadAll._Session({WEB + "Page.xlsm": TestDownloadAll._Resp(b"<html>maintenance</html>")})
+        failures = dac.download_all(files, str(tmp_path), session)
+        assert [n for n, _ in failures] == ["Page.xlsm"]
+        assert "not an xlsm" in failures[0][1]
+        assert list(tmp_path.iterdir()) == []
+
+
+def _run_main(dac, monkeypatch, *argv):
+    """Run main() with argv; return its exit code (0 when it returns normally)."""
+    monkeypatch.setattr(sys, "argv", ["download_and_clear.py", *argv])
+    try:
+        dac.main()
+    except SystemExit as exc:
+        return exc.code
+    return 0
+
+
+class TestMainSafety:
+    def _seed(self, root: Path):
+        orig = root / "26D" / "originals"
+        blanks = root / "26D" / "blanks"
+        orig.mkdir(parents=True)
+        blanks.mkdir()
+        (orig / "Old.xlsm").write_bytes(b"PK")
+        (orig / "RapidImplementationForCashManagement.xlsm").write_bytes(b"PK")
+        (blanks / "Old.xlsm").write_bytes(b"PK")
+        (root / "26D" / "file_modules.json").write_text('{"Old.xlsm": "Financials"}')
+        return orig, blanks
+
+    def test_discovery_error_aborts_before_touching_anything(self, dac, tmp_path, monkeypatch):
+        orig, blanks = self._seed(tmp_path)
+        monkeypatch.setattr(dac, "discover", lambda v, fetch: dac.Discovery(
+            files={"New.xlsm": (WEB + "New.xlsm", "Financials")}, errors=["page x: boom"], pages=1))
+        monkeypatch.setattr(dac, "download_all", lambda *a, **k: pytest.fail("must not download"))
+        assert _run_main(dac, monkeypatch, "26D", "--baselines-root", str(tmp_path)) == 1
+        assert sorted(p.name for p in orig.iterdir()) == ["Old.xlsm", "RapidImplementationForCashManagement.xlsm"]
+        assert [p.name for p in blanks.iterdir()] == ["Old.xlsm"]
+        assert "Old.xlsm" in (tmp_path / "26D" / "file_modules.json").read_text()
+
+    def test_wipe_keeps_manual_files(self, dac, tmp_path, monkeypatch):
+        orig, _ = self._seed(tmp_path)
+        monkeypatch.setattr(dac, "SETTLE_SECONDS", 0)
+        monkeypatch.setattr(dac, "discover", lambda v, fetch: dac.Discovery(
+            files={"New.xlsm": (WEB + "New.xlsm", "Financials")}, pages=1))
+
+        def fake_download(files, dest, session):
+            for name in files:
+                Path(dest, name).write_bytes(b"PK\x03\x04")
+            return []
+        monkeypatch.setattr(dac, "download_all", fake_download)
+        code = _run_main(dac, monkeypatch, "26D", "--skip-clear", "--baselines-root", str(tmp_path))
+        assert code == 0
+        assert sorted(p.name for p in orig.iterdir()) == ["New.xlsm", "RapidImplementationForCashManagement.xlsm"]
+
+    def test_clear_failures_exit_1(self, dac, tmp_path, monkeypatch):
+        self._seed(tmp_path)
+        monkeypatch.setattr(dac, "clear_files_python",
+                            lambda *a, **k: (1, [("RapidImplementationForCashManagement.xlsm", "subprocess exit code 1")]))
+        assert _run_main(dac, monkeypatch, "26D", "--clear-only", "--baselines-root", str(tmp_path)) == 1

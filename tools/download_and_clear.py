@@ -8,11 +8,15 @@ template as an absolute `.../fbdi-<ver>/fbdi/xlsm/<File>.xlsm` href. (The old
 Selenium scraper clicked through the JET `<oj-tree-view>` and silently missed
 pages, e.g. 26D RequirementImportTemplate.)
 
-The run is loud about shortfalls: a TOC/topic page that can't be fetched, a
-download that fails, or a downloaded file that is gone from disk afterwards
-(SentinelOne quarantines some templates seconds after they're written) is
-named, and the script exits 1. The skill's Stage 4.5 reconciliation gate is
-still the authoritative inventory check.
+The run is loud about shortfalls. Discovery runs first: if any TOC/topic
+page can't be fetched, the script exits 1 *before* deleting anything, so a
+network blip never wipes a good baseline or truncates file_modules.json. After
+that, a download that fails or isn't a zip package, a downloaded file that is
+gone from disk afterwards (SentinelOne quarantines some templates seconds after
+they're written), or a template that fails to clear is named, and the script
+exits 1. Manually placed files (MANUAL_FILES) survive the originals/ wipe. The
+skill's Stage 4.5 reconciliation gate is still the authoritative inventory
+check.
 
 Usage:
     py tools/download_and_clear.py 26D
@@ -21,8 +25,8 @@ Usage:
     py tools/download_and_clear.py 26D --clear-only      # clear only (already downloaded)
     py tools/download_and_clear.py 26D --use-vba-macro   # use Clear_FBDIs VBA instead of Python
 
-Exit codes: 0 = clean; 1 = discovery errors, failed downloads, or files
-missing from originals/ after the run.
+Exit codes: 0 = clean; 1 = discovery errors (nothing touched), failed
+downloads, files missing from originals/ after the run, or clear failures.
 """
 
 import argparse
@@ -162,13 +166,16 @@ def extract_xlsm_links(html: str, page_url: str) -> list[str]:
 
 
 def xlsm_filename(url: str) -> str:
-    return unquote(os.path.basename(urlparse(url).path))
+    # basename AFTER unquote too, so an encoded "%2F" can't smuggle a path
+    # separator into the name we join onto the download folder.
+    return os.path.basename(unquote(os.path.basename(urlparse(url).path)))
 
 
 @dataclass
 class Discovery:
     files: dict = field(default_factory=dict)    # filename -> (url, module)
     errors: list = field(default_factory=list)   # human-readable, one per failed fetch
+    warnings: list = field(default_factory=list) # non-fatal oddities (duplicate names)
     pages: int = 0                               # topic pages scanned
 
 
@@ -205,8 +212,24 @@ def discover(version: str, fetch, workers: int = 8) -> Discovery:
                     result.errors.append(f"page {page_url}: {err}")
                     continue
                 for link in extract_xlsm_links(html, page_url):
-                    result.files.setdefault(xlsm_filename(link), (link, module))
+                    _add_file(result, xlsm_filename(link), link, module)
     return result
+
+
+def _add_file(result: Discovery, name: str, url: str, module: str) -> None:
+    """Record a template; first book wins. Same-name links that point at a
+    different URL, or names differing only by case (one file on Windows), are
+    kept out and reported as warnings rather than silently collapsed."""
+    existing = result.files.get(name)
+    if existing is not None:
+        if existing[0] != url:
+            result.warnings.append(f"{name}: also linked as {url} (keeping {existing[0]})")
+        return
+    clash = next((n for n in result.files if n.lower() == name.lower()), None)
+    if clash is not None:
+        result.warnings.append(f"{name}: differs from {clash} only by case (keeping {clash})")
+        return
+    result.files[name] = (url, module)
 
 
 def find_missing(expected_names, folder: str) -> list[str]:
@@ -246,7 +269,9 @@ def download_all(files: dict, dest: str, session: requests.Session, timeout=(5, 
     """Download each discovered (url, module) into `dest`. Returns [(name, error)].
 
     Writes to `<name>.part` and renames on completion, so an interrupted
-    download never leaves a truncated .xlsm behind.
+    download never leaves a truncated .xlsm behind. A body that isn't a zip
+    package (e.g. an HTML error/maintenance page served with HTTP 200) is a
+    failure, not a file.
     """
     failures = []
     for i, (name, (url, _module)) in enumerate(sorted(files.items()), 1):
@@ -259,6 +284,10 @@ def download_all(files: dict, dest: str, session: requests.Session, timeout=(5, 
                 with open(part, "wb") as f:
                     for chunk in response.iter_content(chunk_size=65536):
                         f.write(chunk)
+            with open(part, "rb") as f:
+                magic = f.read(4)
+            if magic != b"PK\x03\x04":
+                raise OSError(f"not an xlsm (zip) package: starts with {magic!r}")
             os.replace(part, final)
         except (requests.exceptions.RequestException, OSError) as e:
             failures.append((name, f"{type(e).__name__}: {e}"))
@@ -291,6 +320,8 @@ def run_discover_only(version: str, originals_path: str) -> int:
     print(f"  {disc.pages} topic pages scanned, {len(disc.files)} templates found")
     for module, n in sorted(by_module.items()):
         print(f"    {module}: {n}")
+    for warning in disc.warnings:
+        print(f"  WARNING {warning}")
     for err in disc.errors:
         print(f"  ERROR {err}")
 
@@ -305,11 +336,13 @@ def run_discover_only(version: str, originals_path: str) -> int:
     return 1 if (disc.errors or not_discovered) else 0
 
 
-def create_folder(path, clear=True):
-    """Create a folder. If clear=True, wipe contents first."""
+def create_folder(path, clear=True, keep=()):
+    """Create a folder. If clear=True, wipe its contents first, except names in `keep`."""
     if os.path.exists(path):
         if clear:
             for name in os.listdir(path):
+                if name in keep:
+                    continue
                 fp = os.path.join(path, name)
                 try:
                     if os.path.isfile(fp) or os.path.islink(fp):
@@ -532,20 +565,25 @@ def main():
 
     # --- Download ---
     if not args.clear_only:
-        create_folder(originals_path)
-        if not args.skip_clear:
-            create_folder(blanks_path)
-
+        # Discover BEFORE touching anything: a partial discovery must not wipe
+        # a good baseline or overwrite file_modules.json with a subset.
         print(f"\nDiscovering templates for {version} (static toc.htm scan)...")
         session = make_session()
         disc = discover(version, make_fetch(session))
         print(f"  {disc.pages} topic pages scanned, {len(disc.files)} templates found")
-        for err in disc.errors:
-            print(f"  ERROR {err}")
-        problems += [f"discovery: {e}" for e in disc.errors]
-        if not disc.files:
-            print("ERROR: discovery found no templates -- nothing downloaded.")
+        for warning in disc.warnings:
+            print(f"  WARNING {warning}")
+        if disc.errors or not disc.files:
+            for err in disc.errors:
+                print(f"  ERROR {err}")
+            print(f"\nERROR: discovery incomplete -- nothing was deleted or downloaded; "
+                  f"{originals_path} is untouched. Re-run (or --discover-only to diagnose).")
             sys.exit(1)
+
+        # Manually placed files (not on Oracle's docs pages) survive the wipe.
+        create_folder(originals_path, keep=set(MANUAL_FILES))
+        if not args.skip_clear:
+            create_folder(blanks_path)
 
         # The module map comes from discovery, so every template Oracle links
         # gets a module even if its download fails or the file is quarantined.
@@ -591,7 +629,10 @@ def main():
         print(f"Created {len(cleared)} blank copies in {blanks_path}")
     else:
         print(f"\nClearing templates (Python, timeout={args.timeout}s per file)...")
-        clear_files_python(originals_path, blanks_path, timeout=args.timeout)
+        _cleared, clear_failed = clear_files_python(originals_path, blanks_path, timeout=args.timeout)
+        # Timeouts, crashes and BlankPatchError (e.g. RapidImpl hash mismatch)
+        # leave the blank unwritten -- that must not end in "Done".
+        problems += [f"clear {name}: {err}" for name, err in clear_failed]
 
     # Warn about files that must be placed manually (not auto-downloadable)
     missing_manual = [f for f in MANUAL_FILES if f not in os.listdir(originals_path)]

@@ -65,7 +65,7 @@ py -m pytest tests/test_clear.py -v
   - `config.py`, `utils.py` — shared configuration and helpers (`utils.quiet_openpyxl()` silences openpyxl's read-time "will be removed" UserWarnings; compare, catalog, diagnose and clear only read, so they are noise).
 - **`tools/download_and_clear.py`** — standalone downloader + smart clearing entry point. It lives outside `fbdi/` so network I/O stays out of the comparison engine.
   - **Discovery is static HTML, no browser.** Each docs book's `toc.htm` (`BOOK_TOC_TEMPLATES`, in PPM → Fin → Proc → SCM order, where the first book wins a file's module) lists its topic pages, and each topic page links its `.xlsm`.
-  - **It fails loudly.** It exits 1 on any TOC/page fetch error, failed download, or file that vanished from disk after download (re-checked after a settle delay and again after the clear). It names each missing file with a recovery URL.
+  - **It fails loudly.** Discovery runs first, and any TOC/page fetch error exits 1 *before* anything is deleted or `file_modules.json` is rewritten. After that it exits 1 on a failed or non-zip download, a file that vanished from disk after download (re-checked after a settle delay and again after the clear), or a clear failure. It names each missing file with a recovery URL. `MANUAL_FILES` (RapidImpl) survive the `originals/` wipe.
   - **Module map.** It writes `baselines/<VER>/file_modules.json` from discovery.
   - **Flags.** `--discover-only` lists what Oracle publishes and diffs it against `originals/` without writing anything. `--clear-only` skips blanks that already exist; delete `blanks/` to regenerate.
 - **`tools/verify_blanks.py`** — read-only original-vs-blank gate, Stage 4.6 of the skill; `tests/test_blanks_integrity.py` calls the same functions.

@@ -97,8 +97,11 @@ first** — do not rerun blindly, you'd lose an already-complete download.
 discovered set against `baselines/<ver>/originals/` and writes nothing.)
 
 The downloader discovers templates from every docs book's static `toc.htm`
-and **exits 1** when anything went wrong: a TOC/topic page it couldn't fetch,
-a failed download, or a file that downloaded and then **vanished from disk**.
+and **exits 1** when anything went wrong: a TOC/topic page it couldn't fetch
+(it aborts *before* deleting anything — `originals/` is untouched, just
+re-run), a failed or non-xlsm download, or a file that downloaded and then
+**vanished from disk**. `RapidImplementationForCashManagement.xlsm` survives the
+`originals/` wipe.
 In the vanished case it names each file with its webfolder recovery URL —
 that is almost always an AV quarantine (SentinelOne), which no retry fixes:
 skip the auto-retry and go straight to **HITL #10**. For fetch/download
@@ -232,7 +235,9 @@ python tools/download_and_clear.py <NEW> --clear-only
 (Also `<OLD>` if it was freshly downloaded in Stage 3.)
 
 **Capture the `*** TIMED OUT ...` block** from stdout if present — record
-the filenames for Stage 7. Example stdout pattern:
+the filenames for Stage 7. The script exits 1 when any file timed out or failed
+to clear (e.g. a RapidImpl `BlankPatchError`); Stage 4.6 then stops on the
+missing blank. Example stdout pattern:
 
 ```
   *** TIMED OUT (1 files, >120s each) — clear these manually: ***
