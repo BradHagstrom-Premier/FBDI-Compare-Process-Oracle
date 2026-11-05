@@ -1,7 +1,8 @@
 """Stage 1 preflight for fbdi-compare-release.
 
-Checks: OS, Python >= 3.14, required deps importable, Chrome installed,
-baselines/ exists, baseline_files.txt present.
+Checks: OS, Python >= 3.14, required deps importable, baselines/ exists,
+baseline_files.txt present. (No browser: the downloader discovers templates
+from Oracle's static toc.htm pages with plain HTTP.)
 
 JSON stdout. Exit codes: 0=ok, 1=fatal, 2=deps-only-missing.
 """
@@ -10,13 +11,11 @@ from __future__ import annotations
 
 import importlib
 import json
-import os
 import platform
-import shutil
 import sys
 from pathlib import Path
 
-REQUIRED_DEPS = ["openpyxl", "selenium", "webdriver_manager", "requests", "pytest"]
+REQUIRED_DEPS = ["openpyxl", "requests", "pytest"]
 MIN_PYTHON = (3, 14)
 
 
@@ -56,28 +55,6 @@ def check_deps(required=None) -> dict:
     return {"name": "deps", "ok": True, "detail": "all required deps importable"}
 
 
-def check_chrome() -> dict:
-    # Windows default locations
-    candidates = [
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-    ]
-    for path in candidates:
-        if os.path.isfile(path):
-            return {"name": "chrome", "ok": True, "detail": path}
-    # Fall back to PATH lookup (covers Mac/Linux dev machines)
-    for exe in ("chrome", "google-chrome", "chromium"):
-        found = shutil.which(exe)
-        if found:
-            return {"name": "chrome", "ok": True, "detail": found}
-    return {
-        "name": "chrome",
-        "ok": False,
-        "detail": "Google Chrome not found. Install from https://www.google.com/chrome/",
-    }
-
-
 def check_baselines_dir(root: Path) -> dict:
     baselines = root / "baselines"
     if baselines.is_dir():
@@ -103,7 +80,6 @@ def main(argv=None) -> int:
         check_python_version(),
         check_os(),
         check_deps(),
-        check_chrome(),
         check_baselines_dir(root),
         check_baseline_files_txt(root),
     ]

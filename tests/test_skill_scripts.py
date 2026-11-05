@@ -77,14 +77,23 @@ def test_check_env_baselines_dir_creates_if_missing(tmp_path):
 def test_check_env_produces_structured_json(tmp_path):
     """check_env.py always emits a parseable payload with the documented
     shape. Exit code is not asserted here because a dev machine may legitimately
-    be missing Chrome (→ exit 1) or deps (→ exit 2); those paths have their
-    own unit tests via the helper functions."""
+    be missing deps (→ exit 2); that path has its own unit tests via the
+    helper functions."""
     (tmp_path / "baselines").mkdir()
     (tmp_path / "baseline_files.txt").write_text("stub\n")
     _, payload = _run_check_env(tmp_path)
     assert "checks" in payload
     assert "missing_deps" in payload
     assert "fatal" in payload
+
+
+def test_check_env_needs_no_browser():
+    """The downloader is plain HTTP (static toc.htm discovery): no Chrome
+    check, and Selenium / webdriver-manager are not required deps."""
+    assert not hasattr(check_env, "check_chrome")
+    assert "selenium" not in check_env.REQUIRED_DEPS
+    assert "webdriver_manager" not in check_env.REQUIRED_DEPS
+    assert "requests" in check_env.REQUIRED_DEPS
 
 
 def test_check_env_json_output_parseable(tmp_path):
