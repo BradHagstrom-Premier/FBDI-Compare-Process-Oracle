@@ -73,7 +73,7 @@ py -m pytest tests/test_clear.py -v
   - **Paste anchor.** On each data sheet, the last non-empty column-A row must be the header row.
 - **`tools/build_vba_patch.py`** — one-time / on-hash-change Excel COM helper that rebuilds the RapidImpl patched `vbaProject.bin` (see `blank_patches.py`). Needs Excel with "Trust access to the VBA project object model" and ActiveX not set to "Disable all controls". It verifies the module set and `VB_Control` bindings survived, and refuses templates with auto-run VBA.
 - **`.claude/skills/fbdi-compare-release/`** — orchestrator skill that chains the full download → clear → compare → catalog → report pipeline with human-in-the-loop checkpoints. Triggers on phrases like "Compare 26A to 26B" or "Oracle released 26C". Bundles Python helpers (`check_env.py`, `verify_download.py`, `summarize_report.py`, `verify_run.py`, `verify_rerun.py`) under `scripts/`; Stage 4.6 runs `tools/verify_blanks.py` and reference docs under `references/`. See the skill's `SKILL.md` for the staged workflow. The report stage generates the HTML/PDF release change report via `py -m fbdi report`; also triggers on report-only phrases like "generate the release change report" or "regenerate the PDF".
-- **`tests/`** — 320 unit tests + ~1,720 environment-gated baseline checks (`test_blanks_integrity.py`, `TestRapidImplBlank`) that run only when `baselines/` is present (`py -m pytest tests/`)
+- **`tests/`** — 326 unit tests + ~1,720 environment-gated baseline checks (`test_blanks_integrity.py`, `TestRapidImplBlank`) that run only when `baselines/` is present (`py -m pytest tests/`)
 - **Outputs:**
   - `Comparison_Report_<OLD>_<NEW>.xlsx` — 7-column diff for VBA validation (unchanged)
   - `FBDI_Master_Catalog.xlsx` — per-release snapshots + Issues + Drift tabs (gitignored; regenerable via `catalog`)
@@ -181,7 +181,7 @@ Two read-only archives, distinct purposes:
 
 ## Testing
 
-- `py -m pytest tests/` — run full suite (320 unit tests; plus ~1,720 environment-gated baseline checks when `baselines/` is present)
+- `py -m pytest tests/` — run full suite (326 unit tests; plus ~1,720 environment-gated baseline checks when `baselines/` is present)
 - `py -m pytest tests/test_clear.py -v` — run one module
 - `tests/validate_against_vba.py` and `tests/vba_fieldrow_map.json` — ad-hoc validation against the legacy VBA macro's expected header rows (not pytest, kept for spot-checks against regressions)
 

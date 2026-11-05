@@ -66,7 +66,7 @@ See `CLAUDE.md` for the full list of hazards and the resolved-issues log.
 FBDI-Compare-Process-Oracle/
 ├── fbdi/                      # Python comparison/catalog/clear engine
 ├── tools/                     # downloader (download_and_clear.py), blank verifier (verify_blanks.py)
-├── tests/                     # 320 unit tests + baseline-gated checks (pytest)
+├── tests/                     # 326 unit tests + baseline-gated checks (pytest)
 ├── .claude/skills/            # Project-level Claude Code skills
 │   └── fbdi-compare-release/  # Orchestrator for quarterly refreshes
 ├── docs/
@@ -88,7 +88,7 @@ FBDI-Compare-Process-Oracle/
 ## Testing
 
 ```bash
-python -m pytest tests/              # full suite (320 unit tests + baseline-gated checks)
+python -m pytest tests/              # full suite (326 unit tests + baseline-gated checks)
 python -m pytest tests/test_clear.py -v
 ```
 
@@ -109,6 +109,6 @@ python -m pytest tests/test_clear.py -v
 
 ## Status
 
-Shipped: the comparison engine, the CLI (`fbdi compare`, `catalog`, `diagnose`, `report`), smart clearing, the `download_and_clear` downloader (static toc.htm discovery), the `verify_blanks` gate, the FBDI master catalog, the `fbdi-compare-release` Claude Code skill, and the HTML/PDF release change report. 320 unit tests passing.
+Shipped: the comparison engine, the CLI (`fbdi compare`, `catalog`, `diagnose`, `report`), smart clearing, the `download_and_clear` downloader (static toc.htm discovery), the `verify_blanks` gate, the FBDI master catalog, the `fbdi-compare-release` Claude Code skill, and the HTML/PDF release change report. 326 unit tests passing.
 
 Planned: Phase 2 restyles the release change report with the Definian design system (HTML-first, opt-in PDF). Design at `docs/superpowers/specs/2026-09-14-repo-cleanse-and-report-redesign-design.md`.
