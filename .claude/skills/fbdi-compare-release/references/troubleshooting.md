@@ -119,11 +119,23 @@ decides whether to defer.
 
 ---
 
-## Selenium / Chrome
+## Downloader (static toc.htm discovery)
 
-**`chromedriver` version mismatch:** `webdriver-manager` auto-installs a
-matching chromedriver for the installed Chrome. If it fails, upgrade
-Chrome to the latest stable and re-run.
+The downloader no longer drives a browser. It fetches each docs book's
+`https://docs.oracle.com/en/cloud/saas/<book>/<ver>/<code>/toc.htm`, then every
+topic page it lists, and collects each `.xlsm` href.
 
-**Chrome not found:** `check_env.py` reports `"chrome": {"ok": false}`.
-Install Chrome from https://www.google.com/chrome/.
+**`ERROR TOC ...: no topic pages found` / HTTP 404 on a TOC:** Oracle moved or
+renamed a book for that release. Open the book's `index.html` in a browser,
+find its current `toc.htm`, and update `BOOK_TOC_TEMPLATES` in
+`tools/download_and_clear.py`. `--discover-only` re-checks without
+downloading.
+
+**`missing after download: <file>`:** The file was written and then removed —
+almost always an AV quarantine (SentinelOne). See SKILL.md HITL #10 and
+CLAUDE.md Known Hazards.
+
+**Discovered count far below the prior release:** run `--discover-only` and
+compare against `baselines/<prior>/originals/`. Inspect the missing file's docs
+page (the live DOM, not the scraper's view) before changing the parser.
+
