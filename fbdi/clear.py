@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import warnings
 
 from openpyxl import load_workbook
 from openpyxl.styles.fonts import Font
@@ -73,20 +74,25 @@ def clear_workbook(src_path: str, dst_path: str) -> list[str]:
         if to_clear:
             # Oracle FBDI files use font family values >14 which openpyxl rejects.
             Font.family.max = 255
-            wb = load_workbook(src_path, read_only=True)
-            try:
-                for sheet in to_clear:
-                    header_row = detect_header_row(wb[sheet.name])
-                    if header_row is None:
-                        logger.warning(
-                            "Header detection failed for sheet '%s' — skipping (data preserved)",
-                            sheet.name,
-                        )
-                        skipped_sheets.append(sheet.name)
-                    else:
-                        header_rows[sheet.name] = header_row
-            finally:
-                wb.close()
+            with warnings.catch_warnings():
+                # "Data Validation extension is not supported and will be removed"
+                # is irrelevant here: openpyxl only reads (lazily, during
+                # detection); the package is never re-saved through it.
+                warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+                wb = load_workbook(src_path, read_only=True)
+                try:
+                    for sheet in to_clear:
+                        header_row = detect_header_row(wb[sheet.name])
+                        if header_row is None:
+                            logger.warning(
+                                "Header detection failed for sheet '%s' — skipping (data preserved)",
+                                sheet.name,
+                            )
+                            skipped_sheets.append(sheet.name)
+                        else:
+                            header_rows[sheet.name] = header_row
+                finally:
+                    wb.close()
 
         formula_cleared = False
         for sheet in to_clear:
