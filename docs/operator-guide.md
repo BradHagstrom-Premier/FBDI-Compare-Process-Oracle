@@ -74,9 +74,15 @@ That installs the Python packages the pipeline depends on.
 
 ### Stage 4: Smart-clear
 
-**What it does.** Creates "blank" copies of the new release's templates in `baselines/<NEW>/blanks/`. Blank means headers are preserved but the data rows are removed. These are the clean template files you'd hand to a client. The clearing logic handles headers at different row positions across different templates.
+**What it does.** Creates "blank" copies of the new release's templates in `baselines/<NEW>/blanks/`. Blank means headers are preserved but the data rows are removed. These are the clean template files you'd hand to a client, and the ones the Conversion Dashboard pastes into. The clearing logic handles headers at different row positions across different templates. Everything else Oracle shipped is kept exactly as published: the Generate CSV buttons, the dropdown lists, and the hidden LOV/reference sheets behind them. Only visible data sheets are cleared.
+
+It also re-applies the per-template fixes in `fbdi/blank_patches.py`. Today that means `RapidImplementationForCashManagement.xlsm` gets an A7 "Dashboard paste anchor", so pasted data lands on row 8 rather than row 2, and a Generate macro that saves as `.xml` instead of CSV.
 
 **What you see on screen.** A file-by-file progress log. Occasionally you'll see a `*** TIMED OUT ***` message for a particular file. That just means the file took longer than 2 minutes to clear and was skipped. Those files need to be cleared manually later.
+
+**If RapidImplementationForCashManagement fails.** A `FAILED` line for this file means Oracle changed the template, so the committed fix no longer matches. Either its macro changed (the vbaProject.bin hash differs) or the Bank Account header moved off row 7. The blank is deliberately not written. To rebuild the macro fix, run `py tools/build_vba_patch.py baselines/<NEW>/originals/RapidImplementationForCashManagement.xlsm` on a machine with Excel. That needs "Trust access to the VBA project object model" on, and ActiveX set to anything except "Disable all controls". Update the hash it prints in `fbdi/blank_patches.py`, then re-run with `--clear-only`.
+
+**Re-clearing.** `--clear-only` skips any blank that already exists. To regenerate blanks (for example after a clearing fix), delete `baselines/<ver>/blanks/` first.
 
 **Expected wall time.** 2–4 minutes.
 

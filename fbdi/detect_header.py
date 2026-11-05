@@ -106,7 +106,12 @@ def _scan_rows(ws: Worksheet, max_scan: int) -> list[dict]:
             continue
 
         str_cells = [v for v in non_empty if isinstance(v, str)]
-        upper_snake = [v for v in str_cells if UPPER_SNAKE_PATTERN.match(str(v).strip())]
+        # Strip Oracle's required-field asterisks ("* INTERFACE_BATCH_NUMBER",
+        # "** LINE_NUMBER") the same way _is_header_like does.
+        upper_snake = [
+            v for v in str_cells
+            if UPPER_SNAKE_PATTERN.match(str(v).strip().lstrip("*").strip())
+        ]
         header_like = [v for v in str_cells if _is_header_like(str(v))]
         short_strs = [v for v in str_cells if len(str(v).strip()) < HEADER_LIKE_MAX_LEN]
 

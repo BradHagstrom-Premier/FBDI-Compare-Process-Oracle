@@ -252,6 +252,34 @@ class TestDetectHeaderRow:
 
         assert detect_header_row(ws) == 3
 
+    def test_asterisk_prefixed_technical_names_win_tier1(self):
+        """Regression: Oracle marks required technical names with a leading '* '
+        (DosSupplyOrderImportTemplate::Additional Transfer Order Costs,
+        PriceListsImportBatchTemplate::QP_PL_COVERED_ITEMS_INT). The Tier-1
+        UPPER_SNAKE check must strip the asterisk the way _is_header_like does;
+        otherwise the technical row scores snake~0, Tier 2 picks row 1, and
+        clear.py wipes the Description / Data Type / Technical Name rows.
+        """
+        wb = Workbook()
+        ws = wb.active
+        rows = {
+            1: ["Name", "Interface Batch Number", " Line Number",
+                "Cost Line Operation", "Default Cost Line", "Cost Type"],
+            2: ["Description", "Number or alphanumeric abbreviation",
+                "Line number that creates a header", "Action to do on the line",
+                "Specify whether to set the default", "Cost type for the line"],
+            3: ["Data Type", "VARCHAR2(50 CHAR)", "NUMBER(18)",
+                "VARCHAR2(30 CHAR)", "VARCHAR2(1 CHAR)", "VARCHAR2(30 CHAR)"],
+            4: ["Technical Name", "* INTERFACE_BATCH_NUMBER", "** LINE_NUMBER",
+                "* DISTRIBUTION_OPERATION", "* DEFAULT_COST_LINE", "COST_TYPE"],
+            5: [None, "Batch-ab12", "1", "Create Line", "No", "Freight"],
+        }
+        for r, vals in rows.items():
+            for c, v in enumerate(vals, start=1):
+                ws.cell(row=r, column=c, value=v)
+
+        assert detect_header_row(ws) == 4
+
     def test_phantom_wide_columns_do_not_suppress_detection(self):
         """Headers should be detected even when max_column is phantom-wide."""
         wb = Workbook()
