@@ -1,17 +1,20 @@
-"""Environment-gated integrity checks: every blank keeps what its original has.
+"""Environment-gated integrity checks: every blank is its original with only
+the cleared sheets' <sheetData> changed, and its column-A paste anchor sits on
+the header row.
 
 Skips when baselines/ is absent (it is gitignored). Guards against the blanks
 writer silently dropping package content — the openpyxl re-save it replaced
 removed Oracle's ActiveX Generate buttons from every 26A-26C template and wiped
-the hidden LOV sheets behind the dropdowns.
+the hidden LOV sheets behind the dropdowns. The checks themselves live in
+tools/verify_blanks.py (the skill's Stage 4.6 gate), so the test suite and the
+pipeline enforce the same rules.
 """
 
-import re
+import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
-
-from fbdi.ooxml import Package
 
 REPO = Path(__file__).resolve().parent.parent
 PAIRS = sorted(
@@ -21,10 +24,16 @@ PAIRS = sorted(
     and (orig.parent.parent / "blanks" / orig.name).exists()
 )
 
-_CONTROL_NAME_RE = re.compile(rb'<control\b[^>]*\bname="([^"]+)"')
-_VALUE_RE = re.compile(rb"<v>|<is>")
-
 pytestmark = pytest.mark.skipif(not PAIRS, reason="no original/blank pairs under baselines/")
+
+
+@pytest.fixture(scope="module")
+def vb():
+    spec = importlib.util.spec_from_file_location("verify_blanks", REPO / "tools" / "verify_blanks.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["verify_blanks"] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def _ids(pair):
@@ -32,31 +41,13 @@ def _ids(pair):
     return f"{orig.parent.parent.name}/{orig.name}"
 
 
-def _per_sheet(path: Path):
-    with Package(str(path)) as pkg:
-        return {s.name: (s.state, pkg.read(s.part)) for s in pkg.worksheets()}
+@pytest.mark.parametrize("pair", PAIRS, ids=_ids)
+def test_blank_package_matches_original(vb, pair):
+    violations = vb.survey_pair(*pair)
+    assert not violations, "\n".join(violations)
 
 
 @pytest.mark.parametrize("pair", PAIRS, ids=_ids)
-def test_blank_keeps_every_control(pair):
-    orig, blank = pair
-    o, b = _per_sheet(orig), _per_sheet(blank)
-    missing = {
-        name: sorted(set(_CONTROL_NAME_RE.findall(xml)) - set(_CONTROL_NAME_RE.findall(b[name][1])))
-        for name, (_, xml) in o.items()
-        if name in b
-    }
-    missing = {k: v for k, v in missing.items() if v}
-    assert not missing, f"blank lost ActiveX/form controls: {missing}"
-
-
-@pytest.mark.parametrize("pair", PAIRS, ids=_ids)
-def test_blank_keeps_hidden_sheet_data(pair):
-    orig, blank = pair
-    o, b = _per_sheet(orig), _per_sheet(blank)
-    wiped = [
-        name for name, (state, xml) in o.items()
-        if state != "visible" and name in b
-        and len(_VALUE_RE.findall(b[name][1])) < len(_VALUE_RE.findall(xml))
-    ]
-    assert not wiped, f"hidden (LOV/reference) sheets were cleared: {wiped}"
+def test_blank_paste_anchor_on_header_row(vb, pair):
+    mismatches, _no_header, _checked = vb.col_a_anchor(*pair)
+    assert not mismatches, mismatches
