@@ -554,6 +554,172 @@ class TestExtractTabRowsThinAsteriskColA:
         assert rows[2].column_label == "COST"
 
 
+def _fill(ws, rows: dict[int, list]):
+    for r, values in rows.items():
+        for c, v in enumerate(values, start=1):
+            if v is not None:
+                ws.cell(row=r, column=c, value=v)
+
+
+class TestExtractTabRowsLabelGutter:
+    """Column A is a row-label gutter (Name / Description / Data Type /
+    Technical Name stacked down col A); the fields start at column B.
+
+    Oracle's own Generate-CSV macro on these templates copies from B4 rightward.
+    Before the fix, asterisked technical names (`*BATCH_NAME`) made
+    _is_tier1_header reject the row, the tab fell to _extract_thin, and the
+    catalog stored col A as a phantom position-1 field ("Technical Name" /
+    "Column name of the Table ..." / "Name") with technical + type blank.
+    """
+
+    def test_technical_name_gutter_dos_shape(self):
+        # DosSupplyOrderImportTemplate::Additional Transfer Order Costs (26D)
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Additional Transfer Order Costs"
+        _fill(ws, {
+            1: ["Name", "Interface Batch Number", " Line Number", "Cost Line Operation"],
+            2: ["Description", "Batch number.", "Line number.", "Action to do on the line."],
+            3: ["Data Type", "VARCHAR2(50 CHAR)", "NUMBER(18)", "VARCHAR2(30 CHAR)"],
+            4: ["Technical Name", "* INTERFACE_BATCH_NUMBER", "** LINE_NUMBER", "DISTRIBUTION_OPERATION"],
+        })
+        rows, issues = extract_tab_rows(ws, file_stem="DosSupplyOrderImportTemplate", release="26D")
+
+        assert issues == []
+        assert [r.position for r in rows] == [1, 2, 3]
+        assert [r.column_technical for r in rows] == [
+            "INTERFACE_BATCH_NUMBER", "LINE_NUMBER", "DISTRIBUTION_OPERATION",
+        ]
+        assert [r.column_label for r in rows] == [
+            "Interface Batch Number", "Line Number", "Cost Line Operation",
+        ]
+        assert [r.data_type_raw for r in rows] == ["VARCHAR2(50 CHAR)", "NUMBER(18)", "VARCHAR2(30 CHAR)"]
+        assert rows[0].data_type == "VARCHAR2" and rows[0].length == 50
+        # No "Required or Optional" row: Oracle's asterisk convention applies.
+        assert [r.required for r in rows] == [True, True, False]
+
+    def test_column_name_of_the_table_gutter_with_asterisks(self):
+        # CostListsImportTemplate::QP_COST_LISTS_INT shape, with a '*' cell.
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "QP_COST_LISTS_INT"
+        _fill(ws, {
+            1: ["Name", "Batch Name", "Operation Code"],
+            2: ["Description", "Name of the batch.", "Operation to do."],
+            3: ["Data Type", "Varchar2(250)", "Varchar2(30)"],
+            4: ["Required or Optional", "Required", "Optional"],
+            5: ["Column name of the Table QP_COST_LISTS_INT", "*BATCH_NAME", "OPERATION_CODE"],
+            6: ["For CREATE", "CL Import 1", "Create It"],
+        })
+        rows, issues = extract_tab_rows(ws, file_stem="CostListsImportTemplate", release="26D")
+
+        assert issues == []
+        assert [(r.position, r.column_technical, r.column_label) for r in rows] == [
+            (1, "BATCH_NAME", "Batch Name"),
+            (2, "OPERATION_CODE", "Operation Code"),
+        ]
+        assert [r.data_type_raw for r in rows] == ["Varchar2(250)", "Varchar2(30)"]
+        # The explicit Required row wins over the asterisk convention.
+        assert [r.required for r in rows] == [True, False]
+
+    def test_label_header_gutter_with_type_row_below(self):
+        # PONNegotiationLinesImportTemplate::LinesOrderOutcome: the header is the
+        # label row (row 1) and Data Type sits BELOW it (row 3).
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "LinesOrderOutcome"
+        _fill(ws, {
+            1: ["Name", "* Procurement BU", "* Negotiation", "Import Action"],
+            2: ["Description", "", "", "Valid Values: ADD, UPDATE"],
+            3: ["Data Type", "VARCHAR2(240)", "VARCHAR2(240)", "VARCHAR2(30)"],
+            4: [None, "Vision Operations", "32457", "Add"],
+        })
+        ws.cell(row=1, column=4).comment = Comment("IMPORT_ACTION\nVARCHAR2(30)\nThe action.", "Oracle")
+        rows, issues = extract_tab_rows(ws, file_stem="PONNegotiationLinesImportTemplate", release="26D")
+
+        assert issues == []
+        assert [(r.position, r.column_label) for r in rows] == [
+            (1, "Procurement BU"), (2, "Negotiation"), (3, "Import Action"),
+        ]
+        assert [r.data_type_raw for r in rows] == ["VARCHAR2(240)", "VARCHAR2(240)", "VARCHAR2(30)"]
+        assert [r.required for r in rows] == [True, True, False]
+        # Label-header gutters take the technical name from the cell comment.
+        assert [r.column_technical for r in rows] == ["", "", "IMPORT_ACTION"]
+
+    def test_real_col_a_field_named_name_is_not_a_gutter(self):
+        # A thin tab whose first real field is labelled "Name": no other
+        # row-label in col A around it, so col A stays a field.
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "SOME_TAB"
+        _fill(ws, {
+            2: ["Some Import"],
+            3: ["* Required"],
+            4: ["Name", "*Code", "Description Text"],
+            5: ["Widget", "W1", "A widget"],
+        })
+        rows, _ = extract_tab_rows(ws, file_stem="Tpl", release="26D")
+        assert [(r.position, r.column_label) for r in rows] == [
+            (1, "Name"), (2, "Code"), (3, "Description Text"),
+        ]
+
+    def test_label_row_asterisk_does_not_imply_required(self):
+        # Scp* planning templates: '*' on the Name row marks a key column,
+        # and Oracle ships per-product Required rows that disagree with it.
+        # With no "Required or Optional" row, required stays unknown (None).
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "UOM_"
+        _fill(ws, {
+            1: ["Name", "Unit of Measure Name", "*Unit of Measure Code"],
+            2: ["Description", "Name of the UOM.", "Short code."],
+            3: ["Data Type", "Character(25)", "Character(3)"],
+            4: ["Global Order Promising", "Required", "Required"],
+            5: ["Technical Name", "UOM_NAME", "UOM_CODE"],
+        })
+        rows, _ = extract_tab_rows(ws, file_stem="ScpUOMImportTemplate", release="26D")
+        assert [(r.column_technical, r.column_label, r.required) for r in rows] == [
+            ("UOM_NAME", "Unit of Measure Name", None),
+            ("UOM_CODE", "Unit of Measure Code", None),
+        ]
+
+    def test_metadata_rows_below_technical_header(self):
+        # EgpCatalogImportTemplate: "Technical Name" is row 1 and the
+        # Description / Data Type / Name rows sit BELOW it.
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Catalogs"
+        _fill(ws, {
+            1: ["Technical Name", "TRANSACTION_TYPE", "BATCH_ID"],
+            2: ["Description", "Type of action.", "Batch identifier."],
+            3: ["Data Type", "VARCHAR2(10)", "NUMBER"],
+            4: ["Name", "Transaction Type", "Batch ID"],
+        })
+        rows, _ = extract_tab_rows(ws, file_stem="EgpCatalogImportTemplate", release="26D")
+        assert [(r.position, r.column_technical, r.column_label, r.data_type_raw) for r in rows] == [
+            (1, "TRANSACTION_TYPE", "Transaction Type", "VARCHAR2(10)"),
+            (2, "BATCH_ID", "Batch ID", "NUMBER"),
+        ]
+
+    def test_existing_rich_tab_without_asterisks_is_unchanged(self):
+        # Rich tabs that already took the tier-1 path must not change: no
+        # Required row and no asterisks -> required stays None (not False).
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "RCS_ATTACHMENTS_INT"
+        _fill(ws, {
+            1: ["Name", "Batch Id", "Entity"],
+            2: ["Data Type", "NUMBER", "VARCHAR2(30)"],
+            3: ["Column name of the Table RCS_ATTACHMENTS_INT", "BATCH_ID", "ENTITY_NAME"],
+        })
+        rows, issues = extract_tab_rows(ws, file_stem="Tpl", release="26D")
+        assert issues == []
+        assert [(r.position, r.column_technical, r.column_label, r.data_type_raw, r.required) for r in rows] == [
+            (1, "BATCH_ID", "Batch Id", "NUMBER", None),
+            (2, "ENTITY_NAME", "Entity", "VARCHAR2(30)", None),
+        ]
+
+
 from fbdi.catalog import _compute_drift
 
 

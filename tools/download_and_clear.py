@@ -2,52 +2,72 @@
 Download Oracle FBDI templates for a given release version and create
 blank (cleared) copies with headers preserved.
 
+Discovery is static HTML, no browser: every Oracle docs book publishes a
+`toc.htm` that lists all of its topic pages, and each topic page links its
+template as an absolute `.../fbdi-<ver>/fbdi/xlsm/<File>.xlsm` href. (The old
+Selenium scraper clicked through the JET `<oj-tree-view>` and silently missed
+pages, e.g. 26D RequirementImportTemplate.)
+
+The run is loud about shortfalls. Discovery runs first: if any TOC/topic
+page can't be fetched, the script exits 1 *before* deleting anything, so a
+network blip never wipes a good baseline or truncates file_modules.json. After
+that, a download that fails or isn't a zip package, a downloaded file that is
+gone from disk afterwards (SentinelOne quarantines some templates seconds after
+they're written), or a template that fails to clear is named, and the script
+exits 1. Manually placed files (MANUAL_FILES) survive the originals/ wipe. The
+skill's Stage 4.5 reconciliation gate is still the authoritative inventory
+check.
+
 Usage:
-    python tools/download_and_clear.py 26a
-    python tools/download_and_clear.py 26b
-    python tools/download_and_clear.py 26a --skip-clear       # download only
-    python tools/download_and_clear.py 26a --clear-only        # clear only (already downloaded)
-    python tools/download_and_clear.py 26a --use-vba-macro     # use Clear_FBDIs VBA instead of Python
+    py tools/download_and_clear.py 26D
+    py tools/download_and_clear.py 26D --discover-only   # list what Oracle publishes; write nothing
+    py tools/download_and_clear.py 26D --skip-clear      # download only
+    py tools/download_and_clear.py 26D --clear-only      # clear only (already downloaded)
+    py tools/download_and_clear.py 26D --use-vba-macro   # use Clear_FBDIs VBA instead of Python
+
+Exit codes: 0 = clean; 1 = discovery errors (nothing touched), failed
+downloads, files missing from originals/ after the run, or clear failures.
 """
 
 import argparse
-import glob
 import json
 import multiprocessing
 import os
+import re
 import shutil
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from urllib.parse import unquote, urljoin, urlparse
 
 # Add project root to sys.path so subprocesses can import fbdi
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import requests
 from requests.adapters import HTTPAdapter
-from selenium import webdriver
-from selenium.common.exceptions import (
-    ElementNotInteractableException,
-    StaleElementReferenceException,
-    TimeoutException,
-)
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
 from urllib3.util.retry import Retry
-from webdriver_manager.chrome import ChromeDriverManager
 
 
 # ---------------------------------------------------------------------------
-# Oracle doc URL patterns -- swap the version token (e.g. 26a, 26b)
+# Oracle docs books -- swap the version token (e.g. 26a, 26b). Order matters:
+# when a template is linked from more than one book, the FIRST book wins its
+# module in file_modules.json (e.g. ChangeOrderImportTemplate -> SCM).
 # ---------------------------------------------------------------------------
-MODULE_URL_TEMPLATES = [
-    "https://docs.oracle.com/en/cloud/saas/project-management/{ver}/oefpp/index.html",
-    "https://docs.oracle.com/en/cloud/saas/financials/{ver}/oefbf/index.html",
-    "https://docs.oracle.com/en/cloud/saas/procurement/{ver}/oefbp/index.html",
-    "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/{ver}/oefsc/index.html",
+BOOK_TOC_TEMPLATES = [
+    "https://docs.oracle.com/en/cloud/saas/project-management/{ver}/oefpp/toc.htm",
+    "https://docs.oracle.com/en/cloud/saas/financials/{ver}/oefbf/toc.htm",
+    "https://docs.oracle.com/en/cloud/saas/procurement/{ver}/oefbp/toc.htm",
+    "https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/{ver}/oefsc/toc.htm",
 ]
+
+# Where Oracle hosts every template (the same href the docs pages link to).
+# Used to print a recovery URL for a file that went missing.
+WEBFOLDER_URL = "https://www.oracle.com/webfolder/technetwork/docs/fbdi-{ver}/fbdi/xlsm/{name}"
+
+# Seconds to wait after the last download before checking the files are still
+# on disk. SentinelOne deleted 26D's quarantined templates within seconds.
+SETTLE_SECONDS = 15
 
 # Files that cannot be auto-downloaded from Oracle docs pages.
 # They are distributed only through Oracle Fusion's Functional Setup Manager UI.
@@ -63,8 +83,8 @@ MANUAL_FILES = [
 
 
 # Maps URL slug → canonical module name. Keep keys aligned with
-# MODULE_URL_TEMPLATES; values match the existing taxonomy used in
-# fbdi/build_mapping.py KNOWN_MAPPINGS (`&` not "and" for SCM).
+# BOOK_TOC_TEMPLATES; values are the module taxonomy fbdi/report.py groups by
+# (`&` not "and" for SCM).
 URL_TO_MODULE = {
     "project-management": "Project Management",
     "financials": "Financials",
@@ -74,9 +94,9 @@ URL_TO_MODULE = {
 
 
 def module_from_base_url(url: str) -> str:
-    """Extract the Oracle module name from a base URL.
+    """Extract the Oracle module name from a docs-book URL.
 
-    Example: 'https://docs.oracle.com/en/cloud/saas/financials/26b/oefbf/index.html'
+    Example: 'https://docs.oracle.com/en/cloud/saas/financials/26b/oefbf/toc.htm'
              → 'Financials'
 
     Raises ValueError for URLs that don't match any known module slug.
@@ -90,26 +110,239 @@ def module_from_base_url(url: str) -> str:
 
 
 def write_module_map(file_modules: dict, version: str, baselines_root: str) -> str:
-    """Write {filename: module} to baselines/<ver>/file_modules.json.
+    """Write {filename: module} to baselines/<VER>/file_modules.json.
 
     Adds the hardcoded entry for the FSM-distributed file
     RapidImplementationForCashManagement.xlsm (manually placed by user, so
-    not seen during scrape). Returns the absolute path written.
+    never discovered). Returns the absolute path written.
     """
     file_modules = dict(file_modules)
     file_modules.setdefault("RapidImplementationForCashManagement.xlsm", "Financials")
-    out_path = os.path.join(baselines_root, version.lower(), "file_modules.json")
+    out_path = os.path.join(baselines_root, version.upper(), "file_modules.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(file_modules, f, indent=2, sort_keys=True)
     return out_path
 
 
-def create_folder(path, clear=True):
-    """Create a folder. If clear=True, wipe contents first."""
+# ---------------------------------------------------------------------------
+# Discovery (pure functions + an injected `fetch`, so tests need no network)
+# ---------------------------------------------------------------------------
+_HREF_RE = re.compile(r"""href\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
+
+
+def parse_toc(html: str, toc_url: str) -> list[str]:
+    """Topic-page URLs listed in a book's toc.htm, in order, deduplicated.
+
+    Keeps only .htm/.html pages inside the book's own directory; drops
+    fragments, the book's index/toc pages, stylesheets and external links.
+    """
+    book_dir = toc_url.rsplit("/", 1)[0] + "/"
+    out: list[str] = []
+    seen: set[str] = set()
+    for href in _HREF_RE.findall(html):
+        url = urljoin(toc_url, href.strip()).split("#", 1)[0]
+        if not url.startswith(book_dir):
+            continue
+        page = url[len(book_dir):]
+        if not page.lower().endswith((".htm", ".html")):
+            continue
+        if page.lower() in ("index.html", "index.htm", "toc.htm", "toc.html"):
+            continue
+        if url not in seen:
+            seen.add(url)
+            out.append(url)
+    return out
+
+
+def extract_xlsm_links(html: str, page_url: str) -> list[str]:
+    """Absolute URLs of every .xlsm href on a topic page, in order, deduplicated."""
+    out: list[str] = []
+    for href in _HREF_RE.findall(html):
+        url = urljoin(page_url, href.strip()).split("#", 1)[0]
+        if urlparse(url).path.lower().endswith(".xlsm") and url not in out:
+            out.append(url)
+    return out
+
+
+def xlsm_filename(url: str) -> str:
+    # basename AFTER unquote too, so an encoded "%2F" can't smuggle a path
+    # separator into the name we join onto the download folder.
+    return os.path.basename(unquote(os.path.basename(urlparse(url).path)))
+
+
+@dataclass
+class Discovery:
+    files: dict = field(default_factory=dict)    # filename -> (url, module)
+    errors: list = field(default_factory=list)   # human-readable, one per failed fetch
+    warnings: list = field(default_factory=list) # non-fatal oddities (duplicate names)
+    pages: int = 0                               # topic pages scanned
+
+
+def discover(version: str, fetch, workers: int = 8) -> Discovery:
+    """Find every template the release's docs books link to.
+
+    `fetch(url) -> str` returns page HTML or raises. A TOC or topic page that
+    can't be fetched is recorded in Discovery.errors -- never silently skipped.
+    """
+    ver = version.lower()
+    result = Discovery()
+
+    def _safe(url):
+        try:
+            return url, fetch(url), None
+        except Exception as e:  # noqa: BLE001 - reported, not swallowed
+            return url, None, f"{type(e).__name__}: {e}"
+
+    for template in BOOK_TOC_TEMPLATES:
+        toc_url = template.format(ver=ver)
+        module = module_from_base_url(toc_url)
+        _, toc_html, err = _safe(toc_url)
+        if err:
+            result.errors.append(f"TOC {toc_url}: {err}")
+            continue
+        topics = parse_toc(toc_html, toc_url)
+        if not topics:
+            result.errors.append(f"TOC {toc_url}: no topic pages found")
+            continue
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for page_url, html, err in pool.map(_safe, topics):  # map keeps TOC order
+                result.pages += 1
+                if err:
+                    result.errors.append(f"page {page_url}: {err}")
+                    continue
+                for link in extract_xlsm_links(html, page_url):
+                    _add_file(result, xlsm_filename(link), link, module)
+    return result
+
+
+def _add_file(result: Discovery, name: str, url: str, module: str) -> None:
+    """Record a template; first book wins. Same-name links that point at a
+    different URL, or names differing only by case (one file on Windows), are
+    kept out and reported as warnings rather than silently collapsed."""
+    existing = result.files.get(name)
+    if existing is not None:
+        if existing[0] != url:
+            result.warnings.append(f"{name}: also linked as {url} (keeping {existing[0]})")
+        return
+    clash = next((n for n in result.files if n.lower() == name.lower()), None)
+    if clash is not None:
+        result.warnings.append(f"{name}: differs from {clash} only by case (keeping {clash})")
+        return
+    result.files[name] = (url, module)
+
+
+def find_missing(expected_names, folder: str) -> list[str]:
+    """Expected filenames that are absent (or empty) in `folder`."""
+    missing = []
+    for name in sorted(expected_names):
+        path = os.path.join(folder, name)
+        if not os.path.isfile(path) or os.path.getsize(path) == 0:
+            missing.append(name)
+    return missing
+
+
+def make_session(retries: int = 5, backoff_factor: float = 1) -> requests.Session:
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=(429, 500, 502, 503, 504),
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_maxsize=16)
+    session = requests.Session()
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
+def make_fetch(session: requests.Session, timeout=(5, 30)):
+    def fetch(url: str) -> str:
+        response = session.get(url, timeout=timeout)
+        response.raise_for_status()
+        return response.text
+    return fetch
+
+
+def download_all(files: dict, dest: str, session: requests.Session, timeout=(5, 60)) -> list[tuple[str, str]]:
+    """Download each discovered (url, module) into `dest`. Returns [(name, error)].
+
+    Writes to `<name>.part` and renames on completion, so an interrupted
+    download never leaves a truncated .xlsm behind. A body that isn't a zip
+    package (e.g. an HTML error/maintenance page served with HTTP 200) is a
+    failure, not a file.
+    """
+    failures = []
+    for i, (name, (url, _module)) in enumerate(sorted(files.items()), 1):
+        print(f"  [{i}/{len(files)}] {name}")
+        final = os.path.join(dest, name)
+        part = final + ".part"
+        try:
+            with session.get(url, stream=True, timeout=timeout) as response:
+                response.raise_for_status()
+                with open(part, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=65536):
+                        f.write(chunk)
+            with open(part, "rb") as f:
+                magic = f.read(4)
+            if magic != b"PK\x03\x04":
+                raise OSError(f"not an xlsm (zip) package: starts with {magic!r}")
+            os.replace(part, final)
+        except (requests.exceptions.RequestException, OSError) as e:
+            failures.append((name, f"{type(e).__name__}: {e}"))
+            print(f"      FAILED: {e}")
+            if os.path.exists(part):
+                try:
+                    os.unlink(part)
+                except OSError:
+                    pass
+    return failures
+
+
+def report_missing(missing: list[str], version: str, folder: str) -> None:
+    print(f"\n  *** {len(missing)} downloaded file(s) are NOT in {folder}: ***")
+    for name in missing:
+        print(f"      {name}")
+        print(f"        recover from: {WEBFOLDER_URL.format(ver=version.lower(), name=name)}")
+    print("  A file that downloaded and then vanished is most likely an AV quarantine")
+    print("  (SentinelOne: tray app -> Quarantined Files; only IT can release it).")
+    print("  See CLAUDE.md Known Hazards.")
+
+
+def run_discover_only(version: str, originals_path: str) -> int:
+    """Print what Oracle publishes for `version` vs. what's in originals/. Writes nothing."""
+    print(f"Discovering templates for {version} (static toc.htm scan)...")
+    disc = discover(version, make_fetch(make_session()))
+    by_module: dict[str, int] = {}
+    for _url, module in disc.files.values():
+        by_module[module] = by_module.get(module, 0) + 1
+    print(f"  {disc.pages} topic pages scanned, {len(disc.files)} templates found")
+    for module, n in sorted(by_module.items()):
+        print(f"    {module}: {n}")
+    for warning in disc.warnings:
+        print(f"  WARNING {warning}")
+    for err in disc.errors:
+        print(f"  ERROR {err}")
+
+    not_discovered: list[str] = []
+    if os.path.isdir(originals_path):
+        on_disk = {f for f in os.listdir(originals_path) if f.endswith(".xlsm") and not f.startswith("~$")}
+        not_discovered = sorted(on_disk - set(disc.files) - set(MANUAL_FILES))
+        new = sorted(set(disc.files) - on_disk)
+        print(f"\n  vs {originals_path} ({len(on_disk)} files):")
+        print(f"    on disk but not discovered ({len(not_discovered)}): {not_discovered}")
+        print(f"    discovered but not on disk ({len(new)}): {new}")
+    return 1 if (disc.errors or not_discovered) else 0
+
+
+def create_folder(path, clear=True, keep=()):
+    """Create a folder. If clear=True, wipe its contents first, except names in `keep`."""
     if os.path.exists(path):
         if clear:
             for name in os.listdir(path):
+                if name in keep:
+                    continue
                 fp = os.path.join(path, name)
                 try:
                     if os.path.isfile(fp) or os.path.islink(fp):
@@ -136,164 +369,6 @@ def clean_temp_files(folder):
     if removed:
         print(f"  Cleaned {removed} temp file(s)")
     return removed
-
-
-def download_with_retry(session, url, timeout=(5, 15), retries=5, backoff_factor=1):
-    retry = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=(500, 502, 504),
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    response = session.get(url, stream=True, timeout=timeout)
-    response.raise_for_status()
-    return response
-
-
-def download_files(driver, download_path, version):
-    """Scrape Oracle docs for the given version and download all .xlsm files.
-
-    Returns: dict mapping filename -> module string (for module map).
-    """
-    base_urls = [t.format(ver=version) for t in MODULE_URL_TEMPLATES]
-    session = requests.Session()
-    seen_filenames = set(os.listdir(download_path))  # skip already-downloaded files
-    file_modules: dict[str, str] = {}
-
-    for base_url in base_urls:
-        # Resolve module once per base_url; default to "Unknown" if Oracle
-        # restructures URL patterns so we keep going rather than crash mid-run.
-        try:
-            module = module_from_base_url(base_url)
-        except ValueError as e:
-            print(f"  WARNING: {e} — module will be 'Unknown' for files from this URL")
-            module = "Unknown"
-        print(f"\nNavigating to {base_url}")
-        driver.get(base_url)
-
-        # Oracle JET pages can be slow to render -- wait with retry
-        try:
-            WebDriverWait(driver, 60).until(
-                EC.presence_of_element_located((By.ID, "navigationDrawer"))
-            )
-        except TimeoutException:
-            print(f"  navigationDrawer not found after 60s, refreshing...")
-            driver.refresh()
-            time.sleep(5)
-            try:
-                WebDriverWait(driver, 60).until(
-                    EC.presence_of_element_located((By.ID, "navigationDrawer"))
-                )
-            except TimeoutException:
-                print(f"  SKIP: Could not load navigation for {base_url}")
-                continue
-
-        # The JET <oj-tree-view> inside #navigationDrawer populates async after
-        # the drawer container appears in DOM. Without this wait, find_elements
-        # races the tree-view init, returns an empty list, and the entire URL
-        # is silently skipped (financials/26b reproduced this consistently;
-        # financials/26a did when assets weren't cached). Wait for at least one
-        # treeitem before iterating.
-        try:
-            WebDriverWait(driver, 60).until(
-                lambda d: len(d.find_elements(
-                    By.CSS_SELECTOR, "#navigationDrawer [role='treeitem']"
-                )) > 0
-            )
-        except TimeoutException:
-            print(f"  SKIP: tree-view treeitems never populated for {base_url}")
-            continue
-
-        section_items = driver.find_elements(By.CSS_SELECTOR, "#navigationDrawer li")
-
-        for section in section_items:
-            try:
-                # Expand collapsible sections. Oracle JET toggles the parent
-                # <li>'s aria-expanded from "false" to "true" when the click
-                # handler fires; wait on that signal instead of a fixed sleep
-                # so slow-rendering sections don't get their children dropped.
-                # Skip the click if the section is already expanded (matters
-                # when section_items includes nested <li>s from a prior
-                # expansion — clicking would toggle them closed and silently
-                # drop their children).
-                try:
-                    expand_icon = section.find_element(
-                        By.CSS_SELECTOR, ".oj-clickable-icon-nocontext"
-                    )
-                    if section.get_attribute("aria-expanded") != "true":
-                        driver.execute_script("arguments[0].click();", expand_icon)
-                        try:
-                            WebDriverWait(driver, 3).until(
-                                lambda d: section.get_attribute("aria-expanded") == "true"
-                            )
-                        except TimeoutException:
-                            pass  # section may not use aria-expanded; proceed with what's there
-                except Exception:
-                    pass
-
-                links = section.find_elements(By.CSS_SELECTOR, "a")
-                for link in links:
-                    link_text = link.text
-                    try:
-                        driver.execute_script("arguments[0].click();", link)
-                        time.sleep(1)
-
-                        try:
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_all_elements_located(
-                                    (By.CSS_SELECTOR, "a[href$='.xlsm']")
-                                )
-                            )
-                            download_links = driver.find_elements(
-                                By.CSS_SELECTOR, "a[href$='.xlsm']"
-                            )
-                            for dl in download_links:
-                                download_url = dl.get_attribute("href")
-                                if download_url and download_url.endswith(".xlsm"):
-                                    local_filename = download_url.split("/")[-1]
-
-                                    # Skip duplicates (same file linked from multiple sections)
-                                    if local_filename in seen_filenames:
-                                        continue
-                                    seen_filenames.add(local_filename)
-
-                                    print(f"  Downloading: {local_filename}")
-                                    try:
-                                        for cookie in driver.get_cookies():
-                                            session.cookies.set(
-                                                cookie["name"], cookie["value"]
-                                            )
-                                        response = download_with_retry(
-                                            session, download_url
-                                        )
-                                        with open(
-                                            os.path.join(download_path, local_filename),
-                                            "wb",
-                                        ) as f:
-                                            for chunk in response.iter_content(
-                                                chunk_size=8192
-                                            ):
-                                                f.write(chunk)
-                                        time.sleep(1)
-                                        file_modules[local_filename] = module
-                                    except requests.exceptions.RequestException as e:
-                                        print(
-                                            f"  Failed to download {download_url}: {e}"
-                                        )
-                        except TimeoutException:
-                            pass  # No .xlsm links in this section
-                    except Exception as e:
-                        print(f"  Failed to process link '{link_text}': {e}")
-            except Exception as e:
-                print(f"  Error in section: {e}")
-
-        print(f"Completed: {base_url}")
-
-    return file_modules
 
 
 def _clear_single_file(src, dst):
@@ -431,6 +506,12 @@ def main():
         help="Oracle release version (e.g. 26a, 26b)",
     )
     parser.add_argument(
+        "--discover-only",
+        action="store_true",
+        help="List the templates Oracle's docs link for this release and diff "
+             "against baselines/<VER>/originals/; download/write nothing",
+    )
+    parser.add_argument(
         "--skip-clear",
         action="store_true",
         help="Skip the clearing step (download only)",
@@ -438,7 +519,7 @@ def main():
     parser.add_argument(
         "--clear-only",
         action="store_true",
-        help="Skip downloading, just clear existing files in Originals/",
+        help="Skip downloading, just clear existing files in originals/",
     )
     parser.add_argument(
         "--use-vba-macro",
@@ -456,47 +537,72 @@ def main():
         default=120,
         help="Per-file timeout in seconds for Python clearing (default: 120)",
     )
+    parser.add_argument(
+        "--baselines-root",
+        default=None,
+        help="Directory holding <VER>/originals and <VER>/blanks "
+             "(default: <repo>/baselines)",
+    )
     args = parser.parse_args()
 
     version = args.version.upper()
-    version_lower = args.version.lower()
 
     # Resolve paths relative to the repo root (parent of tools/)
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    originals_path = os.path.join(repo_root, "baselines", version, "originals")
-    blanks_path = os.path.join(repo_root, "baselines", version, "blanks")
+    baselines_root = os.path.abspath(args.baselines_root or os.path.join(repo_root, "baselines"))
+    originals_path = os.path.join(baselines_root, version, "originals")
+    blanks_path = os.path.join(baselines_root, version, "blanks")
+
+    if args.discover_only:
+        sys.exit(run_discover_only(version, originals_path))
 
     print(f"=== FBDI Download & Clear: {version} ===")
     print(f"  Originals: {originals_path}")
     print(f"  Blanks:    {blanks_path}")
 
+    problems: list[str] = []
+    expected: list[str] = []  # files this run downloaded; re-checked at the end
+
     # --- Download ---
     if not args.clear_only:
-        create_folder(originals_path)
+        # Discover BEFORE touching anything: a partial discovery must not wipe
+        # a good baseline or overwrite file_modules.json with a subset.
+        print(f"\nDiscovering templates for {version} (static toc.htm scan)...")
+        session = make_session()
+        disc = discover(version, make_fetch(session))
+        print(f"  {disc.pages} topic pages scanned, {len(disc.files)} templates found")
+        for warning in disc.warnings:
+            print(f"  WARNING {warning}")
+        if disc.errors or not disc.files:
+            for err in disc.errors:
+                print(f"  ERROR {err}")
+            print(f"\nERROR: discovery incomplete -- nothing was deleted or downloaded; "
+                  f"{originals_path} is untouched. Re-run (or --discover-only to diagnose).")
+            sys.exit(1)
+
+        # Manually placed files (not on Oracle's docs pages) survive the wipe.
+        create_folder(originals_path, keep=set(MANUAL_FILES))
         if not args.skip_clear:
             create_folder(blanks_path)
 
-        print(f"\nStarting Selenium for version {version_lower}...")
-        chrome_options = Options()
-        chrome_options.add_argument("--ignore-ssl-errors=yes")
-        chrome_options.add_argument("--ignore-certificate-errors")
-        chrome_options.add_argument("--window-size=1920,1080")
-        driver = webdriver.Chrome(
-            service=ChromeService(ChromeDriverManager().install()),
-            options=chrome_options,
-        )
-
-        try:
-            file_modules = download_files(driver, originals_path, version_lower)
-        finally:
-            driver.quit()
-
-        # Write the per-release module map. Only happens on a successful download
-        # pass — the --clear-only path skips this whole block.
+        # The module map comes from discovery, so every template Oracle links
+        # gets a module even if its download fails or the file is quarantined.
         modules_path = write_module_map(
-            file_modules, version, os.path.join(repo_root, "baselines"),
+            {name: module for name, (_url, module) in disc.files.items()},
+            version, baselines_root,
         )
-        print(f"Wrote module map for {len(file_modules)} files to {modules_path}")
+        print(f"Wrote module map for {len(disc.files)} files to {modules_path}")
+
+        print(f"\nDownloading {len(disc.files)} templates...")
+        failures = download_all(disc.files, originals_path, session)
+        problems += [f"download {name}: {err}" for name, err in failures]
+
+        expected = sorted(set(disc.files) - {name for name, _ in failures})
+        print(f"\nWaiting {SETTLE_SECONDS}s, then checking every download is still on disk...")
+        time.sleep(SETTLE_SECONDS)
+        missing = find_missing(expected, originals_path)
+        if missing:
+            report_missing(missing, version, originals_path)
     else:
         os.makedirs(blanks_path, exist_ok=True)
 
@@ -508,7 +614,7 @@ def main():
 
     if not downloaded:
         print("No files found -- nothing to clear.")
-        return
+        sys.exit(1)
 
     # --- Clear ---
     if args.skip_clear:
@@ -523,7 +629,10 @@ def main():
         print(f"Created {len(cleared)} blank copies in {blanks_path}")
     else:
         print(f"\nClearing templates (Python, timeout={args.timeout}s per file)...")
-        cleared_count, failed = clear_files_python(originals_path, blanks_path, timeout=args.timeout)
+        _cleared, clear_failed = clear_files_python(originals_path, blanks_path, timeout=args.timeout)
+        # Timeouts, crashes and BlankPatchError (e.g. RapidImpl hash mismatch)
+        # leave the blank unwritten -- that must not end in "Done".
+        problems += [f"clear {name}: {err}" for name, err in clear_failed]
 
     # Warn about files that must be placed manually (not auto-downloadable)
     missing_manual = [f for f in MANUAL_FILES if f not in os.listdir(originals_path)]
@@ -533,6 +642,18 @@ def main():
             print(f"      {name}")
         print("  See MANUAL_FILES comment in this script for download instructions.")
 
+    # Final re-check: quarantine can land minutes later, after the clear.
+    if expected:
+        missing = find_missing(expected, originals_path)
+        if missing:
+            report_missing(missing, version, originals_path)
+            problems += [f"missing after download: {name}" for name in missing]
+
+    if problems:
+        print(f"\n=== {version}: {len(problems)} problem(s) -- exit 1 ===")
+        for p in problems:
+            print(f"  - {p}")
+        sys.exit(1)
     print(f"\n=== Done: {version} ===")
 
 

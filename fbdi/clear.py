@@ -21,13 +21,13 @@ from __future__ import annotations
 import logging
 import os
 import re
-import warnings
 
 from openpyxl import load_workbook
 from openpyxl.styles.fonts import Font
 
 from fbdi import blank_patches
 from fbdi.detect_header import detect_header_row
+from fbdi.utils import quiet_openpyxl
 from fbdi.ooxml import CELL_RE, ROW_NUM_RE, ROW_RE, SHEET_DATA_RE, Package, tag_attrs
 
 logger = logging.getLogger(__name__)
@@ -74,11 +74,10 @@ def clear_workbook(src_path: str, dst_path: str) -> list[str]:
         if to_clear:
             # Oracle FBDI files use font family values >14 which openpyxl rejects.
             Font.family.max = 255
-            with warnings.catch_warnings():
-                # "Data Validation extension is not supported and will be removed"
-                # is irrelevant here: openpyxl only reads (lazily, during
-                # detection); the package is never re-saved through it.
-                warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+            # openpyxl only reads here (lazily, during detection); the package
+            # is never re-saved through it, so its "will be removed" warnings
+            # are irrelevant.
+            with quiet_openpyxl():
                 wb = load_workbook(src_path, read_only=True)
                 try:
                     for sheet in to_clear:

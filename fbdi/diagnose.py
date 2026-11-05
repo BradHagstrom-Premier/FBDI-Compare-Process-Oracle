@@ -13,6 +13,7 @@ from openpyxl.styles import Font
 
 from fbdi.config import MAX_FILE_SIZE_BYTES, MIN_CELLS, SKIP_TABS
 from fbdi.detect_header import TIER2_SCORE_THRESHOLD, _scan_rows, detect_header_row
+from fbdi.utils import quiet_openpyxl
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ def _best_score_for_ws(ws) -> float:
     return best
 
 
+@quiet_openpyxl()
 def diagnose_file(file_path: Path) -> list[DiagnosticRow]:
     """Run header detection diagnostics on all tabs in a single FBDI file.
 

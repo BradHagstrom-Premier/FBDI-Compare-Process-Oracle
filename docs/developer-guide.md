@@ -10,7 +10,7 @@ Shipped and working today:
 
 - A comparison engine that diffs all template pairs.
 - A per-release catalog that snapshots every field with its type and metadata.
-- A Selenium-based downloader.
+- A downloader that discovers templates from Oracle's static `toc.htm` pages (plain HTTP, no browser).
 - A smart-clear tool that strips sample data from templates while preserving headers.
 - A release change report generator that produces HTML by default, with an opt-in PDF via `--pdf` (`python -m fbdi report`).
 - 233 tests.
@@ -30,10 +30,10 @@ Phase 2 of the repo cleanse (PR #2) is done: the release change report now carri
    ```
    pip install -r requirements.txt
    ```
-   The core packages are `openpyxl`, `selenium`, `webdriver-manager`, `requests`, `pytest`, `jinja2`, `weasyprint`, and `oletools` (VBA inspection for the blank-patch tests). PDF rendering also requires MSYS2 mingw64 GTK on Windows; CLAUDE.md has the install steps under Known Hazards.
+   The core packages are `openpyxl`, `requests`, `pytest`, `jinja2`, `weasyprint`, and `oletools` (VBA inspection for the blank-patch tests). PDF rendering also requires MSYS2 mingw64 GTK on Windows; CLAUDE.md has the install steps under Known Hazards.
 
 4. Seed your `baselines/` directory. It's gitignored, so it won't be there after a fresh clone. Two ways to get it:
-   - Download fresh by running `python tools/download_and_clear.py 26B`. This runs the Selenium scraper, populates `baselines/26B/originals/`, then smart-clears the templates into `baselines/26B/blanks/`. Plan on 15–20 minutes.
+   - Download fresh by running `python tools/download_and_clear.py 26B`. This discovers every template from the docs books' `toc.htm` pages, populates `baselines/26B/originals/`, then smart-clears the templates into `baselines/26B/blanks/`. Plan on about 10 minutes.
    - Copy from a teammate. Grab `baselines/26A/` and `baselines/26B/` from someone who already has them. Raw Oracle downloads live under `originals/`, cleared copies under `blanks/`.
 
 5. Smoke test:
@@ -44,7 +44,7 @@ Phase 2 of the repo cleanse (PR #2) is done: the release change report now carri
 
 ## Codebase tour
 
-Everything domain-specific lives under `fbdi/`. The `tools/` directory holds the Selenium downloader, which sits outside the package on purpose so the comparison engine doesn't drag in a browser stack. Here's what each module does.
+Everything domain-specific lives under `fbdi/`. The `tools/` directory holds the downloader and the blank verifier, which sit outside the package on purpose so the comparison engine stays a pure library. Here's what each module does.
 
 **`fbdi/detect_header.py`** solves the most aggravating Oracle quirk in the repo: FBDI templates don't have a consistent header row. Some put the technical field names at row 4, some at row 5, some at row 8, occasionally row 11. The legacy VBA macro hardcoded a per-filename map, which broke every release when Oracle reshuffled templates. `detect_header_row()` takes a worksheet and scans the first 20 rows, scoring each against two tiers. Tier 1 looks for a row where more than half the non-empty cells match `^[A-Z][A-Z0-9_]+$` (UPPER_SNAKE_CASE technical names like `INTERFACE_BATCH_CODE`). Tier 2 scores rows on a weighted combination of header-like characteristics (short strings, high fill ratio, all-string content) for the templates that use mixed-case labels instead of technical names. It streams via `iter_rows` rather than random-access `ws.cell()` lookups; on sheets with 500+ columns, that was the difference between 74 seconds and under a second per tab.
 
@@ -70,7 +70,9 @@ The template applies the **Definian design system** (Tier B) — see `DESIGN.md`
 
 **`fbdi/cli.py` and `fbdi/__main__.py`** wire the package up as a CLI. The main convenience is `_resolve_dir()`. When you pass `--old 26A`, it resolves that to `baselines/26A/originals/` automatically. Subcommands exposed today: `compare`, `catalog`, `diagnose`, and `report`.
 
-**`tools/download_and_clear.py`** lives outside `fbdi/` deliberately. Selenium and webdriver-manager are heavy dependencies and don't belong in the comparison engine. This script chains download then smart-clear, or accepts `--clear-only` to re-clear without re-downloading.
+**`tools/download_and_clear.py`** lives outside `fbdi/` deliberately: network I/O doesn't belong in the comparison engine. Discovery is static HTML. Each docs book's `toc.htm` lists its topic pages, and each topic page links its template's `.xlsm`. `discover()` takes an injected `fetch`, so `tests/test_download.py` needs no network. The script chains download then smart-clear, or accepts `--clear-only` to re-clear without re-downloading. `--discover-only` lists what Oracle publishes and diffs it against `originals/` without writing anything. It exits 1 on any discovery error, failed download, or file that vanished from disk after download (an AV quarantine).
+
+**`tools/verify_blanks.py`** is the skill's Stage 4.6 gate, and `tests/test_blanks_integrity.py` runs the same checks against `baselines/`. It surveys every original/blank package part by part, and checks the column-A paste anchor. The PR #12 one-off checks `baselines/_checks/check5.py` (seven hard-coded re-detected sheets) and `excel_spot.py` (needs Excel COM) were deliberately left manual.
 
 ## The `/fbdi-compare-release` skill
 
@@ -85,7 +87,7 @@ The skill lives at `.claude/skills/fbdi-compare-release/`. The files:
 
 The bundled scripts and their exit codes:
 
-- `check_env.py` preflights Python version, Chrome, and baseline file presence. Exit 0 means ok, 1 means a fatal dep is missing, 2 means pip deps are missing.
+- `check_env.py` preflights the Python version, deps, and baseline file presence. Exit 0 means ok, 1 means a fatal dep is missing, 2 means pip deps are missing.
 - `verify_download.py` checks the downloaded file count against `baseline_files.txt`. Exit 0 means clean, 1 means files are missing, 2 means extras only, 3 means first-run bootstrap (no entry for this release in the inventory). Its `--reconcile` mode is a no-download audit runnable on any invocation (the Stage 4.5 gate, resume, report-only): it asserts `baselines/<ver>/originals/` still holds every file its inventory reference expects (the release's own section when present, else the prior release), failing (exit 1) on any shortfall. The match is asymmetric — a file present last quarter but absent now is a hard fail; net additions are informational. This is the guard against silent baseline drift (a template that failed to download and was never noticed).
 - `summarize_report.py` prints comparison statistics (changed, added, removed, total) from a completed report workbook.
 - `verify_run.py` is a post-run health check. It runs diagnose, looks for regressions in the Issues tab versus the prior release, and reconciles `baselines/<ver>/originals/` against `baseline_files.txt`. Exit 0 means clean; exit 1 means a soft regression was flagged (diagnose / catalog Issues — non-blocking, surfaced as a warning); exit 2 means a baseline inventory hard-fail (the originals folder is short vs its reference — blocking).
@@ -123,7 +125,7 @@ Say Oracle just shipped 27A. The fastest path is to trigger `/fbdi-compare-relea
    ```
    This populates `baselines/27A/originals/` and `baselines/27A/blanks/`. It takes 15–20 minutes. Don't re-run blindly on an existing directory. It wipes `originals/` first.
 
-2. Handle `RapidImplementationForCashManagement.xlsm` manually. Oracle's Selenium scraper never finds this file because it's a Rapid Implementation (FSM) template, not a standard FBDI template. Get it from Oracle Fusion: Setup and Maintenance, hamburger menu, Search, "Create Banks, Branches, and Accounts in Spreadsheet", then download. Drop it into `baselines/27A/originals/`. If you skip this step, the comparison still runs fine, but you'll have a coverage gap.
+2. Handle `RapidImplementationForCashManagement.xlsm` manually. The downloader never finds this file because it's a Rapid Implementation (FSM) template, not a standard FBDI template. Get it from Oracle Fusion: Setup and Maintenance, hamburger menu, Search, "Create Banks, Branches, and Accounts in Spreadsheet", then download. Drop it into `baselines/27A/originals/`. If you skip this step, the comparison still runs fine, but you'll have a coverage gap.
 
 3. Run the comparison:
    ```
@@ -174,7 +176,7 @@ For cross-release historical context, the `reference/` directory at repo root is
 
 **Test-data UPPER_SNAKE_CASE trap.** Covered in the testing section, but worth repeating because it bites people: any cell value matching `^[A-Z][A-Z0-9_]+$` looks like a header to the scorer. Strings like `"CREATE"`, `"NULL"`, `"V1"`, `"DR_ECO_1"` all trigger false-positive header detection in tests. Use mixed-case or lowercase in data rows.
 
-**`RapidImplementationForCashManagement.xlsm` is not auto-downloadable.** If you're testing the download pipeline against a fresh `baselines/` directory, this file will be missing after the Selenium run finishes. The downloader warns about it but doesn't stop. The comparison and catalog engines pick it up automatically once you place it, and skip it silently if it's absent.
+**`RapidImplementationForCashManagement.xlsm` is not auto-downloadable.** If you're testing the download pipeline against a fresh `baselines/` directory, this file will be missing after the download finishes. The downloader warns about it but doesn't stop. The comparison and catalog engines pick it up automatically once you place it, and skip it silently if it's absent.
 
 **JET `<oj-tree-view>` race in the scraper.** Oracle's docs put the table of contents inside an `<oj-tree-view>` under `#navigationDrawer`. The drawer container appears in the DOM before the tree-view's `<li role="treeitem">` children populate. Without a wait for at least one treeitem, the scraper finds an empty list and silently skips the URL. No error, no SKIP log. The page just immediately reports "Completed" with zero downloads. Fixed in commit 82cd568. Keep the wait when refactoring the scraper.
 

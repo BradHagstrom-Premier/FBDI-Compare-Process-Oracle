@@ -16,7 +16,7 @@ Definian team members who maintain Oracle integrations use these outputs to keep
 
 ## Before your first run
 
-**Environment.** You need Python 3.14 or higher and Google Chrome installed on your machine. The pipeline runs on Windows. PDF rendering needs MSYS2 mingw64 GTK installed; the install steps are in CLAUDE.md under Known Hazards. Before your first run, open a terminal and run:
+**Environment.** You need Python 3.14 or higher. No browser is needed: the downloader reads Oracle's documentation pages over plain HTTP. The pipeline runs on Windows. PDF rendering needs MSYS2 mingw64 GTK installed; the install steps are in CLAUDE.md under Known Hazards. Before your first run, open a terminal and run:
 
 ```
 pip install -r requirements.txt
@@ -26,9 +26,9 @@ That installs the Python packages the pipeline depends on.
 
 **Where files land.** Downloads go into a folder called `baselines/<release>/originals/`, like `baselines/26B/originals/`. These folders aren't tracked by Git (they're gitignored), so they won't interfere with source control. If you use the Claude Code skill to run the pipeline, it creates these folders for you. If you run the CLI commands by hand, you'll need to create the folder yourself before starting.
 
-**Windows sleep warning.** The download step uses a browser automation tool that needs Chrome to stay open for 15–20 minutes. If your laptop goes to sleep or locks the screen mid-run, Chrome loses its connection and the download fails. Before starting, disable Windows sleep: Settings, System, Power, Screen and sleep, then set to "Never" for the duration. Or plan to stay at your desk. Running overnight with sleep disabled also works fine.
+**Windows sleep warning.** The download, compare and catalog steps run in the foreground. If your laptop goes to sleep mid-run, they pause or drop their network connection. Before starting, disable Windows sleep: Settings, System, Power, Screen and sleep, then set to "Never" for the duration. Or plan to stay at your desk.
 
-**Time budget.** A full run takes 35–50 minutes end to end. Downloads account for most of that. The compare and catalog steps are each under 5 minutes. The release change report takes another 5 to 15 seconds.
+**Time budget.** A full run takes 20–30 minutes end to end. The download takes about 5 minutes per release. Compare takes 3–5 minutes, and the catalog takes a few minutes per release it builds. The release change report takes another 5 to 15 seconds.
 
 **Two ways to run it.** The recommended path, especially for your first run, is to open Claude Code and say something like "Oracle released 26C, run the FBDI refresh." That invokes the `fbdi-compare-release` skill, which walks you through each stage with human-in-the-loop checkpoints at every decision point. The alternative is to run the CLI commands for each stage directly in a terminal. That's faster once you know what you're doing, but you lose the checkpoint prompts and the automatic error handling.
 
@@ -38,7 +38,7 @@ That installs the Python packages the pipeline depends on.
 
 ### Stage 1: Environment preflight
 
-**What it does.** Checks that your machine has everything the pipeline needs before doing any real work. It verifies Python version, Chrome presence, and that the required packages are installed.
+**What it does.** Checks that your machine has everything the pipeline needs before doing any real work. It verifies the Python version and that the required packages are installed.
 
 **What you see on screen.** A short pass/fail report. Green means proceed. If something fails, the script tells you exactly what's wrong.
 
@@ -62,13 +62,13 @@ That installs the Python packages the pipeline depends on.
 
 ### Stage 3: Download + verify
 
-**What it does.** Downloads all FBDI template files from Oracle's documentation site for the new release (and the old release too, if it's not already on disk). It uses browser automation to scrape and download each file, then verifies the download against a known inventory. If files are missing after the first attempt, it retries once automatically.
+**What it does.** Downloads all FBDI template files from Oracle's documentation site for the new release (and the old release too, if it's not already on disk). Each Oracle docs book publishes a table-of-contents page (`toc.htm`) listing all of its topic pages. The downloader reads every topic page, collects each template link, and downloads them. It then checks that every downloaded file is still on disk, because antivirus software has quarantined templates seconds after they were written. Finally it verifies the download against a known inventory. If files are missing after the first attempt, it retries once automatically. Files that vanished after downloading are the exception and go to HITL #10 instead.
 
-**What you see on screen.** Download progress as files are fetched, then a verification summary showing how many files were expected, how many were found, and any gaps. Filenames scroll by for 15–20 minutes.
+**What you see on screen.** A count of topic pages scanned and templates found, then download progress, then a verification summary showing how many files were expected, how many were found, and any gaps. To preview what Oracle publishes without downloading anything, run `py tools/download_and_clear.py <ver> --discover-only`.
 
-**Expected wall time.** 15–20 minutes per release being downloaded.
+**Expected wall time.** About 5 minutes per release being downloaded.
 
-**If it stalls.** If the browser freezes, kill the process and re-invoke the skill. It will re-download. Note: re-running Stage 3 wipes `originals/` first, so don't restart it partway through if you're trying to preserve a partial download.
+**If it stalls.** Kill the process and re-invoke the skill. It will re-download. Note: re-running Stage 3 wipes `originals/` first, so don't restart it partway through if you're trying to preserve a partial download.
 
 ---
 
@@ -87,6 +87,20 @@ It also re-applies the per-template fixes in `fbdi/blank_patches.py`. Today that
 **Expected wall time.** 2–4 minutes.
 
 **If it stalls.** The overall stage won't stall. Individual file timeouts are handled gracefully and don't block the rest. If the whole stage hangs, kill it and re-run. It's safe to repeat.
+
+---
+
+### Stage 4.5: Baseline inventory reconciliation
+
+**What it does.** Checks that both releases' `originals/` folders hold every file their inventory in `baseline_files.txt` expects. A short folder stops the run (HITL #9) before any compare work starts.
+
+---
+
+### Stage 4.6: Blank integrity
+
+**What it does.** Runs `py tools/verify_blanks.py <NEW>`. It checks that every blank is its original with only the sample data removed. The Generate buttons, dropdowns, drawings, conditional formats and hidden LOV sheets must all survive. It also checks that each data sheet's last filled cell in column A is on the header row, because the Conversion Dashboard pastes on the row below it. Any failure stops the run: don't hand those blanks to a client. A Stage 4 timeout shows up here as a missing blank.
+
+**Expected wall time.** About 30 seconds.
 
 ---
 
@@ -233,6 +247,20 @@ The pipeline has seven human-in-the-loop checkpoints where it stops and asks you
 - Review them file by file before deciding.
 
 **How to decide.** Adding the extras to the inventory is almost always correct. Oracle does add new templates in quarterly releases. Quarantine is only appropriate if you suspect the scraper accidentally pulled something from the wrong page, which is rare.
+
+---
+
+### HITL #10: Downloaded files vanished (antivirus quarantine)
+
+**Trigger.** The downloader finished a file, then found it gone from disk. That is almost always SentinelOne quarantining it. In 26D it removed `PayablesBankReturns.xlsm` and `SupplierAttachmentImportTemplate.xlsm` this way, and did so again on later downloads even after IT released the earlier copies.
+
+**Options.**
+
+- Pause while IT releases the files (SentinelOne tray app, Quarantined Files) or whitelists their hashes. Then put them in `baselines/<NEW>/originals/` using the recovery URLs the downloader printed.
+- Use the prior release's copy and record it in `baselines/<NEW>/SUBSTITUTIONS.md`. The comparison will miss any changes Oracle made to those files.
+- Abort.
+
+**How to decide.** Waiting for IT is the clean path. Substitution is fine to unblock a run, as long as it is written down and undone later.
 
 ---
 

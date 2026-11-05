@@ -12,16 +12,17 @@ comparison logic — the existing `fbdi/` package and
 `tools/download_and_clear.py` do the work. Your job is glue, checkpoints,
 and human-in-the-loop prompts.
 
-**Expected wall time:** 35–50 minutes for a full run (downloads dominate).
+**Expected wall time:** 20–30 minutes for a full run (catalog and compare dominate).
 
 ## Before you start
 
 - [ ] Parse the user's invocation for explicit versions (`--old 26A --new 26B`).
       If absent, Stage 2 will auto-detect and confirm.
-- [ ] **Tell the user, up front:** "This will take 35–50 minutes. Downloads
-      dominate. If you plan to step away, disable Windows sleep/lock for
-      the duration — the Selenium process runs foreground and will
-      suspend with the OS."
+- [ ] **Tell the user, up front:** "This will take 20–30 minutes. If you
+      plan to step away, disable Windows sleep for the duration — the
+      download, compare and catalog processes run in the foreground and
+      suspend with the OS." (No browser is involved: the downloader reads
+      Oracle's static `toc.htm` pages over plain HTTP.)
 
 > **HITL numbering note:** `HITL #1`–`#7` below are stable IDs from the
 > design spec, not sequential execution order — e.g., #3 appears before
@@ -40,8 +41,7 @@ Interpret the exit code:
 
 - `0` → proceed to Stage 2.
 - `1` (fatal) → surface the `fatal` list. If `python_version` is fatal,
-  quote the install hint for `pyenv-win`. If `chrome` is fatal, give the
-  download URL `https://www.google.com/chrome/`. Do not proceed.
+  quote the install hint for `pyenv-win`. Do not proceed.
 - `2` (deps missing) → ask the user: "Missing deps: <list>. Run
   `pip install -r requirements.txt`?" If yes, run it, then re-run
   `check_env.py`. If no, stop.
@@ -90,8 +90,36 @@ For each release that needs downloading:
 python tools/download_and_clear.py <ver> --skip-clear
 ```
 
-Expected wall time: ~15–20 min. This **wipes `baselines/<ver>/originals/`
+Expected wall time: ~5 min. This **wipes `baselines/<ver>/originals/`
 first** — do not rerun blindly, you'd lose an already-complete download.
+(To preview what Oracle publishes without touching anything, run
+`python tools/download_and_clear.py <ver> --discover-only`; it diffs the
+discovered set against `baselines/<ver>/originals/` and writes nothing.)
+
+The downloader discovers templates from every docs book's static `toc.htm`
+and **exits 1** when anything went wrong: a TOC/topic page it couldn't fetch
+(it aborts *before* deleting anything — `originals/` is untouched, just
+re-run), a failed or non-xlsm download, or a file that downloaded and then
+**vanished from disk**. `RapidImplementationForCashManagement.xlsm` survives the
+`originals/` wipe.
+In the vanished case it names each file with its webfolder recovery URL —
+that is almost always an AV quarantine (SentinelOne), which no retry fixes:
+skip the auto-retry and go straight to **HITL #10**. For fetch/download
+errors, auto-retry once as below.
+
+**HITL #10 — downloaded files vanished (AV quarantine):** Ask:
+
+> "These templates downloaded and were then removed from disk — most likely
+> quarantined by SentinelOne: <list>. Only IT can release them (SentinelOne
+> tray app → Quarantined Files), or whitelist them by hash. Options:
+>   (a) Pause while you get IT to release them; then place them in
+>       `baselines/<ver>/originals/` (recovery URLs above) and continue. [default]
+>   (b) Substitute the prior release's copy and record the substitution in
+>       `baselines/<ver>/SUBSTITUTIONS.md` (the comparison will miss any
+>       <ver> changes to those files).
+>   (c) Abort.
+>
+> Which?"
 
 **Step 3b — verify:**
 
@@ -207,7 +235,9 @@ python tools/download_and_clear.py <NEW> --clear-only
 (Also `<OLD>` if it was freshly downloaded in Stage 3.)
 
 **Capture the `*** TIMED OUT ...` block** from stdout if present — record
-the filenames for Stage 7. Example stdout pattern:
+the filenames for Stage 7. The script exits 1 when any file timed out or failed
+to clear (e.g. a RapidImpl `BlankPatchError`); Stage 4.6 then stops on the
+missing blank. Example stdout pattern:
 
 ```
   *** TIMED OUT (1 files, >120s each) — clear these manually: ***
@@ -263,6 +293,27 @@ Interpret the exit code:
 Do **not** proceed to Stage 5 on a hard block without an explicit choice. On
 (a), run Stage 3a + 3b for `<ver>`, then re-run this gate.
 
+## Stage 4.6 — Blank integrity (hard gate)
+
+After clearing `<NEW>` (and `<OLD>` if it was re-cleared), verify every blank
+against its original:
+
+```
+python tools/verify_blanks.py <ver>
+```
+
+It checks that each blank is its original with only the cleared sheets'
+`<sheetData>` changed (no lost ActiveX buttons, data validations, drawings or
+conditional formats; hidden LOV sheets byte-identical; only registered
+`fbdi.blank_patches` may touch VBA), and that every data sheet's last non-empty
+column-A row is its header row (the Conversion Dashboard pastes at that row + 1).
+
+- `0` → proceed.
+- `1` → **stop.** Show the violations / mismatches / missing blanks. A Stage-4
+  timeout shows up here as a missing blank — clear it manually or re-run
+  Stage 4 with a larger `--timeout`. Anything else means the blanks writer is
+  damaging templates: do not hand those blanks out; abort for debugging.
+
 ## Stage 5 — Compare
 
 ```
@@ -293,7 +344,13 @@ First, snapshot the existing catalog so verify_rerun.py can compare deltas:
 cp FBDI_Master_Catalog.xlsx FBDI_Master_Catalog.bak.xlsx
 ```
 
-If `FBDI_Master_Catalog.xlsx` doesn't exist, skip this line silently.
+If `FBDI_Master_Catalog.xlsx` doesn't exist, skip this line silently — and
+build **both** releases, OLD first, or the report has no OLD sheet to align
+against:
+
+```
+python -m fbdi catalog --release <OLD>
+```
 
 Then regenerate:
 
@@ -382,6 +439,12 @@ Expected exit codes:
 - `0` → no regressions; nothing to append to Stage 7.
 - `1` → one or more regressions found; surface as warnings (see consolidated rule below).
 
+Then delete the snapshot — it is only an input to `verify_rerun.py`:
+
+```
+rm -f FBDI_Master_Catalog.bak.xlsx
+```
+
 Exit code 1 from either `verify_run.py` or `verify_rerun.py` does **not**
 make the skill fail — the report and catalog are already produced. Surface
 the warnings: append `verify_run.py`'s regression list and any
@@ -399,7 +462,8 @@ downgraded to a warning.
   exception type + message, give a plain-English likely cause, and ask
   for permission to retry or abort.
 - **If a Stage 3 download subprocess crashes mid-run** (connection drop,
-  Selenium timeout), retry once automatically before prompting.
+  HTTP timeout), retry once automatically before prompting — but never for
+  files that vanished after download (HITL #10).
 - **If the user Ctrl-C's at any stage**, do not auto-cleanup `baselines/`
   — the partial download may still be useful, and re-running the skill
   resumes from the next stage with outputs that exist.
@@ -412,6 +476,7 @@ Each stage is idempotent on output-existence terms:
 - Stage 4.5: safe and cheap — the reconciliation gate is read-only. It runs on
   **every** invocation, including resume, so a baseline that drifted while Stages
   1–4 were skipped is still caught before compare.
+- Stage 4.6: read-only; safe to re-run any time.
 - Stages 4-6: re-running is safe; they overwrite their outputs.
 
 If interrupted at Stage 5, re-invoking the skill skips 1-4 (env still
