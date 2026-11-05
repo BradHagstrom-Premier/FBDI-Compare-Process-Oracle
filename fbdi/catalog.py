@@ -33,14 +33,24 @@ logger = logging.getLogger(__name__)
 
 _MAX_COL = 500
 
-# Column-A keyword -> metadata role. Case-insensitive match after BOM strip.
-# Note: header row (tier 1) has col A starting with "Column name of the Table";
-# that's already handled by detect_header_row, we don't re-discover it here.
+# Column-A row label -> metadata role. Case-insensitive match after BOM strip.
+# Many Oracle FBDI tabs stack row labels down column A (a "row-label gutter")
+# and start the fields at column B; Oracle's own Generate-CSV macro copies from
+# B<header> rightward. The header row's own col-A label is one of the
+# "technical" forms ("Technical Name", "Column name of the Table X") or, on a
+# few label-header tabs (PONNegotiationLines), "Name".
 _COL_A_ROLE_KEYWORDS = {
     "name": "label",
+    "description": "description",
     "data type": "type",
     "required or optional": "required",
+    "technical name": "technical",
 }
+_COL_A_ROLE_PREFIXES = (("column name of the table", "technical"),)
+
+# How far below the header to keep reading a contiguous col-A label block.
+# PONNegotiationLines puts Description/Data Type *below* its label header.
+_GUTTER_LOOKAHEAD = 3
 
 
 @dataclass
@@ -274,6 +284,9 @@ def extract_tab_rows(
         )]
 
     header_values = _read_row_values(ws, header_row)
+    gutter = _find_gutter(ws, header_row)
+    if gutter is not None:
+        return _extract_rich(ws, file_stem, release, header_row, header_values, gutter)
     if _is_tier1_header(header_values):
         return _extract_rich(ws, file_stem, release, header_row, header_values)
     return _extract_thin(ws, file_stem, release, header_row, header_values)
@@ -329,24 +342,58 @@ def _extract_thin(
     return rows, issues
 
 
+def _col_a_role(value) -> str | None:
+    """Metadata role of a col-A row label, or None if it isn't one."""
+    if value is None:
+        return None
+    key = str(value).lstrip("\ufeff").strip().lower()
+    role = _COL_A_ROLE_KEYWORDS.get(key)
+    if role:
+        return role
+    for prefix, prefix_role in _COL_A_ROLE_PREFIXES:
+        if key.startswith(prefix):
+            return prefix_role
+    return None
+
+
 def _find_metadata_rows(
     ws: Worksheet, header_row: int
 ) -> dict[str, int]:
     """Scan col A of rows 1..header_row-1. Return {role: row_idx} for matched rows.
 
     Match is case-insensitive with BOM prefix stripped. Unmatched rows are
-    silently ignored (e.g., 'Description', 'Reserved for Future Use').
+    silently ignored (e.g. 'Reserved for Future Use').
     """
     found: dict[str, int] = {}
     for r in range(1, header_row):
-        cell = ws.cell(row=r, column=1).value
-        if cell is None:
-            continue
-        key = str(cell).lstrip("\ufeff").strip().lower()
-        role = _COL_A_ROLE_KEYWORDS.get(key)
+        role = _col_a_role(ws.cell(row=r, column=1).value)
         if role and role not in found:
             found[role] = r
     return found
+
+
+def _find_gutter(ws: Worksheet, header_row: int) -> dict[str, int] | None:
+    """Return {role: row} if column A is a row-label gutter, else None.
+
+    Column A is a gutter when the header row's col-A cell is itself a row
+    label AND at least one other row label sits in col A around it: any row
+    above the header, or the contiguous label block just below it (up to
+    _GUTTER_LOOKAHEAD rows). A real field that happens to be labelled "Name"
+    has data under it, not "Description"/"Data Type", so it doesn't qualify.
+    The returned map includes the header row's own role.
+    """
+    header_role = _col_a_role(ws.cell(row=header_row, column=1).value)
+    if header_role is None:
+        return None
+    roles = {header_role: header_row}
+    for role, r in _find_metadata_rows(ws, header_row).items():
+        roles.setdefault(role, r)
+    for r in range(header_row + 1, header_row + 1 + _GUTTER_LOOKAHEAD):
+        role = _col_a_role(ws.cell(row=r, column=1).value)
+        if role is None:
+            break
+        roles.setdefault(role, r)
+    return roles if len(roles) >= 2 else None
 
 
 def _extract_rich(
@@ -355,15 +402,30 @@ def _extract_rich(
     release: str,
     header_row: int,
     header_values: list[str | None],
+    gutter: dict[str, int] | None = None,
 ) -> tuple[list[CatalogRow], list[IssueRow]]:
-    """Rich-tab extraction. header_values is the tier-1 (technical) row.
+    """Rich-tab extraction: metadata rows located by their col-A row labels.
 
-    Uses col-A keyword matching to locate the label/type/required rows
-    above header_row. Missing role rows leave the corresponding field
-    blank; other fields still populate. Unparseable data types emit
-    TYPE_PARSE_WARNING issues but the row still emits (raw preserved).
+    Without `gutter`, header_values is the tier-1 (technical) row and the
+    label/type/required rows are found above it.
+
+    With `gutter` (from _find_gutter), column A is a row-label gutter: fields
+    start at column B, and `gutter` maps each role to its row. The header row
+    may carry the technical names (asterisks stripped) or, on label-header
+    tabs, the labels (technical then comes from the cell comment). When the
+    tab has no "Required or Optional" row but its header cells mark required
+    fields with a leading '*', that convention supplies `required`.
+
+    Missing role rows leave the corresponding field blank; other fields still
+    populate. Unparseable data types emit TYPE_PARSE_WARNING issues but the
+    row still emits (raw preserved).
     """
-    roles = _find_metadata_rows(ws, header_row)
+    if gutter is not None:
+        roles = gutter
+        header_role = next(role for role, r in gutter.items() if r == header_row)
+    else:
+        roles = _find_metadata_rows(ws, header_row)
+        header_role = "technical"
 
     label_values = _read_row_values(ws, roles["label"]) if "label" in roles else []
     type_values = _read_row_values(ws, roles["type"]) if "type" in roles else []
@@ -386,19 +448,46 @@ def _extract_rich(
     # sentinel and begin data at col A.  Detect by checking whether col A
     # itself is UPPER_SNAKE_CASE.
     col_a = header_values[0] if header_values else None
-    col_a_is_data = bool(
+    col_a_is_data = gutter is None and bool(
         col_a and UPPER_SNAKE_PATTERN.match(str(col_a).strip())
     )
     start_col = 1 if col_a_is_data else 2
 
+    def _starred(v) -> bool:
+        return bool(v) and str(v).lstrip().startswith("*")
+
+    # Asterisk-required convention, scoped to the HEADER row only: on gutter
+    # tabs with no "Required or Optional" row whose header cells carry '*'
+    # (`* INTERFACE_BATCH_NUMBER`, `* Procurement BU`), the asterisk means
+    # required — the same rule _extract_thin applies. A '*' on a separate
+    # *label* row is NOT trusted: on the Scp* planning templates it marks a
+    # key column while Oracle's per-product Required rows (Global Order
+    # Promising / Planning Central) disagree with it in 41 of 63 tabs (26D).
+    star_required = (
+        gutter is not None
+        and "required" not in roles
+        and any(_starred(v) for v in header_values[start_col - 1:])
+    )
+
     for sheet_col in range(start_col, len(header_values) + 1):
-        tech_raw = header_values[sheet_col - 1]
-        if not tech_raw:
+        head_raw = header_values[sheet_col - 1]
+        if not head_raw:
             continue
-        technical = str(tech_raw).strip()
-        label_raw = _val_at(label_values, sheet_col)
         type_raw = _val_at(type_values, sheet_col)
         req_raw = _val_at(required_values, sheet_col)
+        if header_role == "label":
+            label_raw = str(head_raw)
+            technical, _ = _extract_metadata_from_comment(
+                ws.cell(row=header_row, column=sheet_col)
+            )
+        else:
+            technical = str(head_raw).strip().lstrip("*").strip()
+            label_raw = _val_at(label_values, sheet_col)
+
+        if star_required:
+            required = _starred(head_raw)
+        else:
+            required = _parse_required_flag(req_raw)
 
         parsed = parse_data_type(type_raw)
         if parsed.parse_warning:
@@ -436,7 +525,7 @@ def _extract_rich(
             length=parsed.length,
             scale=parsed.scale,
             data_type_raw=type_raw,
-            required=_parse_required_flag(req_raw),
+            required=required,
         ))
 
     return rows, issues
