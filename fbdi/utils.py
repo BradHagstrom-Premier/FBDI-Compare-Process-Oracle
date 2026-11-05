@@ -1,6 +1,23 @@
 """Shared utilities for the FBDI comparison engine."""
 
+import contextlib
+import warnings
 from pathlib import Path
+
+
+@contextlib.contextmanager
+def quiet_openpyxl():
+    """Silence openpyxl's read-time UserWarnings (context manager or decorator).
+
+    openpyxl warns about workbook features it doesn't model ("Data Validation
+    extension is not supported and will be removed", unknown extensions, ...).
+    The warning is about what a *re-save* would lose; this engine only reads, so
+    it's noise. In read_only mode the warnings fire lazily while sheets are
+    iterated, so wrap all reading, not just load_workbook.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+        yield
 
 
 def col_index_to_letter(index: int) -> str:

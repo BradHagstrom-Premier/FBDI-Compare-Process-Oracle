@@ -13,7 +13,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from fbdi._subprocess_util import run_worker
 from fbdi.config import REPORT_HEADERS, SKIP_TABS
 from fbdi.detect_header import detect_header_row
-from fbdi.utils import col_index_to_letter, match_fbdi_files
+from fbdi.utils import col_index_to_letter, match_fbdi_files, quiet_openpyxl
 
 # Per-file timeout for comparison (seconds). openpyxl can hang on certain files
 # due to resource accumulation across sequential loads. Subprocess isolation
@@ -70,6 +70,7 @@ def _read_header_values(ws: Worksheet, header_row: int) -> list[str | None]:
     return raw[:last_populated]
 
 
+@quiet_openpyxl()
 def compare_fbdi_pair(old_path: Path, new_path: Path) -> list[ComparisonRow]:
     """Compare one old/new FBDI template pair across all non-skipped tabs."""
     file_stem = old_path.stem

@@ -27,6 +27,7 @@ from fbdi.catalog_normalize import normalize_label
 from fbdi.config import CATALOG_TIMEOUT, SKIP_TABS
 from fbdi.detect_header import UPPER_SNAKE_PATTERN, detect_header_row
 from fbdi.type_parser import parse_data_type
+from fbdi.utils import quiet_openpyxl
 
 logger = logging.getLogger(__name__)
 
@@ -453,6 +454,7 @@ def _parse_required_flag(raw: str) -> bool | None:
     return None
 
 
+@quiet_openpyxl()
 def extract_file(
     path: Path, release: str
 ) -> tuple[list[CatalogRow], list[IssueRow]]:

@@ -29,3 +29,5 @@ graphify-out/
 .superpowers/
 *.mdb
 Archive/
+# Stage 6 catalog snapshot (verify_rerun baseline)
+*.bak.xlsx
