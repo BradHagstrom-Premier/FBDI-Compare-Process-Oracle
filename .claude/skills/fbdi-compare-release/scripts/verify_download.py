@@ -45,14 +45,14 @@ MODULE_PREFIXES = {
         "Gl", "Netting", "Tax", "Budget", "Attachment", "Xla", "ZX_",
         "Configurator", "Create", "IbyLegacy", "FiscalDocument",
         "ImportStandaloneFiscal", "InboundFiscal", "UploadCredit", "UploadCustomers",
-        "BillingData", "RapidImplementation",
+        "BillingData", "RapidImplementation", "EquipmentRevenueLease",
     ],
     "procurement": [
         "PO", "Requisition", "Supplier", "ChangeOrder", "Poi", "PONN",
         "Sch", "ImportDocumentActions", "ProductProposal",
     ],
     "supply-chain-and-manufacturing": [
-        "Scp", "Work", "Cse", "Maintenance", "Mnt", "Inventory", "Item",
+        "Scp", "Scm", "Work", "Cse", "Maintenance", "Mnt", "Inventory", "Item",
         "Order", "Egp", "Sus", "Vcs", "Ship", "Source", "Production",
         "Perform", "Process", "CycleCount", "Dos", "InterfacedPick",
         "Receiving", "Requirement", "StandardCost", "CostLists",
