@@ -100,6 +100,25 @@ class TestInsertAnchor:
         assert xml.count('r="A7"') == 1
         assert re.search(r'<c r="A7" s="3" t="inlineStr"><is><t>', xml)
 
+    def test_new_anchor_inherits_column_style(self, tmp_path):
+        """Regression: an unstyled A7 fell back to cellXfs[0], which wraps in the
+        Oracle template, so Excel wrapped the anchor text letter by letter in the
+        0.75-wide gutter column A and auto-fit row 7 to 408pt. Typing into an empty
+        cell gives it the column's style; the anchor must do the same."""
+        src, dst = tmp_path / "src.xlsm", tmp_path / "dst.xlsm"
+        _make_bank_account_book(src)
+        part = "xl/worksheets/sheet2.xml"
+        with Package(str(src)) as pkg:
+            xml = pkg.read(part)
+            cols = b'<cols><col min="1" max="1" width="0.75" style="5" customWidth="1"/></cols>'
+            pkg.write(part, xml.replace(b"<sheetData>", cols + b"<sheetData>", 1))
+            pkg.save(str(src) + ".2")
+        with Package(str(src) + ".2") as pkg:
+            insert_anchor(pkg, {"Bank Account": 7})
+            pkg.save(str(dst))
+
+        assert re.search(r'<c r="A7" s="5" t="inlineStr">', _sheet_xml(dst))
+
     def test_header_row_moved_fails_loudly(self, tmp_path):
         """If Oracle moves the header, the anchor row must be re-derived by a human."""
         src = tmp_path / "src.xlsm"
@@ -178,6 +197,14 @@ class TestRapidImplBlank:
             assert wb["Bank Account"]["A7"].value == ANCHOR_TEXT
         finally:
             wb.close()
+
+    def test_a7_anchor_uses_column_a_style(self, blank):
+        """Unstyled A7 wraps in the gutter column and blows row 7 up to 408pt."""
+        with zipfile.ZipFile(blank) as zf:
+            xml = zf.read("xl/worksheets/sheet2.xml").decode("utf-8")
+        col_a = re.search(r'<col min="1" max="\d+"[^>]*\bstyle="(\d+)"', xml)
+        assert col_a, "column A has no style in the Oracle template any more"
+        assert re.search(r'<c r="A7" s="%s" t="inlineStr">' % col_a.group(1), xml)
 
     def test_command_button_present(self, blank):
         with zipfile.ZipFile(blank) as zf:

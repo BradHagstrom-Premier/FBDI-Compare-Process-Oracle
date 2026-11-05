@@ -101,10 +101,17 @@ def insert_anchor(
         if tag_attrs(b"<c" + cm.group(1) + b">").get("r") == ref.decode():
             existing = cm
             break
+    s = None
     if existing is not None:
         s = tag_attrs(b"<c" + existing.group(1) + b">").get("s")
-        style = b' s="%s"' % s.encode() if s is not None else b""
         content = content[:existing.start()] + content[existing.end():]
+    if s is None:
+        # A new cell takes the style Excel would give a typed-in value: the row's
+        # (if customFormat) else the column's. Unstyled = cellXfs[0], which wraps in
+        # the Oracle template -> the anchor wraps letter-by-letter in the 0.75-wide
+        # gutter column and Excel auto-fits row 7 to 408pt.
+        s = _new_cell_style(xml, target.group(1), column=1)
+    style = b' s="%s"' % s.encode() if s is not None else b""
 
     cell = (
         b'<c r="%s"%s t="inlineStr"><is><t>%s</t></is></c>'
@@ -130,6 +137,18 @@ def swap_vba_project(pkg: Package, expected_sha256: str, patched: bytes) -> None
             "fbdi/blank_patches.py."
         )
     pkg.write(VBA_PART, patched)
+
+
+def _new_cell_style(sheet_xml: bytes, row_attrs: bytes, column: int) -> str | None:
+    """Style index Excel applies to a value typed into an empty cell."""
+    row = tag_attrs(b"<row" + row_attrs + b">")
+    if row.get("customFormat") in ("1", "true") and "s" in row:
+        return row["s"]
+    for tag in re.findall(rb"<col\b[^>]*>", sheet_xml):
+        col = tag_attrs(tag)
+        if int(col.get("min", 0)) <= column <= int(col.get("max", 0)):
+            return col.get("style")
+    return None
 
 
 def _xml_text(text: str) -> bytes:
