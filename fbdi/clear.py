@@ -27,7 +27,7 @@ from openpyxl.styles.fonts import Font
 
 from fbdi import blank_patches
 from fbdi.detect_header import detect_header_row
-from fbdi.ooxml import Package, tag_attrs
+from fbdi.ooxml import CELL_RE, ROW_NUM_RE, ROW_RE, SHEET_DATA_RE, Package, tag_attrs
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +38,6 @@ SKIP_CLEAR: frozenset[tuple[str, str]] = frozenset({
     ("ProjectImportTemplate.xlsm", "Options"),
 })
 
-_SHEET_DATA_RE = re.compile(rb"<sheetData\b[^>]*?(?:/>|>(.*?)</sheetData>)", re.S)
-_ROW_RE = re.compile(rb"<row\b([^>]*?)(?:/>|>(.*?)</row>)", re.S)
-_CELL_RE = re.compile(rb"<c\b([^>]*?)(?:/>|>(.*?)</c>)", re.S)
-_ROW_NUM_RE = re.compile(rb'\br="(\d+)"')
 _KEEP_CELL_ATTRS = (b"r", b"s")
 
 
@@ -121,7 +117,7 @@ def clear_rows_below(sheet_xml: bytes, header_row: int) -> tuple[bytes, bool]:
 
     Returns (new_xml, whether any cleared cell carried a formula).
     """
-    m = _SHEET_DATA_RE.search(sheet_xml)
+    m = SHEET_DATA_RE.search(sheet_xml)
     if m is None:
         raise ValueError("worksheet XML has no <sheetData> element")
     if m.group(1) is None:  # <sheetData/> — nothing to clear
@@ -145,13 +141,13 @@ def clear_rows_below(sheet_xml: bytes, header_row: int) -> tuple[bytes, bool]:
 
     def _clear_row(rm: re.Match) -> bytes:
         nonlocal current_row
-        num = _ROW_NUM_RE.search(rm.group(1))
+        num = ROW_NUM_RE.search(rm.group(1))
         current_row = int(num.group(1)) if num else current_row + 1
         if rm.group(2) is None or current_row <= header_row:
             return rm.group(0)
-        cleared = _CELL_RE.sub(_clear_cell, rm.group(2))
+        cleared = CELL_RE.sub(_clear_cell, rm.group(2))
         return b"<row" + rm.group(1) + b">" + cleared + b"</row>"
 
-    body = _ROW_RE.sub(_clear_row, m.group(1))
+    body = ROW_RE.sub(_clear_row, m.group(1))
     start, end = m.span(1)
     return sheet_xml[:start] + body + sheet_xml[end:], had_formula

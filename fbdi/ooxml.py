@@ -29,6 +29,14 @@ _SHEET_TAG_RE = re.compile(rb"<sheet\b[^>]*>")
 _REL_TAG_RE = re.compile(rb"<Relationship\b[^>]*>")
 _ATTR_RE = re.compile(rb'([\w:]+)="([^"]*)"')
 
+# Worksheet-part patterns (Excel writes unprefixed SpreadsheetML elements).
+# Lazy attribute groups + "/>" tried first means self-closing elements match
+# as such (group 2 is None) instead of swallowing the next element.
+SHEET_DATA_RE = re.compile(rb"<sheetData\b[^>]*?(?:/>|>(.*?)</sheetData>)", re.S)
+ROW_RE = re.compile(rb"<row\b([^>]*?)(?:/>|>(.*?)</row>)", re.S)
+CELL_RE = re.compile(rb"<c\b([^>]*?)(?:/>|>(.*?)</c>)", re.S)
+ROW_NUM_RE = re.compile(rb'\br="(\d+)"')
+
 
 @dataclass(frozen=True)
 class SheetRef:
